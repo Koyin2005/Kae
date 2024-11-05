@@ -1,0 +1,21 @@
+use super::types::{GenericArgs, Type};
+
+
+pub fn substitute(ty:Type,generic_args:&GenericArgs)->Type{
+    match ty{
+        Type::Param { name, index } => generic_args.get(&name).cloned().unwrap_or_else(|| Type::Param { name, index }),
+        Type::Array(element_type) => Type::Array(Box::new(substitute(*element_type, generic_args))),
+        Type::Function { generic_args:func_generic_args, params, return_type } => {
+            let func_generic_args = func_generic_args.into_iter().map(|(name,ty)|{
+                (name,substitute(ty, generic_args))
+            }).collect();
+
+            let params = params.into_iter().map(|param| substitute(substitute(param, &func_generic_args),generic_args)).collect();
+            let return_type = substitute(substitute(*return_type, &func_generic_args),generic_args);
+
+            Type::Function { generic_args: func_generic_args, params, return_type:Box::new(return_type) }
+        },
+        Type::Tuple(elements) => Type::Tuple(elements.into_iter().map(|ty| substitute(ty, generic_args)).collect()),
+        _ => ty
+    }
+}
