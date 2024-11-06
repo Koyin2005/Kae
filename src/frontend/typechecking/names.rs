@@ -29,8 +29,6 @@ pub struct StructField{
 }
 #[derive(Clone)]
 pub struct Struct{
-    generic_params : IndexMap<GenericTypeId,Type>,
-    name : String,
     fields : Vec<(String,Type)>
 }
 
@@ -50,20 +48,15 @@ pub struct Structs{
 }
 impl Structs{
     
-    pub fn define_generic_struct(&mut self,name:String,generic_params : impl Iterator<Item = (GenericTypeId,Type)>,fields : impl Iterator<Item = (String,Type)>)->StructId{
+    pub fn define_struct(&mut self,fields : impl Iterator<Item = (String,Type)>)->StructId{
         let id = self.next_struct_id;
         self.structs.push(Struct{
-            name,
-            generic_params:generic_params.collect(),
             fields : fields.map(|(name,ty)| {
                 (name, ty )
             }).collect()
         });
         self.next_struct_id = StructId(id.0+1);
         id
-    }
-    pub fn define_struct(&mut self,name:String,fields : impl Iterator<Item = (String,Type)>)->StructId{
-        self.define_generic_struct(name,vec![].into_iter(), fields)
     }
     pub fn get_struct_info(&self,id:&StructId) ->Option<&Struct>{
         self.structs.get(id.0)
