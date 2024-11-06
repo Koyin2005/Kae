@@ -333,13 +333,20 @@ impl VM{
                     self.push(field_value)?;
 
                 },
-                Instruction::GetLength => {
+                Instruction::GetArrayLength => {
                     let Value::List(list) = self.pop() else {
                         panic!("Can't get length of non-list")
                     };
                     let length = list.as_list(&self.heap).len();
                     self.push(Value::Int(length as i64))?;
-                }
+                },
+                Instruction::GetStringLength => {
+                    let Value::String(string) = self.pop() else {
+                        panic!("Can't get length of non-list")
+                    };
+                    let length = string.as_string(&self.heap).len();
+                    self.push(Value::Int(length as i64))?;
+                },
                 Instruction::StoreField(field) => {
                     let value = self.pop();
                     let Value::Record(record) = self.stack[self.stack.len()-1] else {

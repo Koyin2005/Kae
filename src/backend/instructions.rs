@@ -48,8 +48,9 @@ pub enum Instruction {
     BuildTuple(u16),
     BuildList(u16),
 
-    GetLength,
-
+    GetArrayLength,
+    GetStringLength,
+    
     Jump(u16),
     Loop(u16),
     JumpIfFalse(u16),
