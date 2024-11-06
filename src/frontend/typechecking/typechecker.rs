@@ -475,7 +475,7 @@ impl TypeChecker{
 
             },
             ExprNodeKind::BinaryOp { op, left, right } => {
-                let op = match op{
+                let op =  match op{
                     ParsedBinaryOp::Add => BinaryOp::Add,
                     ParsedBinaryOp::Subtract => BinaryOp::Subtract,
                     ParsedBinaryOp::Multiply => BinaryOp::Multiply,
