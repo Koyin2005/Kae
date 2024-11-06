@@ -342,7 +342,7 @@ impl VM{
                 },
                 Instruction::GetStringLength => {
                     let Value::String(string) = self.pop() else {
-                        panic!("Can't get length of non-list")
+                        panic!("Can't get length of non-string")
                     };
                     let length = string.as_string(&self.heap).len();
                     self.push(Value::Int(length as i64))?;
