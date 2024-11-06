@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use indexmap::IndexMap;
 
-use super::{generics::substitute, names::{Environment, StructId, Structs}};
+use super::{generics::substitute, names::{StructId, Structs}};
 
 #[derive(Clone, Copy,PartialEq, Eq,Debug)]
 pub struct FunctionId(usize);
