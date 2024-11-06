@@ -44,9 +44,9 @@ pub enum Type {
 
 }
 impl Type{
-    pub fn get_field(&self,property:&str)->Option<Type>{
-        match (self,property){
-            (Type::Array(..),"length") => Some(Type::Int),
+    pub fn get_field(&self,field_name:&str)->Option<Type>{
+        match (self,field_name){
+            (Type::Array(..)|Type::String,"length") => Some(Type::Int),
             _ => None
         }
     }
