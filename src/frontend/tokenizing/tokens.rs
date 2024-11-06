@@ -44,6 +44,7 @@ pub enum TokenKind{
     Or,
     Else,
     Fun,
+    Struct,
     True,
     False,
     Let,

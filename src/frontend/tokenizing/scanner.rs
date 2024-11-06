@@ -153,6 +153,7 @@ impl<'src> Scanner<'src>{
             "match" => TokenKind::Match,
             "return" => TokenKind::Return,
             "typename" => TokenKind::Typename,
+            "struct" => TokenKind::Struct,
             _ => TokenKind::Identifier
         })
     }
