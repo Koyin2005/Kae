@@ -470,7 +470,7 @@ impl TypeChecker{
                 let Some(output_type) = output_type else{
                     self.error(format!("'{}' does not support \"{}\" and \"{}\"",op,left.ty,right.ty),expr.location.start_line);
                     return Err(TypeCheckFailed);
-                };
+                }; 
                 (output_type,TypedExprNodeKind::Logical{op,left:Box::new(left),right:Box::new(right)})
 
             },
