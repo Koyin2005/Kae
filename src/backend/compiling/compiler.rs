@@ -424,9 +424,8 @@ impl Compiler{
                     self.load_constant_at_index(*constant, expr.location.end_line);
                 }
                 else{
-                    let monoed_function = 
-                        sub_function(&generic_function.template,&generic_function.generic_params.iter().cloned().zip(args.clone()).collect());
-                        
+                    let mut monoed_function = generic_function.template.clone();
+                    sub_function(&mut monoed_function,&generic_function.generic_params.iter().cloned().zip(args.clone()).collect());
                     let function_constant = self.compile_function(&monoed_function, name.clone());
                     self.generic_functions[index].monos.push((name,function_constant));
                 }
