@@ -10,6 +10,11 @@ pub struct Closure{
     pub environment : Box<[Value]>,
     pub function : Function
 }
+#[derive(Debug,Clone)]
+pub struct Record{
+    pub fields : Box<[Value]>
+}
+
 
 
 #[derive(Clone,Copy,Debug,PartialEq)]
