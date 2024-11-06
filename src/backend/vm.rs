@@ -4,7 +4,7 @@ use fxhash::FxHashMap;
 
 use crate::backend::disassembly::disassemble_instruction;
 
-use super::{instructions::{Chunk, Constant, Instruction}, objects::{records::Record, Heap, Object}, values::{Function, Value}};
+use super::{instructions::{Chunk, Constant, Instruction}, objects::{Heap, Object}, values::{Function, Value,Record}};
 
 pub const DEBUG_TRACE_EXEC : bool = false;
 pub const MAX_STACK_SIZE : usize = 255;
