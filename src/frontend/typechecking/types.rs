@@ -54,7 +54,6 @@ impl Type{
     pub fn get_field(&self,field_name:&str,structs:&Structs)->Option<Type>{
         match (self,field_name){
             (Type::Array(..),"length") => Some(Type::Int),
-            (Type::String,"length") => Some(Type::Int),
             (Type::Struct { generic_args, id, .. },field_name) => {
                 structs.get_struct_info(id)
                     .and_then(|struct_| struct_.get_field(&field_name)
