@@ -650,6 +650,32 @@ impl<'a> Parser<'a>{
         self.expect(TokenKind::RightBracket, "Expect ']' after generic parameters.");
         Ok(ParsedGenericParams(params))
     }
+    fn parse_struct_field(&mut self)->Result<(Symbol,ParsedType),ParsingFailed>{
+        let field_name = self.prev_token;
+        self.expect(TokenKind::Colon, "Expect ':' after field.");
+        let field_type = self.parse_type()?;
+        Ok((Symbol{content:field_name.lexeme.to_string(),location:SourceLocation::one_line(field_name.line)},field_type))
+    }
+    fn struct_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
+        self.expect(TokenKind::Identifier, "Expect valid structure name.");
+        let name = Symbol{content:self.prev_token.lexeme.to_string(),location:SourceLocation::one_line(self.prev_token.line)};
+
+        let generic_params = if self.matches(TokenKind::LeftBracket) { Some(self.parse_generic_params()?)} else { None };
+        self.expect(TokenKind::LeftBrace, "Expect '{'.");
+        let fields = if self.check(TokenKind::RightBrace){
+            vec![]
+        } else {
+            
+            let first_field = self.parse_struct_field()?;
+            let mut fields = vec![first_field];
+            while self.matches(TokenKind::Coma) && !self.is_at_end(){
+                fields.push(self.parse_struct_field()?);
+            }
+            fields
+        };
+        self.expect(TokenKind::RightBrace, "Expect '}'.");
+        Ok(StmtNode::Struct { name, generic_params, fields })
+    }
     fn fun_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
         self.expect(TokenKind::Identifier, "Expect valid function name.");
         let name = Symbol{content:self.prev_token.lexeme.to_string(),location:SourceLocation::one_line(self.prev_token.line)};
@@ -665,6 +691,9 @@ impl<'a> Parser<'a>{
         }
         else if self.matches(TokenKind::Fun){
             self.fun_stmt()
+        }
+        else if self.matches(TokenKind::Struct){
+            self.struct_stmt()
         }
         else{
             return None

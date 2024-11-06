@@ -158,8 +158,12 @@ pub enum StmtNode{
         name : Symbol,
         generic_params : Option<ParsedGenericParams>,
         function : ParsedFunction
+    },
+    Struct{
+        name : Symbol,
+        generic_params : Option<ParsedGenericParams>,
+        fields : Vec<(Symbol,ParsedType)>
     }
-
 }
 pub enum ParsedPatternNodeKind {
     Name(String),
