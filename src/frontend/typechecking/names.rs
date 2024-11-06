@@ -31,12 +31,15 @@ pub struct StructField{
 pub struct Struct{
     generic_params : IndexMap<String,Type>,
     name : String,
-    fields : Vec<StructField>
+    fields : Vec<(String,Type)>
 }
 
 impl Struct{
     pub fn get_field(&self,name:&str)->Option<(usize,&Type)>{
-        self.fields.iter().enumerate().filter_map(|(index,field)| if field.name == name { Some((index,&field.field_type))} else {None}).next()
+        self.fields.iter().enumerate().filter_map(|(index,field)| if field.0 == name { Some((index,&field.1))} else {None}).next()
+    }
+    pub fn add_fields(&mut self,fields:impl Iterator<Item = (String,Type)>){
+        self.fields.extend(fields);
     }
 }
 
@@ -53,7 +56,7 @@ impl Structs{
             name,
             generic_params:generic_params.collect(),
             fields : fields.map(|(name,ty)| {
-                StructField { name, field_type: ty }
+                (name, ty )
             }).collect()
         });
         self.next_struct_id = StructId(id.0+1);
@@ -64,6 +67,9 @@ impl Structs{
     }
     pub fn get_struct_info(&self,id:&StructId) ->Option<&Struct>{
         self.structs.get(id.0)
+    }
+    pub fn update_struct_info(&mut self,id:&StructId,mut update : impl FnMut(&mut Struct)){
+        update(self.structs.get_mut(id.0).expect("Cannot get struct id without creating a struct"));
     }
 }
 #[derive(Clone)]

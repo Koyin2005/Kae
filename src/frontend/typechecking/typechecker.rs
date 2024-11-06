@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{collections::HashSet, rc::Rc};
 
 use indexmap::{IndexMap, IndexSet};
 
@@ -628,6 +628,35 @@ impl TypeChecker{
             Ok(ty)
         }
     }
+    fn check_generic_params(&mut self,generic_params : Option<&ParsedGenericParams>)->Result<Option<Vec<(String,usize)>>,TypeCheckFailed>{
+        let mut had_error = false;
+        let generic_param_count = self.generic_param_names.len();
+        let generic_params = if let Some(ParsedGenericParams(generic_params)) = generic_params.as_ref(){
+            let mut generic_param_names = Vec::new();
+            
+            for ParsedGenericParam(name) in generic_params{
+                if generic_param_names.contains(&name.content){
+                    self.error(format!("Repeated generic parameter name \"{}\".",name.content),name.location.start_line);
+                    had_error = true;
+                }
+                else{
+                    generic_param_names.push(name.content.clone());
+                }
+            }
+            self.generic_param_names.extend(generic_param_names.iter().enumerate().map(|(i,name)|{
+                (name.clone(),self.next_generic_type + i)
+            }));
+            let generic_params : Vec<(String,usize)> = generic_param_names.into_iter().enumerate().map(|(i,name)|{
+                (name,self.next_generic_type + i)
+            }).collect();
+            self.next_generic_type += generic_params.len();
+            Some(generic_params)
+        }
+        else{
+            None
+        };
+        Ok(generic_params)
+    }
     fn check_stmt(&mut self,stmt:&StmtNode)->Result<TypedStmtNode,TypeCheckFailed>{
         match stmt{
             &StmtNode::Expr { ref expr, has_semi } => {
@@ -687,42 +716,22 @@ impl TypeChecker{
                 })
             },
             StmtNode::Fun { name,generic_params, function } => {
-                let mut had_error = false;
                 let function_name = name.content.clone();
                 if self.environment.get_function_id(&function_name).is_some(){
                     self.error(format!("Repeated function name '{}'.",function_name), name.location.start_line);
                     return Err(TypeCheckFailed);
                 }
 
-                let generic_param_count = self.generic_param_names.len();
                 let id = self.next_function_id;
                 self.next_function_id = self.next_function_id.next();
-                let generic_params = if let Some(ParsedGenericParams(generic_params)) = generic_params.as_ref(){
-                    let mut generic_param_names = Vec::new();
-                    
-                    for ParsedGenericParam(name) in generic_params{
-                        if generic_param_names.contains(&name.content){
-                            self.error(format!("Repeated generic parameter name \"{}\".",name.content),name.location.start_line);
-                            had_error = true;
-                        }
-                        else{
-                            generic_param_names.push(name.content.clone());
-                        }
-                    }
-                    self.generic_param_names.extend(generic_param_names.iter().enumerate().map(|(i,name)|{
-                        (name.clone(),self.next_generic_type + i)
-                    }));
-                    let generic_params : Vec<(String,usize)> = generic_param_names.into_iter().enumerate().map(|(i,name)|{
-                        (name,self.next_generic_type + i)
-                    }).collect();
-                    self.next_generic_type += generic_params.len();
-                    Some(generic_params)
-                }
-                else{
-                    None
-                };
 
-                let signature = if !had_error {self.check_signature(function)} else {Err(TypeCheckFailed)};
+                let generic_param_count = self.generic_param_names.len();
+                let Ok(generic_params) =  self.check_generic_params(generic_params.as_ref()) else{
+                    self.environment.add_function(name.content.clone(), Vec::new(),Type::Unknown,id);
+                    self.generic_param_names.truncate(generic_param_count);
+                    return Err(TypeCheckFailed);
+                };
+                let signature = self.check_signature(function);
                 let Ok(signature) = signature else{
                     self.environment.add_function(name.content.clone(), Vec::new(),Type::Unknown,id);
                     self.generic_param_names.truncate(generic_param_count);
@@ -748,6 +757,55 @@ impl TypeChecker{
                     else{
                         TypedStmtNode::Fun { name: name.clone(), function }
                     })
+            },
+            StmtNode::Struct { name, generic_params, fields } => {
+                let generic_param_count = self.generic_param_names.len();
+                let struct_name = name.content.clone();
+                let Ok(generic_params) = self.check_generic_params(generic_params.as_ref()) else {
+                    self.generic_param_names.truncate(generic_param_count);
+                    self.environment.add_type(struct_name,Type::Unknown);
+                    return Err(TypeCheckFailed);
+                };
+                let (id,generic_params) = if let Some(generic_params) = generic_params.clone(){
+                    let generic_params : IndexMap<_,_> = generic_params.into_iter().map(|(name,index)|{
+                        (name.clone(),Type::Param { name, index })
+                    }).collect();
+                    let id = self.structs.define_generic_struct (struct_name.clone(), generic_params.clone().into_iter(), vec![].into_iter() );
+                    (id,Some(generic_params))
+                }
+                else{   
+                    (self.structs.define_struct(struct_name.clone(), vec![].into_iter()),None)
+                };
+                self.environment.add_type(
+                    struct_name.clone(), 
+                Type::Struct { 
+                    generic_args: if let Some(generic_params) = generic_params {
+                        generic_params
+                    } else { Default::default()}, 
+                    id, 
+                    name: struct_name.clone()
+                });
+                let mut field_names = HashSet::new();
+                let Ok(fields) = fields.iter().map(|(field,ty)|{
+
+                    let field_type = self.check_type(ty)?;
+                    if !field_names.insert(&field.content){
+                        self.error(format!("Repeated field '{}'.",field.content), field.location.start_line);
+                        return Err(TypeCheckFailed);
+                    }
+                    Ok((field.clone(),field_type))
+                }).collect::<Result<Vec<_>,_>>() else {
+                    self.generic_param_names.truncate(generic_param_count);
+                    return Err(TypeCheckFailed);
+                };
+                self.generic_param_names.truncate(generic_param_count);
+                self.structs.update_struct_info(&id, |struct_info|{
+                    struct_info.add_fields(fields.clone().into_iter().map(|(name,ty)|{
+                        (name.content,ty)
+                    }));
+                });
+
+                Ok(todo!("Add typed struct definitions."))
             }
         }
     }
