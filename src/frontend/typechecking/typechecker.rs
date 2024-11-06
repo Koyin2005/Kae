@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use indexmap::{IndexMap, IndexSet};
 
-use crate::frontend::{parsing::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedFunction, ParsedGenericArgs, ParsedGenericParam, ParsedGenericParams, ParsedLogicalOp, ParsedType, ParsedUnaryOp, PatternMatchArmNode, StmtNode}, tokenizing::SourceLocation, typechecking::typed_ast::TypedPatternMatchArm};
+use crate::frontend::{parsing::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedFunction, ParsedGenericArgs, ParsedGenericParam, ParsedGenericParams, ParsedLogicalOp, ParsedType, ParsedUnaryOp, PatternMatchArmNode, StmtNode, Symbol}, tokenizing::SourceLocation, typechecking::typed_ast::TypedPatternMatchArm};
 
 use super::{generics:: substitute, names::{Environment, ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedStmtNode, UnaryOp}, types::{FunctionId, GenericArgs, Type}};
 #[derive(Clone)]
@@ -553,27 +553,36 @@ impl TypeChecker{
     }
 
     fn check_type(&mut self,ty:&ParsedType)->Result<Type,TypeCheckFailed>{
-        let ty = match ty{
-            ParsedType::Name(name) => {
-                match &name.content as &str{
-                    "int" => Type::Int,
-                    "float" => Type::Float,
-                    "string" => Type::String,
-                    "bool" => Type::Bool,
-                    "never" => Type::Never,
-                    type_name => {
-                        if let Some((_,index)) = self.generic_param_names.iter().rev().find(|(name,_)| name == &type_name){
-                            Type::Param { name: type_name.to_string(), index : *index }
-                        }
-                        else if let Some(ty) = self.environment.get_type(type_name){
-                            ty.clone()
-                        }
-                        else{
-                            self.error(format!("Used undefined type \"{}\".",name.content), name.location.start_line);
-                            return Err(TypeCheckFailed);
-                        }
+        fn get_named_type(this:&mut TypeChecker,name:&Symbol)->Result<Type,TypeCheckFailed>{
+
+            Ok(match &name.content as &str{
+                "int" => Type::Int,
+                "float" => Type::Float,
+                "string" => Type::String,
+                "bool" => Type::Bool,
+                "never" => Type::Never,
+                type_name => {
+                    if let Some((_,index)) = this.generic_param_names.iter().rev().find(|(name,_)| name == &type_name){
+                        Type::Param { name: type_name.to_string(), index : *index }
+                    }
+                    else if let Some(ty) = this.environment.get_type(type_name){
+                        ty.clone()
+                    }
+                    else{
+                        this.error(format!("Used undefined type \"{}\".",name.content), name.location.start_line);
+                        return Err(TypeCheckFailed);
                     }
                 }
+            })
+        }
+        let ty = match ty{
+            ParsedType::Name(name) => {
+                get_named_type(self, name)?
+            },
+            ParsedType::NameWithArgs(name, args) => {
+                let ty = get_named_type(self, name)?;
+                let generic_args = args.types.iter().map(|ty| self.check_type(ty)).collect::<Result<Vec<_>,_>>()?;
+                todo!("Add support for generic types")
             },
             ParsedType::Array(element_type) => {
                 Type::Array(Box::new(self.check_type(element_type)?))

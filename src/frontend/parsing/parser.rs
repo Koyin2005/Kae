@@ -525,7 +525,13 @@ impl<'a> Parser<'a>{
     }
     fn parse_type(&mut self)->Result<ParsedType,ParsingFailed>{
         Ok(if self.matches(TokenKind::Identifier){
-            ParsedType::Name(Symbol{location: SourceLocation::one_line(self.prev_token.line),content:self.prev_token.lexeme.to_string()})
+            if self.matches(TokenKind::Colon){
+                let generic_args = self.parse_generic_args()?;
+                ParsedType::NameWithArgs(Symbol{location: SourceLocation::one_line(self.prev_token.line),content:self.prev_token.lexeme.to_string()},generic_args)
+            }
+            else{
+                ParsedType::Name(Symbol{location: SourceLocation::one_line(self.prev_token.line),content:self.prev_token.lexeme.to_string()})
+            }
         }
         else if self.matches(TokenKind::LeftBracket){
             let ty = self.parse_type()?;

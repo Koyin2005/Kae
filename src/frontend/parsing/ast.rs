@@ -181,7 +181,8 @@ pub enum ParsedType{
     Name(Symbol),
     Array(Box<ParsedType>),
     Tuple(Vec<ParsedType>),
-    Fun(Vec<ParsedType>,Option<Box<ParsedType>>)
+    Fun(Vec<ParsedType>,Option<Box<ParsedType>>),
+    NameWithArgs(Symbol,ParsedGenericArgs),
 }
 
 pub struct ParsedParam{
