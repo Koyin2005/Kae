@@ -651,6 +651,7 @@ impl<'a> Parser<'a>{
         Ok(ParsedGenericParams(params))
     }
     fn parse_struct_field(&mut self)->Result<(Symbol,ParsedType),ParsingFailed>{
+        self.expect(TokenKind::Identifier, "Expect valid field name.");
         let field_name = self.prev_token;
         self.expect(TokenKind::Colon, "Expect ':' after field.");
         let field_type = self.parse_type()?;
