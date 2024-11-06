@@ -657,6 +657,10 @@ impl TypeChecker{
         else{
             None
         };
+        if had_error { 
+            self.generic_param_names.truncate(generic_param_count);
+            return Err(TypeCheckFailed);
+        }
         Ok(generic_params)
     }
     fn check_stmt(&mut self,stmt:&StmtNode)->Result<TypedStmtNode,TypeCheckFailed>{
@@ -768,15 +772,15 @@ impl TypeChecker{
                     self.environment.add_type(struct_name,Type::Unknown);
                     return Err(TypeCheckFailed);
                 };
-                let (id,generic_params) = if let Some(generic_params) = generic_params.clone(){
+                let id = self.structs.define_struct (vec![].into_iter() );
+                let generic_params = if let Some(generic_params) = generic_params.clone(){
                     let generic_params : IndexMap<_,_> = generic_params.into_iter().map(|(name,index)|{
                         (GenericTypeId(index),Type::Param { name, index : GenericTypeId(index) })
                     }).collect();
-                    let id = self.structs.define_generic_struct (struct_name.clone(), generic_params.clone().into_iter(), vec![].into_iter() );
-                    (id,Some(generic_params))
+                    Some(generic_params)
                 }
                 else{   
-                    (self.structs.define_struct(struct_name.clone(), vec![].into_iter()),None)
+                    None
                 };
                 self.environment.add_type(
                     struct_name.clone(), 
