@@ -78,9 +78,6 @@ impl PartialEq for Type{
 
         }
     }
-    fn ne(&self, other: &Self) -> bool {
-        return !self.eq(other);
-    }
 }
 impl Type{
     pub fn get_field(&self,field_name:&str,structs:&Structs)->Option<Type>{
