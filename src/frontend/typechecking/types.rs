@@ -47,6 +47,7 @@ impl Type{
     pub fn get_field(&self,field_name:&str)->Option<Type>{
         match (self,field_name){
             (Type::Array(..),"length") => Some(Type::Int),
+            (Type::String,"length") => Some(Type::Int),
             _ => None
         }
     }
