@@ -49,7 +49,6 @@ pub enum Instruction {
     BuildList(u16),
 
     GetArrayLength,
-    GetStringLength,
     
     Jump(u16),
     Loop(u16),

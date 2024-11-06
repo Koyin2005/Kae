@@ -340,13 +340,6 @@ impl VM{
                     let length = list.as_list(&self.heap).len();
                     self.push(Value::Int(length as i64))?;
                 },
-                Instruction::GetStringLength => {
-                    let Value::String(string) = self.pop() else {
-                        panic!("Can't get length of non-string")
-                    };
-                    let length = string.as_string(&self.heap).len();
-                    self.push(Value::Int(length as i64))?;
-                },
                 Instruction::StoreField(field) => {
                     let value = self.pop();
                     let Value::Record(record) = self.stack[self.stack.len()-1] else {

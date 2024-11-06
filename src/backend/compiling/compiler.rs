@@ -439,9 +439,6 @@ impl Compiler{
                     (Type::Array(..),"length") => {
                         self.emit_instruction(Instruction::GetArrayLength, field_name.location.end_line);
                     },
-                    (Type::String,"length") => {
-                        self.emit_instruction(Instruction::GetStringLength, field_name.location.end_line);
-                    },
                     _ => todo!()
                 }
             }
