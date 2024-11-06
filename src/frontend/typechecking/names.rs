@@ -18,12 +18,59 @@ struct Function{
     param_types : Vec<Type>,
     return_type : Type
 }
+
+#[derive(Clone, Copy,PartialEq, Eq,Debug,Default)]
+pub struct StructId(usize);
+
+#[derive(Clone)]
+pub struct StructField{
+    pub name : String,
+    pub field_type : Type
+}
+#[derive(Clone)]
+pub struct Struct{
+    generic_params : IndexMap<String,Type>,
+    name : String,
+    fields : Vec<StructField>
+}
+
+impl Struct{
+    pub fn get_field(&self,name:&str)->Option<(usize,&Type)>{
+        self.fields.iter().enumerate().filter_map(|(index,field)| if field.name == name { Some((index,&field.field_type))} else {None}).next()
+    }
+}
+
+#[derive(Clone,Default)]
+pub struct Structs{
+    structs : Vec<Struct>,
+    next_struct_id : StructId,
+}
+impl Structs{
+    
+    pub fn define_generic_struct(&mut self,name:String,generic_params : impl Iterator<Item = (String,Type)>,fields : impl Iterator<Item = (String,Type)>)->StructId{
+        let id = self.next_struct_id;
+        self.structs.push(Struct{
+            name,
+            generic_params:generic_params.collect(),
+            fields : fields.map(|(name,ty)| {
+                StructField { name, field_type: ty }
+            }).collect()
+        });
+        self.next_struct_id = StructId(id.0+1);
+        id
+    }
+    pub fn define_struct(&mut self,name:String,fields : impl Iterator<Item = (String,Type)>)->StructId{
+        self.define_generic_struct(name,vec![].into_iter(), fields)
+    }
+    pub fn get_struct_info(&self,id:&StructId) ->Option<&Struct>{
+        self.structs.get(id.0)
+    }
+}
 #[derive(Clone)]
 pub struct Environment{
     current_variables : Vec<IndexMap<String,Variable>>,
     current_types : Vec<IndexMap<String,Type>>,
-    current_functions : Vec<IndexMap<String,Function>>
-
+    current_functions : Vec<IndexMap<String,Function>>,
 }
 impl Default for Environment{
     fn default() -> Self {
@@ -72,4 +119,5 @@ impl Environment{
     pub fn get_type(&self,name:&str)->Option<&Type>{
         self.current_types.iter().rev().filter_map(|types| types.get(name)).next()
     }
+
 }

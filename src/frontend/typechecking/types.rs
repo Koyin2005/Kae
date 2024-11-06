@@ -2,6 +2,8 @@ use std::fmt::Display;
 
 use indexmap::IndexMap;
 
+use super::{generics::substitute, names::{Environment, StructId, Structs}};
+
 #[derive(Clone, Copy,PartialEq, Eq,Debug)]
 pub struct FunctionId(usize);
 
@@ -40,14 +42,27 @@ pub enum Type {
         name : String,
         index : usize,
     },
+    Struct{
+        generic_args :  GenericArgs,
+        id : StructId,
+        name : String,
+    },
     Unknown,
 
 }
 impl Type{
-    pub fn get_field(&self,field_name:&str)->Option<Type>{
+    pub fn get_field(&self,field_name:&str,structs:&Structs)->Option<Type>{
         match (self,field_name){
             (Type::Array(..),"length") => Some(Type::Int),
             (Type::String,"length") => Some(Type::Int),
+            (Type::Struct { generic_args, id, .. },field_name) => {
+                structs.get_struct_info(id)
+                    .and_then(|struct_| struct_.get_field(&field_name)
+                    .map(|(_,ty)| {
+                        let ty = ty.clone();
+                        if !generic_args.is_empty() { substitute(ty, generic_args)} else { ty }
+                }))
+            }
             _ => None
         }
     }
@@ -116,6 +131,22 @@ impl Display for Type{
             },
             Type::Param { name ,..} => write!(f,"{}",name),
             Type::Unknown => write!(f,"_"),
+            Type::Struct { generic_args, name,.. } => {
+                write!(f,"{}",name)?;
+                if !generic_args.is_empty(){
+                    write!(f,"[")?;
+                    for (i,arg) in generic_args.values().enumerate(){
+                        if i>0{
+                            write!(f,",")?;
+                        }
+                        write!(f,"{}",arg)?;
+                    }
+                    write!(f,"]")
+                }
+                else{
+                    Ok(())
+                }
+            }
         }
     }
 }

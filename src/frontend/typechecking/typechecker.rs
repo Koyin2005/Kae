@@ -4,7 +4,7 @@ use indexmap::{IndexMap, IndexSet};
 
 use crate::frontend::{parsing::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedFunction, ParsedGenericArgs, ParsedGenericParam, ParsedGenericParams, ParsedLogicalOp, ParsedType, ParsedUnaryOp, PatternMatchArmNode, StmtNode, Symbol}, tokenizing::SourceLocation, typechecking::typed_ast::TypedPatternMatchArm};
 
-use super::{generics:: substitute, names::{Environment, ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedStmtNode, UnaryOp}, types::{FunctionId, GenericArgs, Type}};
+use super::{generics:: substitute, names::{Environment, Structs, ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedStmtNode, UnaryOp}, types::{FunctionId, GenericArgs, Type}};
 #[derive(Clone)]
 struct EnclosingFunction{
     return_type : Type
@@ -15,6 +15,8 @@ pub struct TypeChecker{
     environment : Environment,
     enclosing_functions : Vec<EnclosingFunction>,
     generic_param_names : IndexMap<String,usize>,
+
+    structs : Structs,
     next_generic_type : usize,
     next_function_id : FunctionId
 }
@@ -541,7 +543,7 @@ impl TypeChecker{
             },
             ExprNodeKind::Property(lhs, property) => {
                 let lhs = self.infer_expr_type(lhs)?;
-                let Some(property_type) = lhs.ty.get_field(&property.content) else{
+                let Some(property_type) = lhs.ty.get_field(&property.content,&self.structs) else{
                     self.error(format!("\"{}\" has no field or method.",property.content),property.location.start_line);
                     return Err(TypeCheckFailed);
                 };
