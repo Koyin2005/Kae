@@ -16,6 +16,13 @@ pub fn substitute(ty:Type,generic_args:&GenericArgs)->Type{
             Type::Function { generic_args: func_generic_args, params, return_type:Box::new(return_type) }
         },
         Type::Tuple(elements) => Type::Tuple(elements.into_iter().map(|ty| substitute(ty, generic_args)).collect()),
+        Type::Struct { generic_args:struct_generic_args, id, name } => {
+            
+            let struct_generic_args = struct_generic_args.into_iter().map(|(name,ty)|{
+                (name,substitute(ty, generic_args))
+            }).collect();
+            Type::Struct { generic_args:struct_generic_args, id, name }
+        }
         _ => ty
     }
 }

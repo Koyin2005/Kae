@@ -584,7 +584,23 @@ impl TypeChecker{
             ParsedType::NameWithArgs(name, args) => {
                 let ty = get_named_type(self, name)?;
                 let generic_args = args.types.iter().map(|ty| self.check_type(ty)).collect::<Result<Vec<_>,_>>()?;
-                todo!("Add support for generic types")
+                let expected_args = match &ty { 
+                    Type::Struct { generic_args, .. } if generic_args.values().all(|ty| !ty.is_closed()) => {
+                        generic_args
+                    },
+                    ty => {
+                        self.error(format!("Cannot apply generic args to non-generic type \"{}\".",ty), args.location.start_line);
+                        return Err(TypeCheckFailed);
+                    }
+                };
+                if generic_args.len() != expected_args.len(){
+                    self.error(format!("Expected '{}' generic args, but got '{}'.",expected_args.len(),generic_args.len()),args.location.start_line);
+                    return Err(TypeCheckFailed);
+                }
+                let subbed_generic_args = expected_args.keys().zip(generic_args).map(|(name,ty)|{
+                    (name.clone(),ty)
+                }).collect();
+                substitute(ty, &subbed_generic_args)
             },
             ParsedType::Array(element_type) => {
                 Type::Array(Box::new(self.check_type(element_type)?))
