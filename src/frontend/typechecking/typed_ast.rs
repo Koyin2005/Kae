@@ -2,7 +2,7 @@ use std::{fmt::Display, rc::Rc};
 
 use crate::frontend::{parsing::ast::Symbol, tokenizing::SourceLocation};
 
-use super::types::Type;
+use super::{typechecker::GenericTypeId, types::Type};
 #[derive(Clone, Copy,Debug)]
 pub enum NumberKind {
     Int(i64),
@@ -170,8 +170,13 @@ pub enum TypedStmtNode {
     },
     GenericFunction{
         name : Symbol,
-        generic_params : Vec<String>,
+        generic_params : Vec<GenericTypeId>,
         function : TypedFunction,
+    },
+    Struct{
+        name : Symbol,
+        generic_params : Vec<GenericTypeId>,
+        fields : Vec<(String,Type)>
     }
 }
 #[derive(Clone,Debug)]

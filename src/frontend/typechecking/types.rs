@@ -2,10 +2,11 @@ use std::fmt::Display;
 
 use indexmap::IndexMap;
 
-use super::{generics::substitute, names::{StructId, Structs}};
+use super::{generics::substitute, names::{StructId, Structs}, typechecker::GenericTypeId};
 
 #[derive(Clone, Copy,PartialEq, Eq,Debug)]
 pub struct FunctionId(usize);
+
 
 impl FunctionId{
     pub const DEFAULT : Self = FunctionId(0);
@@ -21,7 +22,7 @@ impl Default for FunctionId{
     }
 }
 
-pub type GenericArgs = IndexMap<String,Type>;
+pub type GenericArgs = IndexMap<GenericTypeId,Type>;
 
 #[derive(Clone,PartialEq,Debug)]
 pub enum Type {
@@ -40,7 +41,7 @@ pub enum Type {
     },
     Param{
         name : String,
-        index : usize,
+        index : GenericTypeId,
     },
     Struct{
         generic_args :  GenericArgs,

@@ -9,12 +9,14 @@ use super::{generics:: substitute, names::{Environment, Structs, ValueKind}, pat
 struct EnclosingFunction{
     return_type : Type
 }
+#[derive(Clone,Copy,PartialEq,Debug,Eq,Hash)]
+pub struct GenericTypeId(usize);
 pub struct TypeCheckFailed;
 #[derive(Default)]
 pub struct TypeChecker{
     environment : Environment,
     enclosing_functions : Vec<EnclosingFunction>,
-    generic_param_names : IndexMap<String,usize>,
+    generic_param_names : Vec<(String,usize)>,
 
     structs : Structs,
     next_generic_type : usize,
@@ -565,7 +567,7 @@ impl TypeChecker{
                 "never" => Type::Never,
                 type_name => {
                     if let Some((_,index)) = this.generic_param_names.iter().rev().find(|(name,_)| name == &type_name){
-                        Type::Param { name: type_name.to_string(), index : *index }
+                        Type::Param { name: type_name.to_string(), index : GenericTypeId(*index) }
                     }
                     else if let Some(ty) = this.environment.get_type(type_name){
                         ty.clone()
@@ -741,7 +743,7 @@ impl TypeChecker{
                 let return_type = signature.return_type.clone();
                 if let Some(names) = generic_params.clone(){
                     self.environment.add_generic_function(function_name, params, return_type, id, names.into_iter().map(|(name,index)|{
-                        (name.clone(),Type::Param { name, index })
+                        (GenericTypeId(index),Type::Param { name, index:GenericTypeId(index) })
                     }));
                 }
                 else{
@@ -752,7 +754,7 @@ impl TypeChecker{
                 self.generic_param_names.truncate(generic_param_count);
                 let function = function?;
                 Ok(if let Some(generic_params) = generic_params {
-                        TypedStmtNode::GenericFunction { name:name.clone(), function,generic_params:generic_params.into_iter().map(|(name,_)| name).collect() } 
+                        TypedStmtNode::GenericFunction { name:name.clone(), function,generic_params:generic_params.into_iter().map(|(_,index)| GenericTypeId(index)).collect() } 
                     } 
                     else{
                         TypedStmtNode::Fun { name: name.clone(), function }
@@ -768,7 +770,7 @@ impl TypeChecker{
                 };
                 let (id,generic_params) = if let Some(generic_params) = generic_params.clone(){
                     let generic_params : IndexMap<_,_> = generic_params.into_iter().map(|(name,index)|{
-                        (name.clone(),Type::Param { name, index })
+                        (GenericTypeId(index),Type::Param { name, index : GenericTypeId(index) })
                     }).collect();
                     let id = self.structs.define_generic_struct (struct_name.clone(), generic_params.clone().into_iter(), vec![].into_iter() );
                     (id,Some(generic_params))
@@ -779,7 +781,7 @@ impl TypeChecker{
                 self.environment.add_type(
                     struct_name.clone(), 
                 Type::Struct { 
-                    generic_args: if let Some(generic_params) = generic_params {
+                    generic_args: if let Some(generic_params) = generic_params.clone() {
                         generic_params
                     } else { Default::default()}, 
                     id, 
@@ -805,7 +807,9 @@ impl TypeChecker{
                     }));
                 });
 
-                Ok(todo!("Add typed struct definitions."))
+                Ok(TypedStmtNode::Struct { name:name.clone(), 
+                    generic_params: generic_params.map_or_else(||Vec::new(),|params| params.into_iter().map(|(name,_)| name).collect()),
+                    fields: fields.into_iter().map(|(name,ty)| (name.content,ty)).collect() })
             }
         }
     }

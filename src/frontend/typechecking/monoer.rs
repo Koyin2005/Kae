@@ -23,8 +23,11 @@ fn sub_stmt(stmt:&mut TypedStmtNode,generic_args : &GenericArgs){
         TypedStmtNode::Fun { function,.. } => {
             sub_function(function, generic_args) 
         },
-        TypedStmtNode::GenericFunction { .. } => {
-
+        TypedStmtNode::Struct {  fields,.. } => {
+            fields.iter_mut().for_each(|(_,field_type)| *field_type = substitute(field_type.clone(), generic_args));
+        },
+        TypedStmtNode::GenericFunction { function,.. } => {
+            sub_function(function, generic_args);
         },
     }
 }

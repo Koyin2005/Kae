@@ -1,6 +1,6 @@
 use indexmap::IndexMap;
 
-use super::types::{FunctionId, Type};
+use super::{typechecker::GenericTypeId, types::{FunctionId, Type}};
 
 
 pub enum ValueKind{
@@ -14,7 +14,7 @@ struct Variable{
 #[derive(Clone)]
 struct Function{
     id : FunctionId,
-    generic_types : IndexMap<String,Type>,
+    generic_types : IndexMap<GenericTypeId,Type>,
     param_types : Vec<Type>,
     return_type : Type
 }
@@ -29,7 +29,7 @@ pub struct StructField{
 }
 #[derive(Clone)]
 pub struct Struct{
-    generic_params : IndexMap<String,Type>,
+    generic_params : IndexMap<GenericTypeId,Type>,
     name : String,
     fields : Vec<(String,Type)>
 }
@@ -50,7 +50,7 @@ pub struct Structs{
 }
 impl Structs{
     
-    pub fn define_generic_struct(&mut self,name:String,generic_params : impl Iterator<Item = (String,Type)>,fields : impl Iterator<Item = (String,Type)>)->StructId{
+    pub fn define_generic_struct(&mut self,name:String,generic_params : impl Iterator<Item = (GenericTypeId,Type)>,fields : impl Iterator<Item = (String,Type)>)->StructId{
         let id = self.next_struct_id;
         self.structs.push(Struct{
             name,
@@ -103,7 +103,7 @@ impl Environment{
         self.current_functions.last_mut().unwrap().insert(name, Function { id, param_types, return_type ,generic_types:IndexMap::new()});
     }
 
-    pub fn add_generic_function(&mut self,name:String,param_types:Vec<Type>,return_type : Type,id : FunctionId,generic_params : impl Iterator<Item = (String,Type)>){
+    pub fn add_generic_function(&mut self,name:String,param_types:Vec<Type>,return_type : Type,id : FunctionId,generic_params : impl Iterator<Item = (GenericTypeId,Type)>){
         self.current_functions.last_mut().unwrap().insert(name, Function { id, param_types, return_type ,generic_types:generic_params.collect()});
     }
     pub fn get_variable(&self,name:&str)->Option<&Type>{

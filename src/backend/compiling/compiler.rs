@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction}, values::Function}, frontend::typechecking::{monoer::{sub_name, sub_function}, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::Type}};
+use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction}, values::Function}, frontend::typechecking::{monoer::{sub_function, sub_name}, typechecker::GenericTypeId, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::Type}};
 
 
 struct Local{
@@ -11,7 +11,7 @@ struct Local{
 
 struct GenericFunction{
     name : String,
-    generic_params : Vec<String>,
+    generic_params : Vec<GenericTypeId>,
     depth : usize,
     template : TypedFunction,
     monos : Vec<(String,usize)>
@@ -497,6 +497,9 @@ impl Compiler{
                         depth: self.scope_depth, template: function.clone(),
                     monos : Vec::new()
                 });
+            },
+            TypedStmtNode::Struct { name, generic_params, fields } => {
+
             }
         }
     }
