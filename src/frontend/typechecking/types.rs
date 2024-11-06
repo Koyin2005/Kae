@@ -63,8 +63,7 @@ impl PartialEq for Type{
             (Type::Array(self_elements),Type::Array(other_elements)) => self_elements == other_elements,
             (Type::Param { name, index },Type::Param { name:other_name, index:other_index }) => 
                 name == other_name && index == other_index,
-            (Type::Function { generic_args, params, return_type }
-                ,Type::Function { generic_args:other_generic_args, params:other_params, return_type:other_return_type }) => {
+            (Type::Function { generic_args, params, return_type },Type::Function { generic_args:other_generic_args, params:other_params, return_type:other_return_type }) => {
                     if generic_args.is_empty() && other_generic_args.is_empty(){
                         return params.iter().zip(other_params.iter()).all(|(param,other_param)| param == other_param) && return_type == other_return_type;
                     }
