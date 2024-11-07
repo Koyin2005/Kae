@@ -342,7 +342,7 @@ impl VM{
                 },
                 Instruction::StoreField(field) => {
                     let value = self.pop();
-                    let Value::Record(record) = self.stack[self.stack.len()-1] else {
+                    let Value::Record(record) = self.peek(0) else {
                         panic!("Can't get field of non-record")
                     };
                     record.as_record_mut(&mut self.heap).fields[field as usize] = value;

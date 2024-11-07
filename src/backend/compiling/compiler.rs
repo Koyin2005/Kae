@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction}, values::Function}, frontend::typechecking::{monoer::{sub_function, sub_name}, typechecker::GenericTypeId, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::Type}};
+use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction}, values::Function}, frontend::typechecking::{monoer::{sub_function, sub_name}, names::Structs, typechecker::GenericTypeId, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::Type}};
 
 
 struct Local{
@@ -24,8 +24,12 @@ pub struct Compiler{
     generic_functions : Vec<GenericFunction>,
     locals : Vec<Local>,
     scope_depth : usize,
+    structs : Structs
 }
 impl Compiler{
+    pub fn new(structs:Structs)->Self{
+        Self { structs,..Default::default() }
+    }
     fn begin_scope(&mut self){
         self.scope_depth += 1;
     }
@@ -439,7 +443,26 @@ impl Compiler{
                     (Type::Array(..),"length") => {
                         self.emit_instruction(Instruction::GetArrayLength, field_name.location.end_line);
                     },
-                    _ => todo!()
+                    (Type::Struct { id,.. },field) => {
+                        self.emit_instruction(
+                            Instruction::LoadField(self.structs.get_struct_info(id).expect("Struct should exist").get_field(&field).expect("Field should exist").0 as u16,
+                            ),field_name.location.end_line
+                        );
+                    }
+                    _ => unreachable!("{}",lhs.ty)
+                }
+            },
+            TypedExprNodeKind::StructInit { fields } => {
+                self.emit_instruction(Instruction::InitRecord(fields.len() as u16),expr.location.start_line);
+                for (name,field_expr) in fields{
+                    self.compile_expr(field_expr);
+                    let field_index = match &expr.ty{
+                        Type::Struct { id,.. } => {
+                            self.structs.get_struct_info(id).expect("Should definitely be a struct").get_field(&name).expect("Struct should definitely have field").0
+                        },
+                        _ => unreachable!("Should definitely be a struct")
+                    };
+                    self.emit_instruction(Instruction::StoreField(field_index as u16), field_expr.location.end_line);
                 }
             }
         }

@@ -29,7 +29,7 @@ pub struct StructField{
 }
 #[derive(Clone)]
 pub struct Struct{
-    fields : Vec<(String,Type)>
+    pub fields : Vec<(String,Type)>
 }
 
 impl Struct{

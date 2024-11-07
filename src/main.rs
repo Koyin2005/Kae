@@ -11,10 +11,10 @@ fn compile(source:&str)->Option<Chunk>{
         return None;
     };
     let typechecker = TypeChecker::default();
-    let Ok(stmts) = typechecker.check(stmts) else {
+    let Ok((structs,stmts)) = typechecker.check(stmts) else {
         return None;
     };
-    let Ok(code) = Compiler::default().compile(stmts) else {
+    let Ok(code) = Compiler::new(structs).compile(stmts) else {
         return None;
     };
     Some(code)
