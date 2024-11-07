@@ -593,7 +593,25 @@ impl TypeChecker{
                     let field_expr = self.check_expr_type(field_expr, ty)?;
                     Ok((field_name.content.clone(),field_expr))
                 }).collect::<Result<Vec<_>,_>>()?;
-
+                if field_names_and_types.len() != seen_fields.len(){
+                    let missing_fields : Vec<&String> = field_names_and_types.keys().filter(|name|{
+                        !seen_fields.contains(name)
+                    }).collect();
+                    let mut error_string = if missing_fields.len() == 1 {
+                        format!("Did not initialize field ")
+                     } else {
+                        format!("Did not initialize fields ")
+                    };
+                    for (i,field) in missing_fields.into_iter().enumerate(){
+                        if i>0{
+                            error_string.push(',');
+                        }
+                        error_string.push_str(&format!("'{}'",field));
+                    }
+                    error_string.push_str(&format!(" of struct \"{}\".",struct_type));
+                    self.error(error_string, expr.location.start_line);
+                    return Err(TypeCheckFailed);
+                }
                 (struct_type,TypedExprNodeKind::StructInit { fields })
             }
 
