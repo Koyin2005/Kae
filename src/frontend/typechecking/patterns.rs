@@ -77,7 +77,6 @@ impl PatternChecker{
         }
 
         let mut constructors = PatternConstructor::generate_constructors_for(match_type);
-        println!("{}",constructors.len());
         for pattern in patterns{
             fn match_pattern(constructor:&PatternConstructor,pattern_kind:&PatternNodeKind)->bool{
                 match(constructor,&pattern_kind){
