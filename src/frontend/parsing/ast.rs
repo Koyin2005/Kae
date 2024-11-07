@@ -78,7 +78,12 @@ pub enum ExprNodeKind {
     },
     Return(Option<Box<ExprNode>>),
     TypenameOf(ParsedType),
-    Property(Box<ExprNode>,Symbol)
+    Property(Box<ExprNode>,Symbol),
+    StructInit{
+        name : Symbol,
+        generic_args : Option<ParsedGenericArgs>,
+        fields : Vec<(Symbol,ExprNode)>
+    }
 }
 pub enum ParsedBinaryOp {
     Add,

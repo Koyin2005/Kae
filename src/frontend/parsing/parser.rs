@@ -267,16 +267,52 @@ impl<'a> Parser<'a>{
     fn name(&mut self)->Result<ExprNode,ParsingFailed>{
         let line = self.prev_token.line;
         let name = self.prev_token.lexeme;
-        if self.matches(TokenKind::Colon) {
+        let generic_args = if self.matches(TokenKind::Colon) {
             let generic_args = self.parse_generic_args()?;
-            Ok(ExprNode{
-                location:SourceLocation::new(line, generic_args.location.end_line),
-                kind:ExprNodeKind::GetGeneric(name.to_string(), generic_args)
-            })
+            Some(generic_args)
+        }
+        else {
+            None
+        };
+        if self.matches(TokenKind::LeftBrace) {
+            let start = self.prev_token.line;
+            let mut fields = Vec::new();
+            while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
+                self.expect(TokenKind::Identifier, "Expect a valid field name.");
+                
+                let field_name = self.prev_token;
+                let field_expr = if self.matches(TokenKind::Colon){
+                    self.expression()?
+                }
+                else{
+                    ExprNode{
+                        location : SourceLocation::one_line(field_name.line),
+                        kind : ExprNodeKind::Get(field_name.lexeme.to_string())
+                    }
+                };
+                fields.push((Symbol{content:field_name.lexeme.to_string(),location:SourceLocation::one_line(field_name.line)},field_expr));
+                if !self.matches(TokenKind::Coma) {
+                    break;
+                }
+            }
+            self.expect(TokenKind::RightBrace, "Expect '}' after struct fields.");
+            Ok(ExprNode { 
+                    location: SourceLocation::new(start, self.prev_token.line),
+                    kind: ExprNodeKind::StructInit { name: Symbol { content: name.to_string(), location: SourceLocation::one_line(line) }, generic_args, fields } 
+                })
         }
         else{
-            self.variable()
+            if let Some(generic_args) = generic_args{
+                Ok(ExprNode{
+                    location:SourceLocation::new(line, generic_args.location.end_line),
+                    kind:ExprNodeKind::GetGeneric(name.to_string(), generic_args)
+                })
+            }
+            else{
+                self.variable()
+            }
         }
+        
     }
     fn variable(&self)->Result<ExprNode,ParsingFailed>{
         Ok(ExprNode { location: SourceLocation::one_line(self.prev_token.line), kind: ExprNodeKind::Get(self.prev_token.lexeme.to_string()) })

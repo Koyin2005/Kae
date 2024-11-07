@@ -550,6 +550,9 @@ impl TypeChecker{
                     return Err(TypeCheckFailed);
                 };
                 (property_type,TypedExprNodeKind::Field(Box::new(lhs), property.clone()))
+            },
+            ExprNodeKind::StructInit { name, generic_args, fields } => {
+                todo!()
             }
 
         };
