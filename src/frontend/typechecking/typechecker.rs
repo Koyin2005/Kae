@@ -597,7 +597,7 @@ impl TypeChecker{
                 "bool" => Type::Bool,
                 "never" => Type::Never,
                 type_name => {
-                    if let Some((_,index)) = this.generic_param_names.iter().rev().find(|(name,_)| name == &type_name){
+                    if let Some((_,index)) = this.generic_param_names.iter().rev().find(|(name,_)| name == type_name){
                         Type::Param { name: type_name.to_string(), index : GenericTypeId(*index) }
                     }
                     else if let Some(ty) = this.environment.get_type(type_name){
@@ -631,7 +631,7 @@ impl TypeChecker{
                     return Err(TypeCheckFailed);
                 }
                 let subbed_generic_args = expected_args.keys().zip(generic_args).map(|(name,ty)|{
-                    (name.clone(),ty)
+                    (*name,ty)
                 }).collect();
                 substitute(ty, &subbed_generic_args)
             },
@@ -816,9 +816,7 @@ impl TypeChecker{
                 self.environment.add_type(
                     struct_name.clone(), 
                 Type::Struct { 
-                    generic_args: if let Some(generic_params) = generic_params.clone() {
-                        generic_params
-                    } else { Default::default()}, 
+                    generic_args: generic_params.clone().unwrap_or_default(), 
                     id, 
                     name: struct_name.clone()
                 });
@@ -843,7 +841,7 @@ impl TypeChecker{
                 });
 
                 Ok(TypedStmtNode::Struct { name:name.clone(), 
-                    generic_params: generic_params.map_or_else(||Vec::new(),|params| params.into_iter().map(|(name,_)| name).collect()),
+                    generic_params: generic_params.map_or_else(Vec::new,|params| params.into_iter().map(|(name,_)| name).collect()),
                     fields: fields.into_iter().map(|(name,ty)| (name.content,ty)).collect() })
             }
         }

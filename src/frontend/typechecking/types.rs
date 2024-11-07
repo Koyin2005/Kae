@@ -85,7 +85,7 @@ impl Type{
             (Type::Array(..),"length") => Some(Type::Int),
             (Type::Struct { generic_args, id, .. },field_name) => {
                 structs.get_struct_info(id)
-                    .and_then(|struct_| struct_.get_field(&field_name)
+                    .and_then(|struct_| struct_.get_field(field_name)
                     .map(|(_,ty)| {
                         let ty = ty.clone();
                         if !generic_args.is_empty() { substitute(ty, generic_args)} else { ty }

@@ -124,10 +124,10 @@ impl Compiler{
     fn load_constant_at_index(&mut self,constant:usize,line:u32){
         if constant>=u16::MAX as usize{
             todo!("Too many constants in one chunk.")
-        }{
-            let constant = constant as u16;
-            self.emit_instruction(Instruction::LoadConstant(constant),line);
         }
+        let constant = constant as u16;
+        self.emit_instruction(Instruction::LoadConstant(constant),line);
+        
 
     }
     fn load_constant(&mut self,constant:Constant,line:u32)->usize{
@@ -445,7 +445,7 @@ impl Compiler{
                     },
                     (Type::Struct { id,.. },field) => {
                         self.emit_instruction(
-                            Instruction::LoadField(self.structs.get_struct_info(id).expect("Struct should exist").get_field(&field).expect("Field should exist").0 as u16,
+                            Instruction::LoadField(self.structs.get_struct_info(id).expect("Struct should exist").get_field(field).expect("Field should exist").0 as u16,
                             ),field_name.location.end_line
                         );
                     }
@@ -458,7 +458,7 @@ impl Compiler{
                     self.compile_expr(field_expr);
                     let field_index = match &expr.ty{
                         Type::Struct { id,.. } => {
-                            self.structs.get_struct_info(id).expect("Should definitely be a struct").get_field(&name).expect("Struct should definitely have field").0
+                            self.structs.get_struct_info(id).expect("Should definitely be a struct").get_field(name).expect("Struct should definitely have field").0
                         },
                         _ => unreachable!("Should definitely be a struct")
                     };
@@ -521,7 +521,7 @@ impl Compiler{
                     monos : Vec::new()
                 });
             },
-            TypedStmtNode::Struct { name, generic_params, fields } => {
+            TypedStmtNode::Struct { .. } => {
 
             }
         }

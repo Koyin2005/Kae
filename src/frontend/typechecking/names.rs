@@ -51,9 +51,7 @@ impl Structs{
     pub fn define_struct(&mut self,fields : impl Iterator<Item = (String,Type)>)->StructId{
         let id = self.next_struct_id;
         self.structs.push(Struct{
-            fields : fields.map(|(name,ty)| {
-                (name, ty )
-            }).collect()
+            fields : fields.collect()
         });
         self.next_struct_id = StructId(id.0+1);
         id

@@ -59,7 +59,9 @@ fn sub_expr(expr:&mut TypedExprNode,generic_args : &GenericArgs){
             args.iter_mut().for_each(|ty| *ty = substitute(ty.clone(), generic_args))
         },
         TypedExprNodeKind::Return { expr } => {
-            expr.as_mut().map(|expr| sub_expr(expr, generic_args));
+            if let Some(expr) = expr.as_mut(){
+                sub_expr(expr, generic_args);
+            }
         },
         TypedExprNodeKind::Tuple(elements) => {
             elements.iter_mut().for_each(|element| sub_expr(element, generic_args));
@@ -70,7 +72,9 @@ fn sub_expr(expr:&mut TypedExprNode,generic_args : &GenericArgs){
         TypedExprNodeKind::If { condition, then_branch, else_branch } => {
             sub_expr(condition, generic_args);
             sub_expr(then_branch, generic_args);
-            else_branch.as_mut().map(|else_branch| sub_expr(else_branch, generic_args));
+            if let Some(else_branch) = else_branch.as_mut(){
+                sub_expr(else_branch, generic_args);
+            }
         },
         TypedExprNodeKind::Index { lhs, rhs } => {
             sub_expr(lhs, generic_args);
@@ -105,7 +109,9 @@ fn sub_expr(expr:&mut TypedExprNode,generic_args : &GenericArgs){
         },
         TypedExprNodeKind::Block { stmts, expr } => {
             stmts.iter_mut().for_each(|stmt| sub_stmt(stmt,generic_args));
-            expr.as_mut().map(|expr| Box::new(sub_expr(expr, generic_args)));
+            if let Some(expr) = expr.as_mut(){
+                sub_expr(expr, generic_args);
+            }
         },
         TypedExprNodeKind::TypenameOf(ty) => {
             *ty  = substitute(ty.clone(), generic_args);
@@ -117,7 +123,7 @@ fn sub_expr(expr:&mut TypedExprNode,generic_args : &GenericArgs){
             sub_expr(operand, generic_args);
         },
         TypedExprNodeKind::StructInit { fields } => {
-            fields.iter_mut().for_each(|(name,expr)|{
+            fields.iter_mut().for_each(|(_,expr)|{
                 sub_expr(expr, generic_args);
             });
         }

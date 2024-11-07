@@ -301,17 +301,16 @@ impl<'a> Parser<'a>{
                     kind: ExprNodeKind::StructInit { name: Symbol { content: name.to_string(), location: SourceLocation::one_line(line) }, generic_args, fields } 
                 })
         }
-        else{
-            if let Some(generic_args) = generic_args{
-                Ok(ExprNode{
-                    location:SourceLocation::new(line, generic_args.location.end_line),
-                    kind:ExprNodeKind::GetGeneric(name.to_string(), generic_args)
-                })
-            }
-            else{
-                self.variable()
-            }
+        else if let Some(generic_args) = generic_args{
+            Ok(ExprNode{
+                location:SourceLocation::new(line, generic_args.location.end_line),
+                kind:ExprNodeKind::GetGeneric(name.to_string(), generic_args)
+            })
         }
+        else{
+            self.variable()
+        }
+        
         
     }
     fn variable(&self)->Result<ExprNode,ParsingFailed>{
