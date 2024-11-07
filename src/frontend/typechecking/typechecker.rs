@@ -597,14 +597,20 @@ impl TypeChecker{
                     let missing_fields : Vec<&String> = field_names_and_types.keys().filter(|name|{
                         !seen_fields.contains(name)
                     }).collect();
-                    let mut error_string = if missing_fields.len() == 1 {
+                    let missing_field_count = missing_fields.len();
+                    let mut error_string = if  missing_field_count == 1 {
                         format!("Did not initialize field ")
                      } else {
                         format!("Did not initialize fields ")
                     };
                     for (i,field) in missing_fields.into_iter().enumerate(){
                         if i>0{
-                            error_string.push(',');
+                            if i<=missing_field_count-1{
+                                error_string.push_str(" and ");
+                            }
+                            else{
+                                error_string.push(',');
+                            }
                         }
                         error_string.push_str(&format!("'{}'",field));
                     }
