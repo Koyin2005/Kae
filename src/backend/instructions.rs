@@ -69,10 +69,15 @@ pub enum Constant{
     Function(Rc<Function>)
     
 }
+
+#[derive(Default,Clone,Debug,PartialEq)]
+pub struct Program{
+    pub constants : Vec<Constant>,
+    pub chunk : Chunk
+}
 #[derive(Default,Clone,Debug,PartialEq)]
 pub struct Chunk{
     pub code : Vec<Instruction>,
-    pub constants : Vec<Constant>,
     pub lines : Vec<u32>,
     pub locals : usize
 

@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction}, values::Function}, frontend::typechecking::{monoer::{sub_function, sub_name}, names::Structs, typechecker::GenericTypeId, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::Type}};
+use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, values::Function}, frontend::typechecking::{monoer::{sub_function, sub_name}, names::Structs, typechecker::GenericTypeId, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::Type}};
 
 
 struct Local{
@@ -20,6 +20,7 @@ pub struct CompileFailed;
 #[derive(Default)]
 pub struct Compiler{
     current_chunk : Chunk,
+    constants : Vec<Constant>,
     globals : Vec<String>,
     generic_functions : Vec<GenericFunction>,
     locals : Vec<Local>,
@@ -114,11 +115,11 @@ impl Compiler{
         self.current_chunk.lines.push(line);
     }
     fn add_constant(&mut self,constant:Constant)->usize{
-        self.current_chunk.constants.iter().position(|current_constant|{
+        self.constants.iter().position(|current_constant|{
             &constant == current_constant
         }).unwrap_or_else(||{
-            self.current_chunk.constants.push(constant);
-            self.current_chunk.constants.len()-1
+            self.constants.push(constant);
+            self.constants.len()-1
         })
     }
     fn load_constant_at_index(&mut self,constant:usize,line:u32){
@@ -538,13 +539,13 @@ impl Compiler{
             self.compile_stmt(stmt);
         }
     }
-    pub fn compile(mut self,stmts : Vec<TypedStmtNode>) -> Result<Chunk,CompileFailed> {
+    pub fn compile(mut self,stmts : Vec<TypedStmtNode>) -> Result<Program,CompileFailed> {
         
         self.compile_stmts(&stmts);
         let last_line = self.current_chunk.lines.last().copied().unwrap_or(1);
         self.emit_instruction(Instruction::LoadUnit,last_line);
         self.emit_instruction(Instruction::Return,last_line);
         disassemble("<main>", &self.current_chunk);
-        Ok(self.current_chunk)
+        Ok(Program{constants:self.constants,chunk:self.current_chunk})
     }
 }

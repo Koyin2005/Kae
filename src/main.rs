@@ -1,8 +1,8 @@
 use std::io::Write;
 
-use pl4::{backend::{compiling::compiler::Compiler, instructions::Chunk, vm::VM}, frontend::{parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::typechecker::TypeChecker}};
+use pl4::{backend::{compiling::compiler::Compiler, instructions::{Chunk, Program}, vm::VM}, frontend::{parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::typechecker::TypeChecker}};
 
-fn compile(source:&str)->Option<Chunk>{
+fn compile(source:&str)->Option<Program>{
     let Ok(tokens) = Scanner::new(source).scan() else {
         return None;
     };
@@ -20,7 +20,7 @@ fn compile(source:&str)->Option<Chunk>{
     Some(code)
 }
 fn repl(){
-    let mut vm = VM::new(Chunk::default());
+    let mut vm = VM::new(Chunk::default(),vec![]);
     loop{
         let mut source = String::new();
         print!(">>>");
@@ -45,7 +45,7 @@ fn run_file(filepath:&str){
     let Some(code) = compile(&source) else {
         return;
     };
-    let mut vm = VM::new(code);
+    let mut vm = VM::new(code.chunk,code.constants);
     let _ = vm.run();
 
 }

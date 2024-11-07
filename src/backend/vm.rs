@@ -4,7 +4,7 @@ use fxhash::FxHashMap;
 
 use crate::backend::disassembly::disassemble_instruction;
 
-use super::{instructions::{Chunk, Constant, Instruction}, objects::{Heap, Object}, values::{Function, Value,Record}};
+use super::{instructions::{Chunk, Constant, Instruction, Program}, objects::{Heap, Object}, values::{Function, Record, Value}};
 
 pub const DEBUG_TRACE_EXEC : bool = false;
 pub const MAX_STACK_SIZE : usize = 255;
@@ -19,15 +19,17 @@ pub struct CallFrame{
 }
 pub struct VM{
     stack : Vec<Value>,
+    constants : Box<[Constant]>,
     frames : Vec<CallFrame>,
     heap : Heap,
     globals : FxHashMap<usize,Value>,
 }
 impl VM{
 
-    pub fn new(chunk : Chunk)->Self{
+    pub fn new(chunk : Chunk,constants:Vec<Constant>)->Self{
         Self{
             stack:Vec::from_iter(std::iter::repeat(Value::Int(0)).take(chunk.locals)),
+            constants:constants.into_boxed_slice(),
             heap:Heap::default(),
             frames : vec![CallFrame{
                 function : Rc::new(Function{
@@ -71,16 +73,17 @@ impl VM{
         frame.ip+=1;
         frame.function.chunk.code[frame.ip-1]
     }
-    pub fn reset(&mut self,chunk:Chunk){
+    pub fn reset(&mut self,program:Program){
         self.frames = vec![CallFrame{
-            function : Rc::new(Function { name: "<main>".to_string(), chunk }),
+            function : Rc::new(Function { name: "<main>".to_string(), chunk:program.chunk }),
             ip : 0,
             bp : 0,
         }];
         self.stack = vec![Value::Int(0); self.current_chunk().locals];
+        self.constants = program.constants.into_boxed_slice();
     }
     fn load_constant(&mut self,index: usize)-> Value{
-        match self.current_chunk().constants[index].clone(){
+        match self.constants[index].clone(){
             Constant::Int(int) => Value::Int(int),
             Constant::String(string) => Value::String(Object::new_string(&mut self.heap, string)),
             Constant::Float(float) => Value::Float(float),
@@ -505,7 +508,7 @@ mod vm_tests{
             ],
             lines : vec![1;5],
             ..Default::default()
-        });
+        },vec![]);
         let _ = vm.run();
         for value in vm.stack.iter(){
             value.println(&vm.heap);
