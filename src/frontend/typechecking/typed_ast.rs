@@ -84,6 +84,10 @@ pub enum TypedAssignmentTargetKind{
     Index{
         lhs : Box<TypedExprNode>,
         rhs : Box<TypedExprNode>
+    },
+    Field{
+        lhs : Box<TypedExprNode>,
+        name : Symbol
     }
 }
 #[derive(Clone,Debug)]

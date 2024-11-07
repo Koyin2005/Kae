@@ -164,7 +164,20 @@ impl TypeChecker{
                 (ty,TypedAssignmentTargetKind::Index { lhs: Box::new(lhs), rhs: Box::new(rhs) })
                 
             },
-            _ => todo!()
+            ParsedAssignmentTargetKind::Field { lhs, field } => {
+                let lhs = self.infer_expr_type(lhs)?;
+                let field_type = if matches!((&lhs.ty,&field.content as &str),(Type::Array(_),"length")) { 
+                    self.error(format!("Cannot assign to field \'length\' of \"{}\".",lhs.ty),field.location.start_line);
+                    return Err(TypeCheckFailed);
+                 } else {
+                    lhs.ty.get_field(&field.content, &self.structs) 
+                };
+                let Some(field_type) = field_type else{
+                    self.error(format!("\"{}\" has no field '{}'.",lhs.ty,field.content), field.location.start_line);
+                    return Err(TypeCheckFailed);
+                };
+                (field_type,TypedAssignmentTargetKind::Field{lhs:Box::new(lhs),name:field.clone()})
+            }
         };
         Ok(TypedAssignmentTarget { location: assignment_target.location, ty, kind })
     }

@@ -38,6 +38,9 @@ fn sub_assignment_target(target:&mut TypedAssignmentTarget,generic_args : &Gener
             sub_expr(lhs, generic_args);
             sub_expr(rhs, generic_args);
         },
+        TypedAssignmentTargetKind::Field { lhs, .. } => {
+            sub_expr(lhs, generic_args);
+        }
         _ => ()
     };
 }

@@ -80,6 +80,19 @@ impl PartialEq for Type{
     }
 }
 impl Type{
+    pub fn get_field_index(&self,field_name:&str,structs:&Structs)->Option<usize>{
+        match (self,field_name){
+            (Type::Struct { id, .. },field_name) => {
+                structs.get_struct_info(id)
+                    .and_then(|struct_| struct_.get_field(field_name)
+                    .map(|(index,_)| {
+                        index
+                }))
+            }
+            _ => None
+        }
+
+    }
     pub fn get_field(&self,field_name:&str,structs:&Structs)->Option<Type>{
         match (self,field_name){
             (Type::Array(..),"length") => Some(Type::Int),
