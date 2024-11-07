@@ -11,6 +11,10 @@ pub enum ParsedAssignmentTargetKind {
     Index{
         lhs : Box<ExprNode>,
         rhs : Box<ExprNode>
+    },
+    Field{
+        lhs : Box<ExprNode>,
+        field : Symbol
     }
 }
 pub enum LiteralKind {

@@ -163,7 +163,8 @@ impl TypeChecker{
                 let (ty,lhs,rhs) = self.infer_index_expr_type(assignment_target.location,lhs,rhs)?;
                 (ty,TypedAssignmentTargetKind::Index { lhs: Box::new(lhs), rhs: Box::new(rhs) })
                 
-            }
+            },
+            _ => todo!()
         };
         Ok(TypedAssignmentTarget { location: assignment_target.location, ty, kind })
     }

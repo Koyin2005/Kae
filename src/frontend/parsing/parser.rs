@@ -451,12 +451,16 @@ impl<'a> Parser<'a>{
         Ok(ExprNode { location: SourceLocation::new(start, self.prev_token.line), kind: ExprNodeKind::Property(Box::new(left), Symbol { content: self.prev_token.lexeme.to_string(), location: SourceLocation::one_line(self.prev_token.line) }) })
     }
     fn assign(&mut self,left:ExprNode)->Result<ExprNode,ParsingFailed>{
+        
         let assignment_target_kind = match left.kind{
             ExprNodeKind::Index { lhs, rhs } => {
                 ParsedAssignmentTargetKind::Index { lhs, rhs }
             },
             ExprNodeKind::Get(name) => {
                 ParsedAssignmentTargetKind::Name(name)
+            },
+            ExprNodeKind::Property(lhs,field  ) => {
+                ParsedAssignmentTargetKind::Field { lhs, field }
             },
             _ => {
                 self.error("Invalid assignment target.");
