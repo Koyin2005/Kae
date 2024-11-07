@@ -185,7 +185,7 @@ pub struct Symbol{
     pub location : SourceLocation
 }
 
-
+#[derive(Clone)]
 pub enum ParsedType{
     Name(Symbol),
     Array(Box<ParsedType>),
@@ -204,7 +204,7 @@ pub struct ParsedFunction{
     pub return_type : Option<ParsedType>,
     pub body : ExprNode
 }
-
+#[derive(Clone)]
 pub struct ParsedGenericArgs{
     pub location : SourceLocation,
     pub types : Vec<ParsedType>
