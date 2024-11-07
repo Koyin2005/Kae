@@ -552,7 +552,35 @@ impl TypeChecker{
                 (property_type,TypedExprNodeKind::Field(Box::new(lhs), property.clone()))
             },
             ExprNodeKind::StructInit { name, generic_args, fields } => {
-                todo!()
+                let struct_type = self.check_type(&if let Some(generic_args)=  generic_args.as_ref().cloned(){
+                    ParsedType::NameWithArgs(name.clone(), generic_args) 
+                } else {
+                    ParsedType::Name(name.clone())
+                })?;
+
+                let Type::Struct { generic_args, id, name } = struct_type.clone() else {
+                    self.error(format!("Expected a 'struct' type got, \"{}\".",struct_type), name.location.start_line);
+                    return Err(TypeCheckFailed);
+                };
+
+                let struct_info = self.structs.get_struct_info(&id).expect("Can only use valid struct ids");
+                let field_names_and_types = struct_info.fields.iter().cloned().map(|(name,ty)| (name,substitute(ty, &generic_args))).collect::<IndexMap<_,_>>();
+                let mut seen_fields = HashSet::new();
+                let fields = fields.iter().map(|(field_name,field_expr)|{
+
+                    let Some(ty) = field_names_and_types.get(&field_name.content) else {
+                        self.error(format!("'struct' {}, has no field '{}'.",name,field_name.content), field_name.location.start_line);
+                        return Err(TypeCheckFailed);
+                    };
+                    if !seen_fields.insert(&field_name.content){
+                        self.error(format!("Re-initialized field '{}'.",field_name.content), field_name.location.start_line);
+                        return Err(TypeCheckFailed);
+                    }
+                    let field_expr = self.check_expr_type(field_expr, ty)?;
+                    Ok((field_name.content.clone(),field_expr))
+                }).collect::<Result<Vec<_>,_>>()?;
+
+                (struct_type,TypedExprNodeKind::StructInit { fields })
             }
 
         };
@@ -835,7 +863,7 @@ impl TypeChecker{
         if !had_error { Ok(typed_stmts)} else {Err(TypeCheckFailed)}
 
     }
-    pub fn check(mut self,stmts:Vec<StmtNode>)->Result<Vec<TypedStmtNode>,TypeCheckFailed>{
-        self.check_stmts(&stmts)
+    pub fn check(mut self,stmts:Vec<StmtNode>)->Result<(Structs,Vec<TypedStmtNode>),TypeCheckFailed>{
+        self.check_stmts(&stmts).map (|stmts| (self.structs,stmts))
     }
 }

@@ -2,7 +2,7 @@ use std::{fmt::Display, rc::Rc};
 
 use crate::frontend::{parsing::ast::Symbol, tokenizing::SourceLocation};
 
-use super::{typechecker::GenericTypeId, types::Type};
+use super::{names::StructId, typechecker::GenericTypeId, types::Type};
 #[derive(Clone, Copy,Debug)]
 pub enum NumberKind {
     Int(i64),
@@ -155,6 +155,9 @@ pub enum TypedExprNodeKind{
     },
     TypenameOf(Type),
     Field(Box<TypedExprNode>,Symbol),
+    StructInit{
+        fields : Vec<(String,TypedExprNode)>
+    }
 }
 #[derive(Clone,Debug)]
 pub enum TypedStmtNode {
