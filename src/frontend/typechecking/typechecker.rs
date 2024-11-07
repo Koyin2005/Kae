@@ -605,11 +605,11 @@ impl TypeChecker{
                     };
                     for (i,field) in missing_fields.into_iter().enumerate(){
                         if i>0{
-                            if i<=missing_field_count-1{
+                            if i==missing_field_count-1{
                                 error_string.push_str(" and ");
                             }
                             else{
-                                error_string.push(',');
+                                error_string.push_str(", ");
                             }
                         }
                         error_string.push_str(&format!("'{}'",field));
