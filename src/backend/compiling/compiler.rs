@@ -145,8 +145,7 @@ impl Compiler{
         }
 
     }
-    fn compile_function(&mut self,function:&TypedFunction,function_name:String)->usize{
-
+    fn compile_function(&mut self,function:&TypedFunction,function_name:String,constant_index : Option<usize>){
         let old_locals = std::mem::take(&mut self.locals);
         let old_chunk = std::mem::take(&mut self.current_chunk);
         
@@ -181,10 +180,18 @@ impl Compiler{
         disassemble(&function_name, &self.current_chunk);
         self.locals = old_locals;
         let func_code = std::mem::replace(&mut self.current_chunk, old_chunk);
-        self.load_constant(Constant::Function(Rc::new(Function{
+        let func_constant = Constant::Function(Rc::new(Function{
             name : function_name,
             chunk : func_code
-        })),function.body.location.end_line)
+        }));
+        let func_constant = if let Some(constant_index) = constant_index{
+            self.constants[constant_index] = func_constant;
+            constant_index
+        }
+        else{
+            self.add_constant(func_constant)
+        };
+        self.load_constant_at_index(func_constant,function.body.location.end_line);
     }
     fn compile_false_pattern(&mut self,_pattern:&PatternNode,jumps : &[usize],line:u32){
         for (i,jump) in jumps.iter().copied().enumerate(){
@@ -408,7 +415,7 @@ impl Compiler{
 
             },
             TypedExprNodeKind::Function (function) => {
-                self.compile_function(function, "anonymous".to_string());
+                self.compile_function(function, "anonymous".to_string(),None);
             },
             TypedExprNodeKind::Call { callee, args } => {
                 self.compile_expr(callee);
@@ -438,8 +445,9 @@ impl Compiler{
                 else{
                     let mut monoed_function = generic_function.template.clone();
                     sub_function(&mut monoed_function,&generic_function.generic_params.iter().cloned().zip(args.clone()).collect());
-                    let function_constant = self.compile_function(&monoed_function, name.clone());
-                    self.generic_functions[index].monos.push((name,function_constant));
+                    let function_constant_index = self.add_constant(Constant::Function(Rc::new(Function::default())));
+                    self.generic_functions[index].monos.push((name.clone(),function_constant_index));
+                    self.compile_function(&monoed_function, name,Some(function_constant_index));
                 }
             },
             TypedExprNodeKind::TypenameOf(ty) => {
@@ -518,7 +526,7 @@ impl Compiler{
             TypedStmtNode::Fun { name, function} => {
                     let name= name.content.clone();
                     let index = self.declare_name(name.clone());
-                    self.compile_function(function,name.clone());
+                    self.compile_function(function,name.clone(),None);
                     self.emit_define_instruction(index, function.body.location.end_line);
                 
             },
