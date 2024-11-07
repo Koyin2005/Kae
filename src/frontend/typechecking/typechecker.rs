@@ -426,7 +426,7 @@ impl TypeChecker{
                             return Err(TypeCheckFailed);
                         }
                     },
-                    _ =>  {
+                    None =>  {
                         self.value_scope_error(name, expr.location.start_line);
                         return Err(TypeCheckFailed);
                     }
@@ -456,7 +456,7 @@ impl TypeChecker{
                     }
                 }
                 else {
-                    self.value_scope_error(name, expr.location.start_line);
+                    self.error(format!("Cannot find generic function '{}' in scope.",name), expr.location.start_line);
                     return Err(TypeCheckFailed);
                 };
                 let args = types.iter().map(|ty| self.check_type(ty)).collect::<Result<Vec<Type>,_>>()?;

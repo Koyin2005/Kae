@@ -25,7 +25,8 @@ pub struct Compiler{
     generic_functions : Vec<GenericFunction>,
     locals : Vec<Local>,
     scope_depth : usize,
-    structs : Structs
+    structs : Structs,
+    mono_counter : usize
 }
 impl Compiler{
     pub fn new(structs:Structs)->Self{
@@ -444,8 +445,12 @@ impl Compiler{
                 }
                 else{
                     let mut monoed_function = generic_function.template.clone();
+                    let mono_name = format!("{}{}",name,self.mono_counter);
+                    self.mono_counter +=1 ;
                     sub_function(&mut monoed_function,&generic_function.generic_params.iter().cloned().zip(args.clone()).collect());
-                    let function_constant_index = self.add_constant(Constant::Function(Rc::new(Function::default())));
+                    let mut function_placeholder = Function::default();
+                    function_placeholder.name = mono_name;
+                    let function_constant_index = self.add_constant(Constant::Function(Rc::new(function_placeholder)));
                     self.generic_functions[index].monos.push((name.clone(),function_constant_index));
                     self.compile_function(&monoed_function, name,Some(function_constant_index));
                 }
