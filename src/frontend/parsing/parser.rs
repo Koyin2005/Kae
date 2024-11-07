@@ -663,17 +663,13 @@ impl<'a> Parser<'a>{
 
         let generic_params = if self.matches(TokenKind::LeftBracket) { Some(self.parse_generic_params()?)} else { None };
         self.expect(TokenKind::LeftBrace, "Expect '{'.");
-        let fields = if self.check(TokenKind::RightBrace){
-            vec![]
-        } else {
-            
-            let first_field = self.parse_struct_field()?;
-            let mut fields = vec![first_field];
-            while self.matches(TokenKind::Coma) && !self.is_at_end(){
-                fields.push(self.parse_struct_field()?);
+        let mut fields = vec![];
+        while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
+            fields.push(self.parse_struct_field()?);
+            if !self.matches(TokenKind::Coma){
+                break;
             }
-            fields
-        };
+        }
         self.expect(TokenKind::RightBrace, "Expect '}'.");
         Ok(StmtNode::Struct { name, generic_params, fields })
     }
