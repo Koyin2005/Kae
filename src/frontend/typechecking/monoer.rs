@@ -1,4 +1,4 @@
-use super::{generics::substitute, typed_ast::{TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedStmtNode}, types::{GenericArgs, Type}};
+use super::{generics::substitute, typed_ast::{PatternNode, PatternNodeKind, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedStmtNode}, types::{GenericArgs, Type}};
 
 
 
@@ -16,8 +16,11 @@ pub fn sub_name(name:&str,args:&[Type])->String{
 }
 fn sub_stmt(stmt:&mut TypedStmtNode,generic_args : &GenericArgs){
     match stmt{
-        TypedStmtNode::Expr(expr) | TypedStmtNode::ExprWithSemi(expr)  | 
-        TypedStmtNode::Let {expr,.. } => {
+        TypedStmtNode::Expr(expr) | TypedStmtNode::ExprWithSemi(expr)  => {
+            sub_expr(expr, generic_args);
+        },
+        TypedStmtNode::Let { pattern, expr } => {
+            sub_pattern(pattern, generic_args);
             sub_expr(expr, generic_args);
         },
         TypedStmtNode::Fun { function,.. } => {
@@ -86,6 +89,7 @@ fn sub_expr(expr:&mut TypedExprNode,generic_args : &GenericArgs){
         TypedExprNodeKind::Match { matchee, arms } => {
             sub_expr(matchee, generic_args);
             arms.iter_mut().for_each(|arm|{
+                sub_pattern(&mut arm.pattern, generic_args);
                 arm.ty = substitute(arm.ty.clone(), generic_args);
                 sub_expr(&mut arm.expr, generic_args);
             });
@@ -131,6 +135,18 @@ fn sub_expr(expr:&mut TypedExprNode,generic_args : &GenericArgs){
             });
         }
     };
+}
+fn sub_pattern(pattern:&mut PatternNode,generic_args : &GenericArgs){
+    match &mut pattern.kind{
+        PatternNodeKind::Struct { ty, fields } => {
+            *ty = substitute(ty.clone(), generic_args);
+            fields.iter_mut().for_each(|(_,pattern)| sub_pattern(pattern, generic_args));
+        },
+        PatternNodeKind::Tuple(elements) => {
+            elements.iter_mut().for_each(|element| sub_pattern(element, generic_args));
+        },
+        _ => ()
+    }
 }
 fn sub_signature(signature:&mut TypedFunctionSignature,args : &GenericArgs){
     let return_type = substitute(signature.return_type.clone(),args);
