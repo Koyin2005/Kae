@@ -733,7 +733,12 @@ impl TypeChecker{
         }
         let ty = match ty{
             ParsedType::Name(name) => {
-                get_named_type(self, name)?
+                let ty = get_named_type(self, name)?;
+                if !matches!(&ty,Type::Param { ..}) && !ty.is_closed(){
+                    self.error(format!("Cannot use generic type \"{}\" without type args.",ty), name.location.start_line);
+                    return Err(TypeCheckFailed);
+                }
+                ty
             },
             ParsedType::NameWithArgs(name, args) => {
                 let ty = get_named_type(self, name)?;

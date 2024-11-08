@@ -135,6 +135,7 @@ impl Type{
             Type::Tuple(elements) => elements.iter().all(|ty| ty.is_closed()),
             Type::Function { generic_args, params, return_type } => 
                 generic_args.values().all(|ty| ty.is_closed()) && params.iter().all(|param| param.is_closed()) && return_type.is_closed(),
+            Type::Struct { generic_args, ..} => generic_args.values().all(|ty| ty.is_closed()),
             _ => true,
         }
     }
