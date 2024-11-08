@@ -198,7 +198,11 @@ pub enum PatternNodeKind{
     Int(i64),
     Float(f64),
     String(String),
-    Bool(bool)
+    Bool(bool),
+    Struct{
+        ty : Type,
+        fields : Vec<(String,PatternNode)>
+    }
 
 }
 #[derive(Clone,Debug)]

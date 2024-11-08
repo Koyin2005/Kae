@@ -2,9 +2,9 @@ use std::{collections::HashSet, rc::Rc};
 
 use indexmap::{IndexMap, IndexSet};
 
-use crate::frontend::{parsing::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedFunction, ParsedGenericArgs, ParsedGenericParam, ParsedGenericParams, ParsedLogicalOp, ParsedType, ParsedUnaryOp, PatternMatchArmNode, StmtNode, Symbol}, tokenizing::SourceLocation, typechecking::typed_ast::TypedPatternMatchArm};
+use crate::frontend::{parsing::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedFunction, ParsedGenericArgs, ParsedGenericParam, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PatternMatchArmNode, StmtNode, Symbol}, tokenizing::SourceLocation, typechecking::typed_ast::TypedPatternMatchArm};
 
-use super::{generics:: substitute, names::{Environment, Structs, ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedStmtNode, UnaryOp}, types::{FunctionId, GenericArgs, Type}};
+use super::{generics:: substitute, names::{Environment, Structs, ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedStmtNode, UnaryOp}, types::{FunctionId, GenericArgs, Type}};
 #[derive(Clone)]
 struct EnclosingFunction{
     return_type : Type
@@ -39,9 +39,81 @@ impl TypeChecker{
     }
     fn add_variables_in_pattern(&mut self,pattern:&PatternNode,ty:&Type){
         let mut variables = Vec::new();
-        PatternChecker::collect_variables_in_pattern(pattern,ty, &mut variables);
+        PatternChecker::collect_variables_in_pattern(pattern,ty, &mut variables,&self.structs);
         self.environment.add_variables(variables.into_iter().map(|(name_symbol,ty)| (name_symbol.content,ty)));
         
+    }
+    pub fn get_pattern(&mut self,pattern:&ParsedPatternNode) -> Result<PatternNode,TypeCheckFailed>{
+        let kind = match &pattern.kind{
+            ParsedPatternNodeKind::Name(name) => {
+                PatternNodeKind::Name(name.clone())
+            },
+            ParsedPatternNodeKind::Tuple(patterns) => {
+                let patterns = patterns.iter().map(|pattern| self.get_pattern(pattern)).collect::<Result<_,_>>()?;
+                PatternNodeKind::Tuple(patterns)
+            },
+            ParsedPatternNodeKind::Literal(literal) => {
+                match literal{
+                    LiteralKind::Int(int) => {
+                        PatternNodeKind::Int(*int)
+                    },
+                    LiteralKind::Float(float) => {
+                        PatternNodeKind::Float(*float)
+                    },
+                    LiteralKind::Bool(bool) => {
+                        PatternNodeKind::Bool(*bool)
+                    },
+                    LiteralKind::String(string) => {
+                        PatternNodeKind::String(string.clone())
+                    }
+                }
+            },
+            ParsedPatternNodeKind::Struct { name, generic_args, fields } => {
+                let ty = if let Some(generic_args)= generic_args.as_ref(){
+                    self.check_type(&ParsedType::NameWithArgs(name.clone(), generic_args.clone()))?
+                }
+                else{
+                    self.check_type(&ParsedType::Name(name.clone()))?
+                };
+                let Type::Struct { id, .. } = &ty else {
+                    self.error(format!("Can't use struct pattern with \"{}\" type.",ty), pattern.location.start_line);
+                    return Err(TypeCheckFailed);
+                };
+                let mut seen_fields = HashSet::new();
+                let fields = fields.iter().map(|(name,pattern)|{
+                    let Some(expected_type) = ty.get_field(&name.content, &self.structs) else {
+                        self.error(format!("'struct {}' has no field '{}'.",ty,name.content), name.location.start_line);
+                        return Err(TypeCheckFailed);
+                    };
+                    if !seen_fields.insert(&name.content){
+                        self.error(format!("Repeated field '{}' for pattern of type \"{}\".",name.content,ty), name.location.start_line);
+                        return Err(TypeCheckFailed);
+                    }
+                    let pattern = self.get_pattern(pattern)?;
+                    if let Err(_) = PatternChecker::check_pattern_type(&pattern, &expected_type,&self.structs){
+                        return Err(TypeCheckFailed)
+                    }
+
+                    Ok((name.content.clone(),pattern))
+                }).collect::<Result<Vec<_>,_>>()?;
+                if seen_fields.len() != self.structs.get_struct_info(id).unwrap().fields.len(){
+                    let field_names = self.structs.get_struct_info(id).unwrap().fields.iter().map(|(name,_)| name.clone()).collect::<Vec<_>>();
+                    self.missing_fields_error( |missing_field_count|
+                        if  missing_field_count == 1 {
+                        format!("Missing field pattern ")
+                        } else {
+                        format!("Missing field patterns ")}, 
+                        pattern.location, 
+                        field_names.iter(), 
+                        seen_fields, 
+                        &ty
+                    );
+                    return Err(TypeCheckFailed);
+                }
+                PatternNodeKind::Struct { ty, fields  }
+            }
+        };
+        Ok(PatternNode { location:pattern.location,kind })
     }
     fn value_scope_error(&mut self,name:&str,line:u32){
         self.error(format!("Cannot find value '{}' in scope.",name), line);
@@ -55,13 +127,13 @@ impl TypeChecker{
     }
     fn check_signature(&mut self,function:&ParsedFunction)->Result<TypedFunctionSignature,TypeCheckFailed>{
         let params = match function.params.iter().map(|param|{
-            let pattern = PatternChecker::get_pattern(&param.pattern)?;
+            let pattern = self.get_pattern(&param.pattern)?;
             if let Err(refutable_pattern) = PatternChecker::check_irrefutable(&pattern){
                 self.error("Can't use non-irrefutable pattern in function parameter.".to_string(), refutable_pattern.location.start_line);
                 return Err(TypeCheckFailed);
             }
             let ty = self.check_type(&param.ty)?;
-            if let Err(pattern_type) = PatternChecker::check_pattern_type(&pattern, &ty){
+            if let Err(pattern_type) = PatternChecker::check_pattern_type(&pattern, &ty,&self.structs){
                     self.type_mismatch_error(pattern.location.start_line,&ty, &pattern_type);
                     return Err(TypeCheckFailed);
             };
@@ -92,7 +164,7 @@ impl TypeChecker{
         let mut variable_names =  IndexSet::new();
         for (pattern,ty) in &signature.params{
             let mut variables = Vec::new();
-            PatternChecker::collect_variables_in_pattern(pattern, ty,&mut variables);
+            PatternChecker::collect_variables_in_pattern(pattern, ty,&mut variables,&self.structs);
             for name in variables.iter().map(|(name,_)| name){
                 if !variable_names.insert(name.content.clone()){
                     self.error(format!("Repeated parameter with name '{}'.",name.content),name.location.start_line);
@@ -139,6 +211,34 @@ impl TypeChecker{
         Ok((*element.clone(),lhs,rhs))
     }
 
+    fn missing_fields_error<'a>(&mut self,
+        start:impl Fn(usize)->String,
+        location : SourceLocation,
+        expected_fields : impl Iterator<Item = &'a String>,
+        seen_fields : HashSet<&String>,
+        struct_type : &Type
+    ){
+
+            let missing_fields : Vec<&String> = expected_fields.filter(|name|{
+                !seen_fields.contains(&name as &String)
+            }).collect();
+            let missing_field_count = missing_fields.len();
+            let mut error_string = start(missing_field_count);
+            for (i,field) in missing_fields.into_iter().enumerate(){
+                if i>0{
+                    if i==missing_field_count-1{
+                        error_string.push_str(" and ");
+                    }
+                    else{
+                        error_string.push_str(", ");
+                    }
+                }
+                error_string.push_str(&format!("'{}'",field));
+            }
+            error_string.push_str(&format!(" of struct \"{}\".",struct_type));
+            self.error(error_string, location.start_line);
+        
+    }
     fn check_value_in_scope(&mut self,name:&str,location : SourceLocation)->Result<Type,TypeCheckFailed>{
         if let Some((ty,kind)) = self.get_type_of_value(name){
             match kind{
@@ -152,7 +252,6 @@ impl TypeChecker{
             self.error(format!("Cannot find value '{}' in scope.",name), location.start_line);
             Err(TypeCheckFailed)
         }
-
     }
     fn infer_assignment_target(&mut self,assignment_target : &ParsedAssignmentTarget)->Result<TypedAssignmentTarget,TypeCheckFailed>{
         let (ty,kind) = match &assignment_target.kind{
@@ -278,8 +377,8 @@ impl TypeChecker{
     fn infer_match_expr_type(&mut self,location : SourceLocation,mut expected_type : Option<Type>,matchee:&ExprNode,arms:&[PatternMatchArmNode])->Result<TypedExprNode, TypeCheckFailed> {
             let matchee = self.infer_expr_type(matchee)?;
             let arms = arms.iter().map(|arm|{
-                let pattern = PatternChecker::get_pattern(&arm.pattern)?;
-                let pattern_type = match PatternChecker::check_pattern_type(&pattern,&matchee.ty){
+                let pattern = self.get_pattern(&arm.pattern)?;
+                let pattern_type = match PatternChecker::check_pattern_type(&pattern,&matchee.ty,&self.structs){
                     Ok(ty) => ty,
                     Err(pattern_type) => {
                         self.type_mismatch_error(pattern.location.start_line, &matchee.ty, &pattern_type);
@@ -289,7 +388,7 @@ impl TypeChecker{
                 
                 let old_env = self.begin_scope();
                 let mut variables = Vec::new();
-                PatternChecker::collect_variables_in_pattern(&pattern,&pattern_type, &mut variables);
+                PatternChecker::collect_variables_in_pattern(&pattern,&pattern_type, &mut variables,&self.structs);
                 self.environment.add_variables(variables.into_iter().map(|(name_symbol,ty)| (name_symbol.content,ty)));
                 let arm_expr = match self.infer_expr_type(&arm.expr){
                     Ok(arm_expr) => arm_expr,
@@ -304,7 +403,8 @@ impl TypeChecker{
                 self.end_scope(old_env);
                 Ok(TypedPatternMatchArm{ pattern,ty:pattern_type,expr:arm_expr,location:arm.location})
             }).collect::<Result<Vec<_>,_>>()?;
-            if !PatternChecker.is_exhaustive(&matchee.ty, &arms.iter().map(|TypedPatternMatchArm{pattern,..}| pattern).collect::<Box<_>>()){
+            
+            if !PatternChecker.is_exhaustive(&arms.iter().map(|TypedPatternMatchArm{pattern,..}| pattern).collect::<Box<_>>()){
                 self.error("Non exhaustive pattern match.".to_string(),location.start_line);
                 return Err(TypeCheckFailed);
             }
@@ -446,7 +546,6 @@ impl TypeChecker{
                     location,
                     types
                 } = &args;
-
                 let ty = if let Some(ty) = self.environment.get_function_type(name){
                     if !ty.is_unknown(){
                         ty.clone()
@@ -594,28 +693,12 @@ impl TypeChecker{
                     Ok((field_name.content.clone(),field_expr))
                 }).collect::<Result<Vec<_>,_>>()?;
                 if field_names_and_types.len() != seen_fields.len(){
-                    let missing_fields : Vec<&String> = field_names_and_types.keys().filter(|name|{
-                        !seen_fields.contains(name)
-                    }).collect();
-                    let missing_field_count = missing_fields.len();
-                    let mut error_string = if  missing_field_count == 1 {
+                    self.missing_fields_error( |missing_field_count|
+                        if  missing_field_count == 1 {
                         format!("Did not initialize field ")
                      } else {
                         format!("Did not initialize fields ")
-                    };
-                    for (i,field) in missing_fields.into_iter().enumerate(){
-                        if i>0{
-                            if i==missing_field_count-1{
-                                error_string.push_str(" and ");
-                            }
-                            else{
-                                error_string.push_str(", ");
-                            }
-                        }
-                        error_string.push_str(&format!("'{}'",field));
-                    }
-                    error_string.push_str(&format!(" of struct \"{}\".",struct_type));
-                    self.error(error_string, expr.location.start_line);
+                    }, expr.location, field_names_and_types.keys(), seen_fields, &struct_type);
                     return Err(TypeCheckFailed);
                 }
                 (struct_type,TypedExprNodeKind::StructInit { fields })
@@ -744,7 +827,7 @@ impl TypeChecker{
             },
             StmtNode::Let { pattern, expr ,ty} => {
 
-                let pattern = PatternChecker::get_pattern(pattern)?;
+                let pattern = self.get_pattern(pattern)?;
 
                 let ty = if let Some(ty) = ty.as_ref(){ self.check_type(ty).map(Some)} else {Ok(None)};
                 let expr = self.check_or_infer_expr_type(expr, ty.as_ref().ok().and_then(|ty| ty.as_ref()));
@@ -756,7 +839,7 @@ impl TypeChecker{
                         return Err(TypeCheckFailed);
                     },
                     (Err(_),Ok(expr)) => {
-                        let ty = match PatternChecker::check_pattern_type(&pattern,&expr.ty){
+                        let ty = match PatternChecker::check_pattern_type(&pattern,&expr.ty,&self.structs){
                             Ok(ty) => ty,
                             Err(ty) => {
                                 self.type_mismatch_error(pattern.location.start_line, &expr.ty, &ty);
@@ -767,7 +850,7 @@ impl TypeChecker{
                         return Err(TypeCheckFailed);
                     },
                     (Err(_)|Ok(None),Err(_)) => {
-                        let (Ok(ty)|Err(ty)) = PatternChecker::check_pattern_type(&pattern,&Type::Unknown);
+                        let (Ok(ty)|Err(ty)) = PatternChecker::check_pattern_type(&pattern,&Type::Unknown,&self.structs);
                         self.add_variables_in_pattern(&pattern, &ty);
                         return Err(TypeCheckFailed);
                     }
@@ -779,7 +862,7 @@ impl TypeChecker{
                     self.add_variables_in_pattern(&pattern, &ty);
                     return Err(TypeCheckFailed);
                 }
-                if let Err(pattern_type) =  PatternChecker::check_pattern_type(&pattern,&expr.ty){
+                if let Err(pattern_type) =  PatternChecker::check_pattern_type(&pattern,&expr.ty,&self.structs){
                     self.type_mismatch_error(pattern.location.start_line, &expr.ty, &pattern_type);
                     self.add_variables_in_pattern(&pattern, &pattern_type);
                     return Err(TypeCheckFailed);

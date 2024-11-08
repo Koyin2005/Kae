@@ -611,7 +611,46 @@ impl<'a> Parser<'a>{
     }
     fn pattern(&mut self)->Result<ParsedPatternNode,ParsingFailed>{
         let (location,kind) = if self.matches(TokenKind::Identifier){
-            (SourceLocation::one_line(self.prev_token.line),ParsedPatternNodeKind::Name(self.prev_token.lexeme.to_string()))
+            let name = self.prev_token;
+            let generic_args = if self.check(TokenKind::LeftBracket){
+                Some(self.parse_generic_args()?)
+            }
+            else{
+                None
+            };
+            if self.matches(TokenKind::LeftBrace){
+                let mut fields = Vec::new();
+                while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
+                    self.expect(TokenKind::Identifier, "Expect valid field patttern.");
+                    let field_name = self.prev_token;
+                    let field_name = Symbol{content:field_name.lexeme.to_string(),location:SourceLocation::one_line(field_name.line)};
+                    let field_pattern = if self.matches(TokenKind::Colon){
+                        self.pattern()?
+                    }
+                    else{
+                        ParsedPatternNode{
+                            location:field_name.location,
+                            kind:ParsedPatternNodeKind::Name(field_name.content.clone())
+                        }
+                    };
+                    fields.push((field_name,field_pattern));
+                    if !self.matches(TokenKind::Coma){
+                        break;
+                    }
+                }
+                self.expect(TokenKind::RightBrace, "Expect '}'.");
+                (SourceLocation::new(name.line,self.prev_token.line),
+                    ParsedPatternNodeKind::Struct {
+                        name: Symbol { content: name.lexeme.to_string(), location: SourceLocation::one_line(name.line) },
+                        generic_args, 
+                        fields
+                    }
+                )
+            }
+            else{
+                (SourceLocation::new(name.line,self.prev_token.line),ParsedPatternNodeKind::Name(name.lexeme.to_string()))
+
+            }
         }
         else if self.matches(TokenKind::LeftParen){
             let start = self.prev_token.line;

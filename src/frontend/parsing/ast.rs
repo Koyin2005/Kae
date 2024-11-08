@@ -17,6 +17,7 @@ pub enum ParsedAssignmentTargetKind {
         field : Symbol
     }
 }
+#[derive(Clone)]
 pub enum LiteralKind {
     Int(i64),
     Float(f64),
@@ -174,11 +175,21 @@ pub enum StmtNode{
         fields : Vec<(Symbol,ParsedType)>
     }
 }
+#[derive(Clone)]
 pub enum ParsedPatternNodeKind {
     Name(String),
     Tuple(Vec<ParsedPatternNode>),
     Literal(LiteralKind),
+    Struct{
+        name : Symbol,
+        generic_args : Option<ParsedGenericArgs>,
+        fields : Vec<(Symbol,ParsedPatternNode)>
+    }
 }
+
+
+
+#[derive(Clone)]
 pub struct ParsedPatternNode{
     pub location : SourceLocation,
     pub kind : ParsedPatternNodeKind

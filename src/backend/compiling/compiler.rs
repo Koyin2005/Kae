@@ -237,6 +237,18 @@ impl Compiler{
                     jumps
                 }
             },
+            PatternNodeKind::Struct { ty, fields } => {
+                fields.iter().enumerate().map(|(i,(field_name,pattern))|{
+                    let field_index = ty.get_field_index(&field_name, &self.structs).expect("Can only have valid fields");
+                    self.emit_instruction(Instruction::LoadField(field_index as u16),pattern.location.start_line);
+                    let jumps = self.compile_pattern_check(pattern);
+                    if i < fields.len()-1{
+                        self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
+                    }
+                    jumps
+                }).flatten().collect()
+            
+            },
             PatternNodeKind::Name(name) => {
                 self.define_name(name.clone(),pattern.location.end_line);
                 Vec::new()
@@ -507,6 +519,15 @@ impl Compiler{
                     self.emit_instruction(Instruction::Pop,line)
                 }
             },
+            PatternNodeKind::Struct { fields,ty } => {
+                for (field_name,field) in fields.iter(){
+                    let index = ty.get_field_index(field_name, &self.structs).expect("All fields should be checked");
+                    self.emit_instruction(Instruction::Copy(1), line);
+                    self.emit_instruction(Instruction::LoadField(index as u16), line);
+                    self.compile_pattern_assignment(field, ty, line);
+                }
+                self.emit_instruction(Instruction::Pop, line);
+            }
             _ => {}
         }
     }
