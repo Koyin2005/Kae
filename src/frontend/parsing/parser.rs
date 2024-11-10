@@ -86,6 +86,10 @@ impl<'a> Parser<'a>{
             self.error_at_current(message);
         }
     }
+    fn parse_identifer(&mut self,error_message:&str)->Symbol{
+        self.expect(TokenKind::Identifier, error_message);
+        Symbol { content: self.prev_token.lexeme.to_string(), location: SourceLocation::one_line(self.prev_token.line) }
+    }
     fn unary(&mut self)->Result<ExprNode,ParsingFailed>{
         let op = match self.prev_token.kind {
             TokenKind::Minus => ParsedUnaryOp::Negate,
@@ -447,8 +451,8 @@ impl<'a> Parser<'a>{
     }
     fn property(&mut self,left:ExprNode)->Result<ExprNode,ParsingFailed>{
         let start = self.prev_token.line;
-        self.expect(TokenKind::Identifier, "Expect a valid identifier.");
-        Ok(ExprNode { location: SourceLocation::new(start, self.prev_token.line), kind: ExprNodeKind::Property(Box::new(left), Symbol { content: self.prev_token.lexeme.to_string(), location: SourceLocation::one_line(self.prev_token.line) }) })
+        let property_symbol = self.parse_identifer("Expect valid property name.");
+        Ok(ExprNode { location: SourceLocation::new(start, self.prev_token.line), kind: ExprNodeKind::Property(Box::new(left), property_symbol) })
     }
     fn assign(&mut self,left:ExprNode)->Result<ExprNode,ParsingFailed>{
         
@@ -621,9 +625,7 @@ impl<'a> Parser<'a>{
             if self.matches(TokenKind::LeftBrace){
                 let mut fields = Vec::new();
                 while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
-                    self.expect(TokenKind::Identifier, "Expect valid field patttern.");
-                    let field_name = self.prev_token;
-                    let field_name = Symbol{content:field_name.lexeme.to_string(),location:SourceLocation::one_line(field_name.line)};
+                    let field_name = self.parse_identifer("Expect valid field name.");
                     let field_pattern = if self.matches(TokenKind::Colon){
                         self.pattern()?
                     }
@@ -744,8 +746,7 @@ impl<'a> Parser<'a>{
     }
     fn parse_generic_params(&mut self)->Result<ParsedGenericParams,ParsingFailed>{
         fn parse_generic_param(this:&mut Parser)->Result<ParsedGenericParam,ParsingFailed>{
-            this.expect(TokenKind::Identifier, "Expect valid generic parameter name.");
-            Ok(ParsedGenericParam(Symbol { content: this.prev_token.lexeme.to_string(), location: SourceLocation::one_line(this.prev_token.line) }))
+            Ok(ParsedGenericParam(this.parse_identifer("Expect valid generic parameter name.")))
         }
         let params = if self.check(TokenKind::RightBracket) { Vec::new() } else {
             let mut params = Vec::new();
@@ -759,6 +760,10 @@ impl<'a> Parser<'a>{
         };
         self.expect(TokenKind::RightBracket, "Expect ']' after generic parameters.");
         Ok(ParsedGenericParams(params))
+    }
+    fn enum_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
+        let name = self.parse_identifer("Expect valid enum name.");
+        todo!()
     }
     fn parse_struct_field(&mut self)->Result<(Symbol,ParsedType),ParsingFailed>{
         self.expect(TokenKind::Identifier, "Expect valid field name.");
