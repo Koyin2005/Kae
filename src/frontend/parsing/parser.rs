@@ -568,14 +568,8 @@ impl<'a> Parser<'a>{
     }
     fn parse_type(&mut self)->Result<ParsedType,ParsingFailed>{
         Ok(if self.matches(TokenKind::Identifier){
-            let name = self.prev_token;
-            if self.check(TokenKind::LeftBracket){
-                let generic_args = self.parse_generic_args()?;
-                ParsedType::NameWithArgs(Symbol{location: SourceLocation::one_line(name.line),content:name.lexeme.to_string()},generic_args)
-            }
-            else{
-                ParsedType::Name(Symbol{location: SourceLocation::one_line(name.line),content:name.lexeme.to_string()})
-            }
+            let path = self.parse_path()?;
+            ParsedType::Path(path)
         }
         else if self.matches(TokenKind::LeftBracket){
             let ty = self.parse_type()?;
