@@ -295,17 +295,17 @@ impl<'a> Parser<'a>{
             self.expect(TokenKind::RightBrace, "Expect '}' after struct fields.");
             Ok(ExprNode { 
                     location: SourceLocation::new(start, self.prev_token.line),
-                    kind: ExprNodeKind::StructInit { path, generic_args, fields } 
+                    kind: ExprNodeKind::StructInit { path, fields } 
                 })
         }
-        else if let Some(generic_args) = generic_args{
+        else if path.head.generic_args.is_none() && path.segments.is_empty(){
             Ok(ExprNode{
-                location:SourceLocation::new(line, generic_args.location.end_line),
-                kind:ExprNodeKind::GetGeneric(name.to_string(), generic_args)
+                location : path.head.location,
+                kind : ExprNodeKind::Get(path.head.name.content)
             })
         }
         else{
-            self.variable()
+            Ok(ExprNode{location:path.location,kind:ExprNodeKind::GetPath(path)})
         }
         
         
