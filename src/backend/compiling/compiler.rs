@@ -213,6 +213,15 @@ impl Compiler{
                 self.emit_instruction(Instruction::Equals, pattern.location.end_line);
             },
             PatternNodeKind::Array(before,ignore ,after ) => {
+
+                match ignore.as_ref(){
+                    Some(ignore) if before.is_empty() && after.is_empty() => {
+                        self.emit_instruction(Instruction::Pop, ignore.location.start_line);
+                        self.emit_instruction(Instruction::LoadBool(true), ignore.location.start_line);
+                        return;
+                    },
+                    _ => ()
+                }
                 let total_before_and_after_len = (before.len() + after.len()) as i64;
                 self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
                 self.emit_instruction(Instruction::GetArrayLength,pattern.location.start_line);
@@ -300,7 +309,7 @@ impl Compiler{
                         self.patch_jump(jump);
                     }
                     self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
-                    let field_index = ty.get_field_index(&field_name, &self.structs).expect("Can only have valid fields");
+                    let field_index = ty.get_field_index(field_name, &self.structs).expect("Can only have valid fields");
                     self.emit_instruction(Instruction::LoadField(field_index as u16),pattern.location.start_line);
                     self.compile_pattern_check(pattern);
                     jump = Some(self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line));
@@ -531,8 +540,7 @@ impl Compiler{
                     let mono_name = format!("{}{}",name,self.mono_counter);
                     self.mono_counter +=1 ;
                     sub_function(&mut monoed_function,&generic_function.generic_params.iter().cloned().zip(args.clone()).collect());
-                    let mut function_placeholder = Function::default();
-                    function_placeholder.name = mono_name;
+                    let  function_placeholder = Function { name: mono_name, ..Default::default()};
                     let function_constant_index = self.add_constant(Constant::Function(Rc::new(function_placeholder)));
                     self.generic_functions[index].monos.push((name.clone(),function_constant_index));
                     self.compile_function(&monoed_function, name,Some(function_constant_index));
