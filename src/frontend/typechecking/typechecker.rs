@@ -93,7 +93,7 @@ impl TypeChecker{
                         return Err(TypeCheckFailed);
                     }
                     let pattern = self.get_pattern(pattern)?;
-                    if let Err(_) = PatternChecker::check_pattern_type(&pattern, &expected_type,&self.structs){
+                    if PatternChecker::check_pattern_type(&pattern, &expected_type,&self.structs).is_err(){
                         return Err(TypeCheckFailed)
                     }
 
@@ -103,9 +103,10 @@ impl TypeChecker{
                     let field_names = self.structs.get_struct_info(id).unwrap().fields.iter().map(|(name,_)| name.clone()).collect::<Vec<_>>();
                     self.missing_fields_error( |missing_field_count|
                         if  missing_field_count == 1 {
-                        format!("Missing field pattern ")
-                        } else {
-                        format!("Missing field patterns ")}, 
+                            "Missing field pattern ".to_string()
+                            } else {
+                            "Missing field patterns ".to_string()
+                        }, 
                         pattern.location, 
                         field_names.iter(), 
                         seen_fields, 
@@ -117,7 +118,7 @@ impl TypeChecker{
             },
             ParsedPatternNodeKind::Array(before, ignore, after) => {
                 let before = before.iter().map(|pattern| self.get_pattern(pattern)).collect::<Result<Vec<_>,_>>()?;
-                let ignore = ignore.as_ref().map(|ignore|self.get_pattern(&ignore)).map_or(Ok(None), |result| result.map(|value| Some(Box::new(value))))?;
+                let ignore = ignore.as_ref().map(|ignore|self.get_pattern(ignore)).map_or(Ok(None), |result| result.map(|value| Some(Box::new(value))))?;
                 let after = after.iter().map(|pattern| self.get_pattern(pattern)).collect::<Result<Vec<_>,_>>()?;
                 PatternNodeKind::Array(before, ignore, after)
             }
@@ -229,7 +230,7 @@ impl TypeChecker{
     ){
 
             let missing_fields : Vec<&String> = expected_fields.filter(|name|{
-                !seen_fields.contains(&name as &String)
+                !seen_fields.contains(name as &String)
             }).collect();
             let missing_field_count = missing_fields.len();
             let mut error_string = start(missing_field_count);
@@ -704,9 +705,9 @@ impl TypeChecker{
                 if field_names_and_types.len() != seen_fields.len(){
                     self.missing_fields_error( |missing_field_count|
                         if  missing_field_count == 1 {
-                        format!("Did not initialize field ")
+                       "Did not initialize field ".to_string()
                      } else {
-                        format!("Did not initialize fields ")
+                        "Did not initialize fields ".to_string()
                     }, expr.location, field_names_and_types.keys(), seen_fields, &struct_type);
                     return Err(TypeCheckFailed);
                 }

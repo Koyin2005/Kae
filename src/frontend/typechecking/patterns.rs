@@ -68,7 +68,7 @@ impl PatternChecker{
             PatternNodeKind::Array(before,_ ,after) => {
                 if let Type::Array(element_type) = expected_type{
                     if before.iter().all(|pattern| Self::check_pattern_type(pattern, element_type, structs).is_ok()) &&
-                        after.iter().all(|after| Self::check_pattern_type(after, &element_type, structs).is_ok()){
+                        after.iter().all(|after| Self::check_pattern_type(after, element_type, structs).is_ok()){
                             expected_type.clone()
                     }
                     else{
@@ -102,7 +102,7 @@ impl PatternChecker{
             },
             PatternNodeKind::Struct { ty, fields } => {
                 if fields.iter().all(|(field_name,field_pattern)| {
-                    Self::check_pattern_type(field_pattern, &ty.get_field(&field_name, structs).expect("Can't construct struct pattern with invalid fields"), structs).is_ok()
+                    Self::check_pattern_type(field_pattern, &ty.get_field(field_name, structs).expect("Can't construct struct pattern with invalid fields"), structs).is_ok()
                 }){
                     ty.clone()
                 }

@@ -647,14 +647,13 @@ impl<'a> Parser<'a>{
                     }
                 )
             }
-            else{
-                if name.lexeme.chars().all(|char| char == '_'){
-                    (SourceLocation::new(name.line,self.prev_token.line),ParsedPatternNodeKind::Wildcard)
-                }
-                else{
-                    (SourceLocation::new(name.line,self.prev_token.line),ParsedPatternNodeKind::Name(name.lexeme.to_string()))
-                }
+            else if name.lexeme.chars().all(|char| char == '_'){
+                (SourceLocation::new(name.line,self.prev_token.line),ParsedPatternNodeKind::Wildcard)
             }
+            else{
+                (SourceLocation::new(name.line,self.prev_token.line),ParsedPatternNodeKind::Name(name.lexeme.to_string()))
+            }
+            
         }
         else if self.matches(TokenKind::LeftBracket){
             let start = self.prev_token.line;
