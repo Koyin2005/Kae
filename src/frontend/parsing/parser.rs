@@ -309,9 +309,6 @@ impl<'a> Parser<'a>{
         
         
     }
-    fn variable(&self)->Result<ExprNode,ParsingFailed>{
-        Ok(ExprNode { location: SourceLocation::one_line(self.prev_token.line), kind: ExprNodeKind::Get(self.prev_token.lexeme.to_string()) })
-    }
     fn typename(&mut self) -> Result<ExprNode,ParsingFailed>{
         let line = self.prev_token.line;
         self.expect(TokenKind::LeftParen, "Expect '('.");
