@@ -609,6 +609,9 @@ impl Compiler{
             },
             PatternNodeKind::Wildcard => {
                 self.emit_instruction(Instruction::Pop, line);
+            },
+            PatternNodeKind::Array(before, ignore, after) if before.is_empty() && after.is_empty() && ignore.is_some() => {
+                self.emit_instruction(Instruction::Pop, line);
             }
             _ => {}
         }
