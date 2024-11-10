@@ -212,11 +212,10 @@ pub struct Symbol{
 
 #[derive(Clone)]
 pub enum ParsedType{
-    Name(Symbol),
+    Path(ParsedPath),
     Array(Box<ParsedType>),
     Tuple(Vec<ParsedType>),
     Fun(Vec<ParsedType>,Option<Box<ParsedType>>),
-    NameWithArgs(Symbol,ParsedGenericArgs),
 }
 
 pub struct ParsedParam{
