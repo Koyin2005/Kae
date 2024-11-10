@@ -32,7 +32,7 @@ pub struct PatternMatchArmNode{
 pub enum ExprNodeKind {
     Literal(LiteralKind),
     Get(String),
-    GetGeneric(String,ParsedGenericArgs),
+    GetPath(ParsedPath),
     BinaryOp{
         op : ParsedBinaryOp,
         left : Box<ExprNode>,
