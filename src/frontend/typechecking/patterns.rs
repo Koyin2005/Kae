@@ -112,7 +112,7 @@ impl PatternChecker{
             }
 
         };
-        if &ty != expected_type && !expected_type.is_unknown(){
+        if &ty != expected_type && !expected_type.is_unknown() &&  !matches!((expected_type,&ty),(Type::Enum { id, .. },Type::EnumVariant { id:variant_id, .. }) if *id == *variant_id){
             Self.error(format!("Expected \"{}\" got \"{}\"",expected_type,ty), pattern.location.start_line);
             return Err(ty);
             

@@ -57,10 +57,12 @@ pub struct EnumId(usize);
 #[derive(Clone)]
 pub struct EnumVariant{
     pub discrim : usize,
+    pub name : String,
     pub fields : Vec<(String,Type)>,
 }
 #[derive(Clone)]
 pub struct Enum{
+    pub name : String,
     pub variants : Vec<EnumVariant>
 }
 #[derive(Clone,Default)]
@@ -68,11 +70,11 @@ pub struct Enums{
     enums : Vec<Enum>
 }
 impl Enums{
-    pub fn define_enum(&mut self,variants : Vec<EnumVariant> )->EnumId{
-        self.enums.push(Enum { variants });
+    pub fn define_enum(&mut self,name:String,variants : Vec<EnumVariant> )->EnumId{
+        self.enums.push(Enum { name,variants });
         EnumId(self.enums.len()-1)
     }
-    pub fn get_enum(&mut self,enum_id:EnumId)->&Enum{
+    pub fn get_enum(&self,enum_id:EnumId)->&Enum{
         &self.enums[enum_id.0]
     }
     pub fn update_enum(&mut self,enum_id:EnumId,mut update : impl FnMut(&mut Enum)){
@@ -133,6 +135,11 @@ pub enum Type {
         id : EnumId,
         name : String
     },
+    EnumVariant{
+        id : EnumId,
+        name : String,
+        variant_index : usize,
+    },
     Unknown,
 
 }
@@ -159,8 +166,11 @@ impl PartialEq for Type{
             (Type::Struct { generic_args, id, .. },Type::Struct { generic_args:other_generic_args, id:other_id,.. }) => {
                 id == other_id && generic_args.values().zip(other_generic_args.values()).all(|(arg,other_arg)| arg == other_arg)
             },
-            (_,_) => false,
-
+            (Type::Enum { id, .. },Type::Enum { id:other_id,.. }) => id == other_id,
+            
+            (Type::EnumVariant { id, variant_index,.. },Type::EnumVariant { id:other_id,variant_index:other_index,.. }) => 
+                id == other_id && variant_index == other_index,
+            (_,_) => false
         }
     }
 }
@@ -173,6 +183,10 @@ impl Type{
                     .map(|(index,_)| {
                         index
                 }))
+            },
+            (Type::EnumVariant { id,  variant_index,.. },field_name) => {
+                type_context.enums.get_enum(*id).variants[*variant_index].fields.iter().position(|(field,_)| field ==  field_name).map(|index| index+1)
+                    
             }
             _ => None
         }
@@ -188,6 +202,10 @@ impl Type{
                         let ty = ty.clone();
                         if !generic_args.is_empty() { substitute(ty, generic_args)} else { ty }
                 }))
+            },
+            (Type::EnumVariant { id,  variant_index,.. },field_name) => {
+                type_context.enums.get_enum(*id).variants[*variant_index].fields.iter().find(|(field,_)| field ==  field_name).map(|(_,ty)| ty.clone())
+                    
             }
             _ => None
         }
@@ -259,6 +277,9 @@ impl Display for Type{
             Type::Param { name ,..} => write!(f,"{}",name),
             Type::Unknown => write!(f,"_"),
             Type::Enum {name,.. } => {
+                write!(f,"{}",name)
+            },
+            Type::EnumVariant {name,.. } => {
                 write!(f,"{}",name)
             }
             Type::Struct { generic_args, name,.. } => {

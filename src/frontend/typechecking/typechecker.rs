@@ -2,9 +2,9 @@ use std::{collections::HashSet, rc::Rc};
 
 use indexmap::{IndexMap, IndexSet};
 
-use crate::frontend::{parsing::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedFunction, ParsedGenericArgs, ParsedGenericParam, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PatternMatchArmNode, StmtNode, Symbol}, tokenizing::SourceLocation, typechecking::typed_ast::{TypedEnumVariant, TypedPatternMatchArm}};
+use crate::frontend::{parsing::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedFunction, ParsedGenericArgs, ParsedGenericParam, ParsedGenericParams, ParsedLogicalOp, ParsedPath, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PatternMatchArmNode, StmtNode, Symbol}, tokenizing::SourceLocation, typechecking::typed_ast::{TypedEnumVariant, TypedPatternMatchArm}};
 
-use super::{generics:: substitute, names::{ Environment,ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedStmtNode, UnaryOp}, types::{FunctionId, GenericArgs, Type, TypeContext, EnumVariant}};
+use super::{generics:: substitute, names::{ Environment,ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedStmtNode, UnaryOp}, types::{EnumVariant, FunctionId, GenericArgs, Type, TypeContext}};
 #[derive(Clone)]
 struct EnclosingFunction{
     return_type : Type
@@ -73,14 +73,24 @@ impl TypeChecker{
             },
             ParsedPatternNodeKind::Struct { path, fields } => {
                 let ty = self.check_type(&ParsedType::Path(path.clone()))?;
-                let Type::Struct { id, .. } = &ty else {
-                    self.error(format!("Can't use struct pattern with \"{}\" type.",ty), pattern.location.start_line);
-                    return Err(TypeCheckFailed);
+
+                
+                let field_names_and_types = match &ty{
+                    Type::Struct {  id, .. } => {
+                        self.type_context.structs.get_struct_info(id).unwrap().fields.clone()
+                    },
+                    Type::EnumVariant { id, variant_index,.. } => {
+                        self.type_context.enums.get_enum(*id).variants[*variant_index].fields.clone()
+                    }
+                    _ => {
+                        self.error(format!("Can't use struct pattern with \"{}\" type.",ty), pattern.location.start_line);
+                        return Err(TypeCheckFailed);
+                    }
                 };
                 let mut seen_fields = HashSet::new();
                 let fields = fields.iter().map(|(name,pattern)|{
                     let Some(expected_type) = ty.get_field(&name.content, &self.type_context) else {
-                        self.error(format!("'struct {}' has no field '{}'.",ty,name.content), name.location.start_line);
+                        self.error(format!("\"{}\" has no field '{}'.",ty,name.content), name.location.start_line);
                         return Err(TypeCheckFailed);
                     };
                     if !seen_fields.insert(&name.content){
@@ -94,8 +104,8 @@ impl TypeChecker{
 
                     Ok((name.content.clone(),pattern))
                 }).collect::<Result<Vec<_>,_>>()?;
-                if seen_fields.len() != self.type_context.structs.get_struct_info(id).unwrap().fields.len(){
-                    let field_names = self.type_context.structs.get_struct_info(id).unwrap().fields.iter().map(|(name,_)| name.clone()).collect::<Vec<_>>();
+                if seen_fields.len() != field_names_and_types.len(){
+                    let field_names = field_names_and_types.iter().map(|(name,_)| name.clone()).collect::<Vec<_>>();
                     self.missing_fields_error( |missing_field_count|
                         if  missing_field_count == 1 {
                             "Missing field pattern ".to_string()
@@ -419,6 +429,33 @@ impl TypeChecker{
                 kind : TypedExprNodeKind::Match { matchee:Box::new(matchee), arms }
             })
     }
+
+    fn infer_variable_expr_type(&mut self,location : SourceLocation,name:&String)->Result<(Type,TypedExprNodeKind),TypeCheckFailed>{
+        
+        match self.get_type_of_value(name){
+            Some((ty,kind)) => {
+                if let (Some(args),ValueKind::Function) = (ty.get_generic_args(),kind){
+                    if args.is_empty(){
+                        Ok((ty,TypedExprNodeKind::Get(name.clone())))
+                    }
+                    else{
+                        self.error(format!("Cannot use generic function '{}' without generic arguments.",name), location.start_line);
+                        return Err(TypeCheckFailed);
+                    }
+                }
+                else if !ty.is_unknown(){
+                    Ok((ty.clone(),TypedExprNodeKind::Get(name.clone())))
+                }
+                else{
+                    return Err(TypeCheckFailed);
+                }
+            },
+            None =>  {
+                self.value_scope_error(name, location.start_line);
+                return Err(TypeCheckFailed);
+            }
+        }
+    }
     fn infer_expr_type(&mut self,expr:&ExprNode)->Result<TypedExprNode,TypeCheckFailed>{
         let (ty,kind) = match &expr.kind{
             ExprNodeKind::Array(elements) => {
@@ -513,29 +550,7 @@ impl TypeChecker{
                 self.infer_or_check_block_expr_type(stmts, expr.as_ref().map(|expr| expr.as_ref()), None)?
             },
             ExprNodeKind::Get(name) => {
-                match self.get_type_of_value(name){
-                    Some((ty,kind)) => {
-                        if let (Some(args),ValueKind::Function) = (ty.get_generic_args(),kind){
-                            if args.is_empty(){
-                                (ty,TypedExprNodeKind::Get(name.clone()))
-                            }
-                            else{
-                                self.error(format!("Cannot use generic function '{}' without generic arguments.",name), expr.location.start_line);
-                                return Err(TypeCheckFailed);
-                            }
-                        }
-                        else if !ty.is_unknown(){
-                            (ty.clone(),TypedExprNodeKind::Get(name.clone()))
-                        }
-                        else{
-                            return Err(TypeCheckFailed);
-                        }
-                    },
-                    None =>  {
-                        self.value_scope_error(name, expr.location.start_line);
-                        return Err(TypeCheckFailed);
-                    }
-                }
+                self.infer_variable_expr_type(expr.location, name)?
             },
             ExprNodeKind::Match { matchee, arms } => {
                 let TypedExprNode { ty, kind,.. } =  self.infer_match_expr_type(expr.location, None, matchee, arms)?;
@@ -546,37 +561,103 @@ impl TypeChecker{
                 let function = self.check_function(function,signature)?;
                 (Type::Function { generic_args:GenericArgs::default(), params: function.signature.params.iter().map(|(_,ty)| ty.clone()).collect(), return_type:Box::new(function.signature.return_type.clone()) },TypedExprNodeKind::Function(function))
             },
-            ExprNodeKind::GetGeneric(name, args) => {
-                let ParsedGenericArgs{
-                    location,
-                    types
-                } = &args;
-                let ty = if let Some(ty) = self.environment.get_function_type(name){
-                    if !ty.is_unknown(){
-                        ty.clone()
+            ExprNodeKind::GetPath(path) => {
+                let head = &path.head;
+                let head_name = path.head.name.content.clone();
+                match path.generic_args.as_ref() {
+                    Some(args) if path.segments.is_empty() => {
+                        let ParsedGenericArgs{
+                            location,
+                            types
+                        } = args;
+                        let ty = if let Some(ty) = self.environment.get_function_type(&head_name){
+                            if !ty.is_unknown(){
+                                ty.clone()
+                            }
+                            else{
+                                return Err(TypeCheckFailed);
+                            }
+                        }
+                        else {
+                            self.error(format!("Cannot find generic function '{}' in scope.",head_name), expr.location.start_line);
+                            return Err(TypeCheckFailed);
+                        };
+                        let args = types.iter().map(|ty| self.check_type(ty)).collect::<Result<Vec<Type>,_>>()?;
+                        let Some(mut params) = ty.get_generic_args() else{
+                            self.error(format!("Cannot apply generic args to non-generic type \"{}\".",ty),location.start_line);
+                            return Err(TypeCheckFailed);
+                        };
+                        if args.len() != params.len(){
+                            self.error(format!("Expected '{}' generic args got '{}'.",params.len(),args.len()), location.start_line);
+                            return Err(TypeCheckFailed);
+                        }
+                        for (value,ty) in params.values_mut().zip(args.iter().cloned()){
+                            *value = ty;
+                        }
+        
+                        (substitute(ty,&params),TypedExprNodeKind::GetGeneric{name:head.name.content.clone(), args })
+                    },
+                    
+                    Some(args) => {
+                        let ParsedGenericArgs{
+                            location,
+                            types
+                        } = args;
+                        let ty = if let Some(ty) = self.environment.get_type(&head.name.content){
+                            if !ty.is_unknown(){
+                                ty.clone()
+                            }
+                            else{
+                                return Err(TypeCheckFailed);
+                            }
+                        }
+                        else {
+                            self.error(format!("Cannot find type '{}' in scope.",head_name), expr.location.start_line);
+                            return Err(TypeCheckFailed);
+                        };
+                        let args = types.iter().map(|ty| self.check_type(ty)).collect::<Result<Vec<Type>,_>>()?;
+                        let Some(mut params) = ty.get_generic_args() else{
+                            self.error(format!("Cannot apply generic args to non-generic type \"{}\".",ty),location.start_line);
+                            return Err(TypeCheckFailed);
+                        };
+                        if args.len() != params.len(){
+                            self.error(format!("Expected '{}' generic args got '{}'.",params.len(),args.len()), location.start_line);
+                            return Err(TypeCheckFailed);
+                        }
+                        for (value,ty) in params.values_mut().zip(args.iter().cloned()){
+                            *value = ty;
+                        }
+                        todo!("Add support for generic path types")
+                    },
+                    None if path.segments.is_empty() => {
+                        self.infer_variable_expr_type(head.location, &head.name.content)?
                     }
-                    else{
-                        return Err(TypeCheckFailed);
+                    None => {
+                        if let Some(ty) = self.environment.get_type(&head.name.content){
+                            let ty = if !ty.is_unknown(){
+                                ty.clone()
+                            }
+                            else{
+                                return Err(TypeCheckFailed);
+                            };
+                            self.error(format!("Expected an expression got type \"{}\".",ty), head.location.start_line);
+                            return Err(TypeCheckFailed);
+                        }
+                        else{
+                            let (mut ty,mut expr) = self.infer_variable_expr_type(head.location, &head_name)?;
+                            for segment in &path.segments{
+                                let property = segment.name.clone();
+                                let Some(property_type) = ty.get_field(&property.content,&self.type_context) else{
+                                    self.error(format!("\"{}\" has no field or method.",property.content),property.location.start_line);
+                                    return Err(TypeCheckFailed);
+                                };
+                                let location = property.location;
+                                (ty,expr) = (property_type,TypedExprNodeKind::Field(Box::new(TypedExprNode { location, ty, kind:expr }), property.clone()));
+                            }
+                            (ty,expr)
+                        }
                     }
                 }
-                else {
-                    self.error(format!("Cannot find generic function '{}' in scope.",name), expr.location.start_line);
-                    return Err(TypeCheckFailed);
-                };
-                let args = types.iter().map(|ty| self.check_type(ty)).collect::<Result<Vec<Type>,_>>()?;
-                let Some(mut params) = ty.get_generic_args() else{
-                    self.error(format!("Cannot apply generic args to non-generic type \"{}\".",ty),location.start_line);
-                    return Err(TypeCheckFailed);
-                };
-                if args.len() != params.len(){
-                    self.error(format!("Expected '{}' generic args got '{}'.",params.len(),args.len()), location.start_line);
-                    return Err(TypeCheckFailed);
-                }
-                for (value,ty) in params.values_mut().zip(args.iter().cloned()){
-                    *value = ty;
-                }
-
-                (substitute(ty,&params),TypedExprNodeKind::GetGeneric{name:name.clone(), args })
             },
             ExprNodeKind::Logical { op, left, right } => {
                 let op = match op {
@@ -669,25 +750,36 @@ impl TypeChecker{
                 };
                 (property_type,TypedExprNodeKind::Field(Box::new(lhs), property.clone()))
             },
-            ExprNodeKind::StructInit { name, generic_args, fields } => {
-                let struct_type = self.check_type(&if let Some(generic_args)=  generic_args.as_ref().cloned(){
-                    ParsedType::NameWithArgs(name.clone(), generic_args) 
-                } else {
-                    ParsedType::Name(name.clone())
-                })?;
+            ExprNodeKind::StructInit { path , fields } => {
+                let mut ty = self.check_type(&ParsedType::Path(path.clone()))?;
+                
 
-                let Type::Struct { generic_args, id, name } = struct_type.clone() else {
-                    self.error(format!("Expected a 'struct' type got, \"{}\".",struct_type), name.location.start_line);
-                    return Err(TypeCheckFailed);
+                let (kind,name,field_names_and_types,error_type) = match ty.clone(){
+                    Type::Struct { generic_args, id, name } => {
+                        
+                        let struct_info = self.type_context.structs.get_struct_info(&id).expect("Can only use valid struct ids");
+                        let field_names_and_types = struct_info.fields.iter().cloned().map(|(name,ty)| (name,substitute(ty, &generic_args))).collect::<IndexMap<_,_>>();
+                        
+                        (InitKind::Struct(id),name,field_names_and_types,ty.clone())
+                    },
+                    Type::EnumVariant { id, name, variant_index } => {
+                        let variant = &self.type_context.enums.get_enum(id).variants[variant_index];
+                        let fields = variant.fields.clone();
+                        let display_type = ty.clone();
+                        ty = Type::Enum { id, name: self.type_context.enums.get_enum(id).name.clone() };
+                        (InitKind::Variant(id, variant_index),name,fields.into_iter().collect(),display_type)
+                    }
+                    _ => {
+                        self.error(format!("Expected a 'struct' type got, \"{}\".",ty), path.location.start_line);
+                        return Err(TypeCheckFailed);
+                    }
                 };
-
-                let struct_info = self.type_context.structs.get_struct_info(&id).expect("Can only use valid struct ids");
-                let field_names_and_types = struct_info.fields.iter().cloned().map(|(name,ty)| (name,substitute(ty, &generic_args))).collect::<IndexMap<_,_>>();
+                
                 let mut seen_fields = HashSet::new();
                 let fields = fields.iter().map(|(field_name,field_expr)|{
 
                     let Some(ty) = field_names_and_types.get(&field_name.content) else {
-                        self.error(format!("'struct' {}, has no field '{}'.",name,field_name.content), field_name.location.start_line);
+                        self.error(format!("\"{}\", has no field '{}'.",name,field_name.content), field_name.location.start_line);
                         return Err(TypeCheckFailed);
                     };
                     if !seen_fields.insert(&field_name.content){
@@ -703,17 +795,75 @@ impl TypeChecker{
                        "Did not initialize field ".to_string()
                      } else {
                         "Did not initialize fields ".to_string()
-                    }, expr.location, field_names_and_types.keys(), seen_fields, &struct_type);
+                    }, expr.location, field_names_and_types.keys(), seen_fields, &error_type);
                     return Err(TypeCheckFailed);
                 }
-                (struct_type,TypedExprNodeKind::StructInit { id,fields })
+                (ty,TypedExprNodeKind::StructInit { kind,fields })
             }
 
         };
         Ok(TypedExprNode { location: expr.location, ty, kind })
     }
-
     fn check_type(&mut self,ty:&ParsedType)->Result<Type,TypeCheckFailed>{
+        fn get_type_at_path(this:&mut TypeChecker,path:&ParsedPath)->Result<Type,TypeCheckFailed>{
+            
+            let ty = get_named_type(this, &path.head.name)?;
+            let ty = match path.generic_args.as_ref(){
+                Some(args) if path.segments.is_empty() => {
+                    let generic_args = args.types.iter().map(|ty| this.check_type(ty)).collect::<Result<Vec<_>,_>>()?;
+                    let expected_args = match &ty { 
+                        Type::Struct { generic_args, .. } if generic_args.values().all(|ty| !ty.is_closed()) => {
+                            generic_args
+                        },
+                        ty => {
+                            this.error(format!("Cannot apply generic args to non-generic type \"{}\".",ty), args.location.start_line);
+                            return Err(TypeCheckFailed);
+                        }
+                    };
+                    if generic_args.len() != expected_args.len(){
+                        this.error(format!("Expected '{}' generic args, but got '{}'.",expected_args.len(),generic_args.len()),args.location.start_line);
+                        return Err(TypeCheckFailed);
+                    }
+                    let subbed_generic_args = expected_args.keys().zip(generic_args).map(|(name,ty)|{
+                        (*name,ty)
+                    }).collect();
+                    substitute(ty, &subbed_generic_args)
+                },
+                None if path.segments.is_empty() => {
+                    if !matches!(&ty,Type::Param { ..}) && !ty.is_closed(){
+                        this.error(format!("Cannot use generic type \"{}\" without type args.",ty), path.head.location.start_line);
+                        return Err(TypeCheckFailed);
+                    }
+                    ty
+                },
+                Some(generic_args) => {
+                    this.error("Generic enums are not supported.".to_string(),generic_args.location.start_line);
+                    return Err(TypeCheckFailed);
+                },
+                None => {
+                    let mut ty = ty;
+                    for segment in &path.segments{
+                        let segment_name = segment.name.content.clone();
+                        let mut result_ty = None;
+                        if let Type::Enum { id, .. } = &ty{
+                            if let Some(variant) = this.type_context.enums.get_enum(*id).variants.iter().find(|variant| variant.name == segment_name){
+                                result_ty = Some(Type::EnumVariant { id:*id, name: variant.name.clone(), variant_index: variant.discrim })
+                            }
+                        }
+                        ty = if let Some(result_ty) = result_ty{
+                            result_ty
+                        }
+                        else{
+                            this.error(format!("\"{}\" does not have variant '{}'.",ty,segment.name.content), segment.location.start_line);
+                            return Err(TypeCheckFailed);
+                        }
+
+                    }
+                    ty
+                }
+            };
+            Ok(ty)
+        }
         fn get_named_type(this:&mut TypeChecker,name:&Symbol)->Result<Type,TypeCheckFailed>{
 
             Ok(match &name.content as &str{
@@ -737,34 +887,8 @@ impl TypeChecker{
             })
         }
         let ty = match ty{
-            ParsedType::Name(name) => {
-                let ty = get_named_type(self, name)?;
-                if !matches!(&ty,Type::Param { ..}) && !ty.is_closed(){
-                    self.error(format!("Cannot use generic type \"{}\" without type args.",ty), name.location.start_line);
-                    return Err(TypeCheckFailed);
-                }
-                ty
-            },
-            ParsedType::NameWithArgs(name, args) => {
-                let ty = get_named_type(self, name)?;
-                let generic_args = args.types.iter().map(|ty| self.check_type(ty)).collect::<Result<Vec<_>,_>>()?;
-                let expected_args = match &ty { 
-                    Type::Struct { generic_args, .. } if generic_args.values().all(|ty| !ty.is_closed()) => {
-                        generic_args
-                    },
-                    ty => {
-                        self.error(format!("Cannot apply generic args to non-generic type \"{}\".",ty), args.location.start_line);
-                        return Err(TypeCheckFailed);
-                    }
-                };
-                if generic_args.len() != expected_args.len(){
-                    self.error(format!("Expected '{}' generic args, but got '{}'.",expected_args.len(),generic_args.len()),args.location.start_line);
-                    return Err(TypeCheckFailed);
-                }
-                let subbed_generic_args = expected_args.keys().zip(generic_args).map(|(name,ty)|{
-                    (*name,ty)
-                }).collect();
-                substitute(ty, &subbed_generic_args)
+            ParsedType::Path(path) => {
+                get_type_at_path(self,path)?
             },
             ParsedType::Array(element_type) => {
                 Type::Array(Box::new(self.check_type(element_type)?))
@@ -986,8 +1110,8 @@ impl TypeChecker{
                     return Err(TypeCheckFailed);
                 }
 
-                let id = self.type_context.enums.define_enum(Vec::new());
-                self.environment.add_type(enum_name.clone(), Type::Enum { id, name: enum_name.clone()});                
+                let id = self.type_context.enums.define_enum(enum_name.clone(),Vec::new());
+                self.environment.add_type(enum_name.clone(), Type::Enum { id, name: enum_name});                
                 let variants = {
                     let mut seen_variant_names = HashSet::new();
                     let variants = variants.iter().map(|variant|{
@@ -1015,6 +1139,7 @@ impl TypeChecker{
                     enum_.variants = variants.iter().enumerate().map(|(i,variant)|{
                         EnumVariant{
                             discrim:i,
+                            name : variant.name.content.clone(),
                             fields:variant.fields.iter().map(|(field_name,ty)|{(field_name.content.clone(),ty.clone())}).collect()
                         }
                     }).collect();

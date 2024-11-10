@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, values::Function}, frontend::typechecking::{ substituter::{sub_function, sub_name}, typechecker::GenericTypeId, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{TypeContext,Type}}};
+use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, values::Function}, frontend::typechecking::{ substituter::{sub_function, sub_name}, typechecker::GenericTypeId, typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{Type, TypeContext}}};
 
 
 struct Local{
@@ -300,26 +300,31 @@ impl Compiler{
                 }
             },
             PatternNodeKind::Struct { ty, fields } => {
-                let mut jump = None;
+                let mut jumps = Vec::new();
+                if let Type::EnumVariant {  variant_index,.. } = ty{
+                    self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
+                    self.emit_instruction(Instruction::LoadField(0), pattern.location.start_line);
+                    self.load_int(*variant_index as i64, pattern.location.start_line);
+                    self.emit_instruction(Instruction::Equals, pattern.location.start_line);
+                    jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.start_line));
+                }
                 for (field_name,pattern) in fields{
-                    if let Some(jump) = jump{
-                        self.patch_jump(jump);
-                    }
                     self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
                     let field_index = ty.get_field_index(field_name, &self.type_context).expect("Can only have valid fields");
                     self.emit_instruction(Instruction::LoadField(field_index as u16),pattern.location.start_line);
                     self.compile_pattern_check(pattern);
-                    jump = Some(self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line));
+                    jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line));
                     
                 }
                 self.emit_instruction(Instruction::Pop, pattern.location.end_line);
                 self.emit_instruction(Instruction::LoadBool(true), pattern.location.end_line);
-                if let Some(jump) = jump{
-                    let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
+                let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
+                for jump in jumps{
                     self.patch_jump(jump);
-                    self.emit_instruction(Instruction::LoadBool(false), pattern.location.end_line);
-                    self.patch_jump(end_jump);
                 }
+                self.emit_instruction(Instruction::Pop, pattern.location.end_line);
+                self.emit_instruction(Instruction::LoadBool(false), pattern.location.end_line);
+                self.patch_jump(end_jump);
             
             },
             PatternNodeKind::Wildcard => {
@@ -561,11 +566,30 @@ impl Compiler{
                     _ => unreachable!("{}",lhs.ty)
                 }
             },
-            TypedExprNodeKind::StructInit { id,fields } => {
-                self.emit_instruction(Instruction::InitRecord(fields.len() as u16),expr.location.start_line);
+            TypedExprNodeKind::StructInit { kind,fields } => {
+
+                let total_fields = match kind{
+                    InitKind::Struct(_) => fields.len(),
+                    InitKind::Variant(id, _) => {
+                        self.type_context.enums.get_enum(*id).variants.iter().map(|variant|{
+                            variant.fields.len()
+                        }).max().unwrap_or(0) + 1
+                    }
+                };
+
+                self.emit_instruction(Instruction::InitRecord(total_fields as u16),expr.location.start_line);
+                if let InitKind::Variant(_, variant_index) = kind{
+                    self.load_int(*variant_index as i64, expr.location.start_line);
+                    self.emit_instruction(Instruction::StoreField(0), expr.location.start_line);
+                }
                 for (name,field_expr) in fields{
                     self.compile_expr(field_expr);
-                    let (field_index,_) =  self.type_context.structs.get_struct_info(id).expect("Should definitely be a struct").get_field(name).expect("Struct should definitely have field");
+                    let field_index =  match kind{
+                        InitKind::Struct(id) => self.type_context.structs.get_struct_info(id).expect("Should definitely be a struct").get_field(name).expect("Struct should definitely have field").0,
+                        InitKind::Variant(id, variant) => {
+                            self.type_context.enums.get_enum(*id).variants[*variant].fields.iter().position(|(field_name,_)| field_name == name).map(|index| index + 1).expect("Already checked fields")
+                        }
+                    };
                     self.emit_instruction(Instruction::StoreField(field_index as u16), field_expr.location.end_line);
                 }
             }

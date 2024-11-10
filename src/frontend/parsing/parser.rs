@@ -269,7 +269,6 @@ impl<'a> Parser<'a>{
         Ok(args)
     }
     fn name(&mut self)->Result<ExprNode,ParsingFailed>{
-        let line = self.prev_token.line;
         let path = self.parse_path(true)?;
         if self.matches(TokenKind::LeftBrace) {
             let start = self.prev_token.line;
@@ -298,7 +297,7 @@ impl<'a> Parser<'a>{
                     kind: ExprNodeKind::StructInit { path, fields } 
                 })
         }
-        else if path.head.generic_args.is_none() && path.segments.is_empty(){
+        else if path.generic_args.is_none() && path.segments.is_empty(){
             Ok(ExprNode{
                 location : path.head.location,
                 kind : ExprNodeKind::Get(path.head.name.content)
@@ -600,24 +599,25 @@ impl<'a> Parser<'a>{
             return Err(ParsingFailed);
         })
     }
-    fn parse_path_segment(&mut self,include_colon:bool)->Result<PathSegment,ParsingFailed>{
+    fn parse_path_segment(&mut self,)->Result<PathSegment,ParsingFailed>{
         let name = self.prev_token;
         let name = Symbol{content:name.lexeme.to_string(),location:SourceLocation::one_line(name.line)};
+        Ok(PathSegment {  location: SourceLocation::new(name.location.start_line, self.prev_token.line),name })
+    }
+    fn parse_path(&mut self,include_colon:bool)->Result<ParsedPath,ParsingFailed>{
+        let head = self.parse_path_segment()?;
         let generic_args = if (include_colon && self.matches(TokenKind::Colon)) || (!include_colon && self.check(TokenKind::LeftBracket)){
             Some(self.parse_generic_args()?)
         }
         else{
             None
         };
-        Ok(PathSegment {  location: SourceLocation::new(name.location.start_line, self.prev_token.line),name, generic_args })
-    }
-    fn parse_path(&mut self,include_colon:bool)->Result<ParsedPath,ParsingFailed>{
-        let head = self.parse_path_segment(include_colon)?;
         let mut segments = Vec::new();
         while self.matches(TokenKind::Dot){
-            segments.push(self.parse_path_segment(include_colon)?);
+            self.advance();
+            segments.push(self.parse_path_segment()?);
         }
-        Ok(ParsedPath {location: SourceLocation::new(head.location.start_line, self.prev_token.line), head, segments,  })
+        Ok(ParsedPath {location: SourceLocation::new(head.location.start_line, self.prev_token.line), head, segments,generic_args  })
     }
     fn pattern(&mut self)->Result<ParsedPatternNode,ParsingFailed>{
         let (location,kind) = if self.matches(TokenKind::Identifier){
@@ -651,7 +651,7 @@ impl<'a> Parser<'a>{
             else if path.head.name.content.chars().all(|char| char == '_') && path.segments.iter().all(|segment| segment.name.content.chars().all(|char| char == '_')){
                 (path.location,ParsedPatternNodeKind::Wildcard)
             }
-            else if path.segments.is_empty() && path.head.generic_args.is_none(){
+            else if path.segments.is_empty() && path.generic_args.is_none(){
                 (path.head.location,ParsedPatternNodeKind::Name(path.head.name.content))
             }
             else{
