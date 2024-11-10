@@ -154,6 +154,12 @@ pub struct ExprNode{
 
 pub struct ParsedGenericParam(pub Symbol);
 pub struct ParsedGenericParams(pub Vec<ParsedGenericParam>);
+
+pub struct ParsedEnumVariant{
+    pub name : Symbol,
+    pub fields : Vec<(Symbol,ParsedType)>,
+    pub sub_variants : Vec<ParsedEnumVariant>
+}
 pub enum StmtNode{
     Expr{
         expr : ExprNode,
@@ -173,6 +179,10 @@ pub enum StmtNode{
         name : Symbol,
         generic_params : Option<ParsedGenericParams>,
         fields : Vec<(Symbol,ParsedType)>
+    },
+    Enum{
+        name : Symbol,
+        variants : Vec<ParsedEnumVariant>
     }
 }
 #[derive(Clone)]

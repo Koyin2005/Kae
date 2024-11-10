@@ -979,7 +979,8 @@ impl TypeChecker{
                 Ok(TypedStmtNode::Struct { name:name.clone(), 
                     generic_params: generic_params.map_or_else(Vec::new,|params| params.into_iter().map(|(name,_)| name).collect()),
                     fields: fields.into_iter().map(|(name,ty)| (name.content,ty)).collect() })
-            }
+            },
+            StmtNode::Enum {.. } => todo!()
         }
     }
     fn check_stmts(&mut self,stmts:&[StmtNode])->Result<Vec<TypedStmtNode>,TypeCheckFailed>{
