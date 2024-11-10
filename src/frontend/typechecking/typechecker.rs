@@ -71,8 +71,9 @@ impl TypeChecker{
                     }
                 }
             },
-            ParsedPatternNodeKind::Struct { name, generic_args, fields } => {
-                let ty = if let Some(generic_args)= generic_args.as_ref(){
+            ParsedPatternNodeKind::Struct { path, fields } => {
+                let name = path.head.name.clone();
+                let ty = if let Some(generic_args) = path.head.generic_args.as_ref(){
                     self.check_type(&ParsedType::NameWithArgs(name.clone(), generic_args.clone()))?
                 }
                 else{
