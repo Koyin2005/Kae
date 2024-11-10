@@ -568,7 +568,7 @@ impl<'a> Parser<'a>{
     }
     fn parse_type(&mut self)->Result<ParsedType,ParsingFailed>{
         Ok(if self.matches(TokenKind::Identifier){
-            let path = self.parse_path()?;
+            let path = self.parse_path(false)?;
             ParsedType::Path(path)
         }
         else if self.matches(TokenKind::LeftBracket){
@@ -607,10 +607,10 @@ impl<'a> Parser<'a>{
             return Err(ParsingFailed);
         })
     }
-    fn parse_path_segment(&mut self)->Result<PathSegment,ParsingFailed>{
+    fn parse_path_segment(&mut self,include_colon:bool)->Result<PathSegment,ParsingFailed>{
         let name = self.prev_token;
         let name = Symbol{content:name.lexeme.to_string(),location:SourceLocation::one_line(name.line)};
-        let generic_args = if self.check(TokenKind::LeftBracket){
+        let generic_args = if include_colon && self.matches(TokenKind::Colon)  && self.check(TokenKind::LeftBracket){
             Some(self.parse_generic_args()?)
         }
         else{
@@ -618,17 +618,17 @@ impl<'a> Parser<'a>{
         };
         Ok(PathSegment {  location: SourceLocation::new(name.location.start_line, self.prev_token.line),name, generic_args })
     }
-    fn parse_path(&mut self)->Result<ParsedPath,ParsingFailed>{
-        let head = self.parse_path_segment()?;
+    fn parse_path(&mut self,start_with_colon:bool)->Result<ParsedPath,ParsingFailed>{
+        let head = self.parse_path_segment(start_with_colon)?;
         let mut segments = Vec::new();
         while self.matches(TokenKind::Dot){
-            segments.push(self.parse_path_segment()?);
+            segments.push(self.parse_path_segment(false)?);
         }
         Ok(ParsedPath {location: SourceLocation::new(head.location.start_line, self.prev_token.line), head, segments,  })
     }
     fn pattern(&mut self)->Result<ParsedPatternNode,ParsingFailed>{
         let (location,kind) = if self.matches(TokenKind::Identifier){
-            let path = self.parse_path()?;
+            let path = self.parse_path(false)?;
             if self.matches(TokenKind::LeftBrace){
                 let mut fields = Vec::new();
                 while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
