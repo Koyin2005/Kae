@@ -245,6 +245,6 @@ pub struct PathSegment{
 #[derive(Clone)]
 pub struct ParsedPath{
     pub head : PathSegment,
-    pub segmenets : Vec<PathSegment>,
+    pub segments : Vec<PathSegment>,
     pub location : SourceLocation
 }
