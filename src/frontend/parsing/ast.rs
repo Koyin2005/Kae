@@ -85,8 +85,7 @@ pub enum ExprNodeKind {
     TypenameOf(ParsedType),
     Property(Box<ExprNode>,Symbol),
     StructInit{
-        name : Symbol,
-        generic_args : Option<ParsedGenericArgs>,
+        path : ParsedPath,
         fields : Vec<(Symbol,ExprNode)>
     }
 }
