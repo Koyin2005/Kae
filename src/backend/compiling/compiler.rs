@@ -224,6 +224,65 @@ impl Compiler{
                 self.emit_instruction(Instruction::Equals, pattern.location.end_line);
                 vec![self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF),pattern.location.end_line)]
             },
+            PatternNodeKind::Array(before,ignore ,after ) => {
+                let total_before_and_after_len = (before.len() + after.len()) as i64;
+                self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
+                self.emit_instruction(Instruction::GetArrayLength,pattern.location.start_line);
+                self.load_constant(Constant::Int(total_before_and_after_len),pattern.location.start_line);
+                if ignore.is_some(){
+                    self.emit_instruction(Instruction::SubtractInt, pattern.location.start_line);
+                    self.load_constant(Constant::Int(0), pattern.location.start_line);
+                    self.emit_instruction(Instruction::GreaterEqualsInt, pattern.location.start_line);
+                }
+                else{
+                    self.emit_instruction(Instruction::Equals, pattern.location.start_line);
+                }
+                
+                let jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.start_line);
+                let mut jumps =  before.iter().enumerate().map(|(i,pattern)|{ 
+                    self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
+                    self.load_constant(Constant::Int(i as i64),pattern.location.start_line);
+                    self.emit_instruction(Instruction::LoadIndex, pattern.location.start_line);
+                    self.compile_pattern_check(pattern)
+                }).flatten().collect::<Vec<_>>();
+                let before_len = before.len() as i64;
+                if let Some(ignore) = ignore{
+                    
+                    self.emit_instruction(Instruction::Copy(1), ignore.location.start_line);
+                    self.emit_instruction(Instruction::GetArrayLength,ignore.location.start_line);
+                    self.load_constant(Constant::Int(total_before_and_after_len),ignore.location.start_line);
+                    self.emit_instruction(Instruction::SubtractInt, ignore.location.start_line);
+                    self.load_constant(Constant::Int(before_len),ignore.location.start_line);
+                    self.emit_instruction(Instruction::AddInt, ignore.location.start_line);
+                    
+                    jumps.extend(after.iter().enumerate().map(|(i,pattern)|{
+                        self.emit_instruction(Instruction::Copy(2), pattern.location.start_line);
+                        self.emit_instruction(Instruction::Copy(2), pattern.location.start_line);
+                        self.load_constant(Constant::Int(i as i64),pattern.location.start_line);
+                        self.emit_instruction(Instruction::AddInt, pattern.location.start_line);
+                        self.emit_instruction(Instruction::LoadIndex, pattern.location.start_line);
+                        self.compile_pattern_check(pattern).into_iter().map(|jump|{
+                            let skip_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
+                            self.patch_jump(jump);
+                            self.emit_instruction(Instruction::Pop,pattern.location.end_line);
+                            skip_jump
+                        }).collect::<Vec<usize>>()
+                    }).flatten().collect::<Vec<usize>>());
+                    
+                    self.emit_instruction(Instruction::Pop,pattern.location.end_line);
+                }
+                else{
+                    
+                    jumps.extend(after.iter().enumerate().map(|(i,pattern)|{
+                        self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
+                        self.load_constant(Constant::Int(before_len+i as i64), pattern.location.start_line);
+                        self.emit_instruction(Instruction::LoadIndex, pattern.location.start_line);
+                        self.compile_pattern_check(pattern)
+                    }).flatten().collect::<Vec<usize>>());
+                }
+                jumps.insert(0, jump);
+                jumps
+            }
             PatternNodeKind::Tuple(elements) => {
                 if elements.is_empty(){
                     self.emit_instruction(Instruction::Pop,pattern.location.end_line);

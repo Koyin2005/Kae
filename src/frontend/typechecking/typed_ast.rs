@@ -203,7 +203,8 @@ pub enum PatternNodeKind{
     Struct{
         ty : Type,
         fields : Vec<(String,PatternNode)>
-    }
+    },
+    Array(Vec<PatternNode>,Option<Box<PatternNode>>,Vec<PatternNode>)
 
 }
 #[derive(Clone,Debug)]

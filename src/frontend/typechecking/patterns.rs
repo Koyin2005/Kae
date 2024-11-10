@@ -8,6 +8,7 @@ fn is_irrefutable(pattern:&PatternNodeKind)->bool{
             PatternNodeKind::Name(..)| PatternNodeKind::Wildcard => true,
             PatternNodeKind::Tuple(elements) => elements.is_empty() || elements.iter().all(|element| is_irrefutable(&element.kind)),
             PatternNodeKind::Struct { fields,.. } => fields.iter().all(|(_,field)| is_irrefutable(&field.kind)),
+            PatternNodeKind::Array(before, ignore, after) => ignore.is_some() && before.is_empty() && after.is_empty(),
             _  => {
                 false
             },
@@ -29,6 +30,10 @@ impl PatternChecker{
                     Self::collect_variables_in_pattern(pattern, &ty, variables, structs);
                 });
             },
+            (PatternNodeKind::Array(before, _, after),Type::Array(element_type)) => {
+                before.iter().for_each(|pattern| Self::collect_variables_in_pattern(pattern, element_type, variables, structs));
+                after.iter().for_each(|pattern| Self::collect_variables_in_pattern(pattern, element_type, variables, structs));
+            }
             _ => ()
         }
     }
@@ -60,6 +65,20 @@ impl PatternChecker{
             PatternNodeKind::Bool(_) => Type::Bool,
             PatternNodeKind::String(_) => Type::String,
             PatternNodeKind::Name(_) | PatternNodeKind::Wildcard => expected_type.clone(),
+            PatternNodeKind::Array(before,_ ,after) => {
+                if let Type::Array(element_type) = expected_type{
+                    if before.iter().all(|pattern| Self::check_pattern_type(pattern, element_type, structs).is_ok()) &&
+                        after.iter().all(|after| Self::check_pattern_type(after, expected_type, structs).is_ok()){
+                            expected_type.clone()
+                    }
+                    else{
+                       return Err(expected_type.clone());
+                    }
+                }
+                else{
+                    return Err(Type::Array(Box::new(Type::Unknown)));
+                }
+            }
             PatternNodeKind::Tuple(elements) => {
                 if let Type::Tuple(element_types) = expected_type{
                     if element_types.len() == elements.len() && element_types.iter().zip(elements.iter()).all(|(ty,pattern)|Self::check_pattern_type(pattern, ty,structs).is_ok()){

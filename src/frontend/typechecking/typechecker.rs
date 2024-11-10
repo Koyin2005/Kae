@@ -115,7 +115,12 @@ impl TypeChecker{
                 }
                 PatternNodeKind::Struct { ty, fields  }
             },
-            _ => todo!()
+            ParsedPatternNodeKind::Array(before, ignore, after) => {
+                let before = before.iter().map(|pattern| self.get_pattern(pattern)).collect::<Result<Vec<_>,_>>()?;
+                let ignore = ignore.as_ref().map(|ignore|self.get_pattern(&ignore)).map_or(Ok(None), |result| result.map(|value| Some(Box::new(value))))?;
+                let after = after.iter().map(|pattern| self.get_pattern(pattern)).collect::<Result<Vec<_>,_>>()?;
+                PatternNodeKind::Array(before, ignore, after)
+            }
         };
         Ok(PatternNode { location:pattern.location,kind })
     }

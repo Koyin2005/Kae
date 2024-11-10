@@ -145,6 +145,10 @@ fn sub_pattern(pattern:&mut PatternNode,generic_args : &GenericArgs){
         PatternNodeKind::Tuple(elements) => {
             elements.iter_mut().for_each(|element| sub_pattern(element, generic_args));
         },
+        PatternNodeKind::Array(before, _, after) => {
+            before.iter_mut().for_each(|pattern| sub_pattern(pattern, generic_args));
+            after.iter_mut().for_each(|pattern| sub_pattern(pattern, generic_args));
+        }
         _ => ()
     }
 }
