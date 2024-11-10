@@ -561,16 +561,11 @@ impl Compiler{
                     _ => unreachable!("{}",lhs.ty)
                 }
             },
-            TypedExprNodeKind::StructInit { fields } => {
+            TypedExprNodeKind::StructInit { id,fields } => {
                 self.emit_instruction(Instruction::InitRecord(fields.len() as u16),expr.location.start_line);
                 for (name,field_expr) in fields{
                     self.compile_expr(field_expr);
-                    let field_index = match &expr.ty{
-                        Type::Struct { id,.. } => {
-                            self.type_context.structs.get_struct_info(id).expect("Should definitely be a struct").get_field(name).expect("Struct should definitely have field").0
-                        },
-                        _ => unreachable!("Should definitely be a struct")
-                    };
+                    let (field_index,_) =  self.type_context.structs.get_struct_info(id).expect("Should definitely be a struct").get_field(name).expect("Struct should definitely have field");
                     self.emit_instruction(Instruction::StoreField(field_index as u16), field_expr.location.end_line);
                 }
             }

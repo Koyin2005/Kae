@@ -2,9 +2,9 @@ use std::{collections::HashSet, rc::Rc};
 
 use indexmap::{IndexMap, IndexSet};
 
-use crate::frontend::{parsing::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedFunction, ParsedGenericArgs, ParsedGenericParam, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PatternMatchArmNode, StmtNode, Symbol}, tokenizing::SourceLocation, typechecking::typed_ast::TypedPatternMatchArm};
+use crate::frontend::{parsing::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedFunction, ParsedGenericArgs, ParsedGenericParam, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PatternMatchArmNode, StmtNode, Symbol}, tokenizing::SourceLocation, typechecking::typed_ast::{TypedEnumVariant, TypedPatternMatchArm}};
 
-use super::{generics:: substitute, names::{Environment, Structs, TypeContext, ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedStmtNode, UnaryOp}, types::{FunctionId, GenericArgs, Type}};
+use super::{generics:: substitute, names::{EnumVariant, Environment, TypeContext, ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedStmtNode, UnaryOp}, types::{FunctionId, GenericArgs, Type}};
 #[derive(Clone)]
 struct EnclosingFunction{
     return_type : Type
@@ -711,7 +711,7 @@ impl TypeChecker{
                     }, expr.location, field_names_and_types.keys(), seen_fields, &struct_type);
                     return Err(TypeCheckFailed);
                 }
-                (struct_type,TypedExprNodeKind::StructInit { fields })
+                (struct_type,TypedExprNodeKind::StructInit { id,fields })
             }
 
         };
@@ -990,10 +990,41 @@ impl TypeChecker{
                     self.error(format!("A type with name '{}' is already defined.",enum_name), name.location.start_line);
                     return Err(TypeCheckFailed);
                 }
-                let variants = variants.iter().map(|variant|{
 
+                let id = self.type_context.enums.define_enum(Vec::new());
+                self.environment.add_type(enum_name.clone(), Type::Enum { id, name: enum_name.clone()});                
+                let variants = {
+                    let mut seen_variant_names = HashSet::new();
+                    let variants = variants.iter().map(|variant|{
+                        if !seen_variant_names.insert(&variant.name.content){
+                            self.error(format!("Redefined variant '{}'.",variant.name.content),variant.name.location.start_line);
+                            return Err(TypeCheckFailed);
+                        }
+                        let mut seen_fields = HashSet::new();
+                        let fields = variant.fields.iter().map(|(field_name,field_type)|{
+                            let ty = self.check_type(field_type)?;
+                            if !seen_fields.insert(&field_name.content){
+                                self.error(format!("Redefined field '{}'.",field_name.content),field_name.location.start_line);
+                                return Err(TypeCheckFailed);
+                            }
+                            Ok((field_name.clone(),ty))
+                        }).collect::<Result<Vec<_>,_>>()?;
+                        Ok(TypedEnumVariant{
+                            name : variant.name.clone(),
+                            fields
+                        })
+                    }).collect::<Result<Vec<_>,_>>()?;
+                    variants
+                };
+                self.type_context.enums.update_enum(id, |enum_|{
+                    enum_.variants = variants.iter().enumerate().map(|(i,variant)|{
+                        EnumVariant{
+                            discrim:i,
+                            fields:variant.fields.iter().map(|(field_name,ty)|{(field_name.content.clone(),ty.clone())}).collect()
+                        }
+                    }).collect();
                 });
-                todo!()
+                Ok(TypedStmtNode::Enum { name:name.clone(), variants })
             }
         }
     }

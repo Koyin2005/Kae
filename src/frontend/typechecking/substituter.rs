@@ -136,7 +136,7 @@ fn sub_expr(expr:&mut TypedExprNode,generic_args : &GenericArgs){
         TypedExprNodeKind::Unary { operand,.. } => {
             sub_expr(operand, generic_args);
         },
-        TypedExprNodeKind::StructInit { fields } => {
+        TypedExprNodeKind::StructInit { fields,.. } => {
             fields.iter_mut().for_each(|(_,expr)|{
                 sub_expr(expr, generic_args);
             });

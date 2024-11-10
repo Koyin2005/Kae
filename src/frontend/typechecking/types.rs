@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use indexmap::IndexMap;
 
-use super::{generics::substitute, names::{StructId, TypeContext}, typechecker::GenericTypeId};
+use super::{generics::substitute, names::{EnumId, StructId, TypeContext}, typechecker::GenericTypeId};
 
 #[derive(Clone, Copy,PartialEq, Eq,Debug)]
 pub struct FunctionId(usize);
@@ -47,6 +47,10 @@ pub enum Type {
         generic_args :  GenericArgs,
         id : StructId,
         name : String,
+    },
+    Enum{
+        id : EnumId,
+        name : String
     },
     Unknown,
 
@@ -173,6 +177,9 @@ impl Display for Type{
             },
             Type::Param { name ,..} => write!(f,"{}",name),
             Type::Unknown => write!(f,"_"),
+            Type::Enum {name,.. } => {
+                write!(f,"{}",name)
+            }
             Type::Struct { generic_args, name,.. } => {
                 write!(f,"{}",name)?;
                 if !generic_args.is_empty(){
