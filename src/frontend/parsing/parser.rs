@@ -270,14 +270,7 @@ impl<'a> Parser<'a>{
     }
     fn name(&mut self)->Result<ExprNode,ParsingFailed>{
         let line = self.prev_token.line;
-        let name = self.prev_token.lexeme;
-        let generic_args = if self.matches(TokenKind::Colon) {
-            let generic_args = self.parse_generic_args()?;
-            Some(generic_args)
-        }
-        else {
-            None
-        };
+        let path = self.parse_path(true);
         if self.matches(TokenKind::LeftBrace) {
             let start = self.prev_token.line;
             let mut fields = Vec::new();
@@ -610,7 +603,7 @@ impl<'a> Parser<'a>{
     fn parse_path_segment(&mut self,include_colon:bool)->Result<PathSegment,ParsingFailed>{
         let name = self.prev_token;
         let name = Symbol{content:name.lexeme.to_string(),location:SourceLocation::one_line(name.line)};
-        let generic_args = if include_colon && self.matches(TokenKind::Colon)  && self.check(TokenKind::LeftBracket){
+        let generic_args = if (include_colon && self.matches(TokenKind::Colon)) || (!include_colon && self.check(TokenKind::LeftBracket)){
             Some(self.parse_generic_args()?)
         }
         else{
