@@ -34,7 +34,7 @@ pub enum TokenKind{
     ThinArrow,
 
     Dots,
-    
+
     Int,
     Float,
     String,
@@ -47,6 +47,7 @@ pub enum TokenKind{
     Else,
     Fun,
     Struct,
+    Enum,
     True,
     False,
     Let,

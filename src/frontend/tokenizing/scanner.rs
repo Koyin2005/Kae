@@ -154,6 +154,7 @@ impl<'src> Scanner<'src>{
             "return" => TokenKind::Return,
             "typename" => TokenKind::Typename,
             "struct" => TokenKind::Struct,
+            "enum" => TokenKind::Enum,
             _ => TokenKind::Identifier
         })
     }
