@@ -635,12 +635,6 @@ impl<'a> Parser<'a>{
     fn pattern(&mut self)->Result<ParsedPatternNode,ParsingFailed>{
         let (location,kind) = if self.matches(TokenKind::Identifier){
             let path = self.parse_path()?;
-            let generic_args = if self.check(TokenKind::LeftBracket){
-                Some(self.parse_generic_args()?)
-            }
-            else{
-                None
-            };
             if self.matches(TokenKind::LeftBrace){
                 let mut fields = Vec::new();
                 while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
@@ -662,8 +656,7 @@ impl<'a> Parser<'a>{
                 self.expect(TokenKind::RightBrace, "Expect '}'.");
                 (SourceLocation::new(path.location.start_line,self.prev_token.line),
                     ParsedPatternNodeKind::Struct {
-                        name: path,
-                        generic_args, 
+                        path,
                         fields
                     }
                 )
