@@ -240,7 +240,8 @@ pub struct ParsedGenericArgs{
 #[derive(Clone)]
 pub struct PathSegment{
     pub name : Symbol,
-    pub generic_args : Option<ParsedGenericArgs>
+    pub generic_args : Option<ParsedGenericArgs>,
+    pub location : SourceLocation
 }
 #[derive(Clone)]
 pub struct ParsedPath{
