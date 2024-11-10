@@ -1,6 +1,6 @@
 use crate::frontend::{parsing::ast::{ParsedGenericParam, ParsedParam, Symbol}, tokenizing::{tokens::{Token, TokenKind}, SourceLocation}};
 
-use super::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PatternMatchArmNode, StmtNode};
+use super::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPath, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PathSegment, PatternMatchArmNode, StmtNode};
 
 #[repr(u8)]
 #[derive(Clone, Copy,PartialEq, Eq, PartialOrd, Ord)]
@@ -613,9 +613,28 @@ impl<'a> Parser<'a>{
             return Err(ParsingFailed);
         })
     }
+    fn parse_path_segment(&mut self)->Result<PathSegment,ParsingFailed>{
+        let name = self.prev_token;
+        let name = Symbol{content:name.lexeme.to_string(),location:SourceLocation::one_line(name.line)};
+        let generic_args = if self.check(TokenKind::LeftBracket){
+            Some(self.parse_generic_args()?)
+        }
+        else{
+            None
+        };
+        Ok(PathSegment {  location: SourceLocation::new(name.location.start_line, self.prev_token.line),name, generic_args })
+    }
+    fn parse_path(&mut self)->Result<ParsedPath,ParsingFailed>{
+        let head = self.parse_path_segment()?;
+        let mut segments = Vec::new();
+        while self.matches(TokenKind::Dot){
+            segments.push(self.parse_path_segment()?);
+        }
+        Ok(ParsedPath {location: SourceLocation::new(head.location.start_line, self.prev_token.line), head, segments,  })
+    }
     fn pattern(&mut self)->Result<ParsedPatternNode,ParsingFailed>{
         let (location,kind) = if self.matches(TokenKind::Identifier){
-            let name = self.prev_token;
+            let path = self.parse_path()?;
             let generic_args = if self.check(TokenKind::LeftBracket){
                 Some(self.parse_generic_args()?)
             }
@@ -641,21 +660,24 @@ impl<'a> Parser<'a>{
                     }
                 }
                 self.expect(TokenKind::RightBrace, "Expect '}'.");
-                (SourceLocation::new(name.line,self.prev_token.line),
+                (SourceLocation::new(path.location.start_line,self.prev_token.line),
                     ParsedPatternNodeKind::Struct {
-                        name: Symbol { content: name.lexeme.to_string(), location: SourceLocation::one_line(name.line) },
+                        name: path,
                         generic_args, 
                         fields
                     }
                 )
             }
-            else if name.lexeme.chars().all(|char| char == '_'){
-                (SourceLocation::new(name.line,self.prev_token.line),ParsedPatternNodeKind::Wildcard)
+            else if path.head.name.content.chars().all(|char| char == '_') && path.segments.iter().all(|segment| segment.name.content.chars().all(|char| char == '_')){
+                (path.location,ParsedPatternNodeKind::Wildcard)
+            }
+            else if path.segments.is_empty() && path.head.generic_args.is_none(){
+                (path.head.location,ParsedPatternNodeKind::Name(path.head.name.content))
             }
             else{
-                (SourceLocation::new(name.line,self.prev_token.line),ParsedPatternNodeKind::Name(name.lexeme.to_string()))
+                self.error("Invalid pattern.");
+               return Err(ParsingFailed); 
             }
-            
         }
         else if self.matches(TokenKind::LeftBracket){
             let start = self.prev_token.line;
