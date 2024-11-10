@@ -190,7 +190,7 @@ pub enum ParsedPatternNodeKind {
     Tuple(Vec<ParsedPatternNode>),
     Literal(LiteralKind),
     Struct{
-        name : Symbol,
+        name : ParsedPath,
         generic_args : Option<ParsedGenericArgs>,
         fields : Vec<(Symbol,ParsedPatternNode)>
     },
@@ -237,11 +237,14 @@ pub struct ParsedGenericArgs{
 }
 
 
+#[derive(Clone)]
 pub struct PathSegment{
     pub name : Symbol,
     pub generic_args : Option<ParsedGenericArgs>
 }
+#[derive(Clone)]
 pub struct ParsedPath{
     pub head : PathSegment,
-    pub segmenets : Vec<PathSegment>
+    pub segmenets : Vec<PathSegment>,
+    pub location : SourceLocation
 }
