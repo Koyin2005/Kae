@@ -258,7 +258,6 @@ impl Compiler{
                         self.compile_pattern_check(pattern);
                         after_jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line));
                     }
-
                     self.emit_instruction(Instruction::Pop, pattern.location.end_line);
                 }
                 self.emit_instruction(Instruction::Pop, pattern.location.end_line);
