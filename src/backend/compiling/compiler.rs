@@ -245,12 +245,10 @@ impl Compiler{
                 }
                 let mut after_jumps = Vec::new();
                 if !after.is_empty(){
-
                     self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
                     self.emit_instruction(Instruction::GetArrayLength, pattern.location.start_line);
                     self.load_int(after.len() as i64, pattern.location.start_line);
                     self.emit_instruction(Instruction::SubtractInt, pattern.location.start_line);
-
                     for (i,pattern) in after.iter().enumerate(){
                         self.emit_instruction(Instruction::Copy(2), pattern.location.start_line);
                         self.emit_instruction(Instruction::Copy(2), pattern.location.start_line);
