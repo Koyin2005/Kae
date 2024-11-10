@@ -1,6 +1,6 @@
 use crate::frontend::parsing::ast::Symbol;
 
-use super::{names::TypeContext, typed_ast::{PatternNode, PatternNodeKind}, types::Type};
+use super::{typed_ast::{PatternNode, PatternNodeKind}, types::{Type,TypeContext}};
 
 
 fn is_irrefutable(pattern:&PatternNodeKind)->bool{

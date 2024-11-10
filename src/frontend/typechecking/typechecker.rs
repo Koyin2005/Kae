@@ -4,7 +4,7 @@ use indexmap::{IndexMap, IndexSet};
 
 use crate::frontend::{parsing::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedFunction, ParsedGenericArgs, ParsedGenericParam, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PatternMatchArmNode, StmtNode, Symbol}, tokenizing::SourceLocation, typechecking::typed_ast::{TypedEnumVariant, TypedPatternMatchArm}};
 
-use super::{generics:: substitute, names::{EnumVariant, Environment, TypeContext, ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedStmtNode, UnaryOp}, types::{FunctionId, GenericArgs, Type}};
+use super::{generics:: substitute, names::{ Environment,ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedStmtNode, UnaryOp}, types::{FunctionId, GenericArgs, Type, TypeContext, EnumVariant}};
 #[derive(Clone)]
 struct EnclosingFunction{
     return_type : Type
