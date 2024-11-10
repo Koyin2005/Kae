@@ -114,7 +114,8 @@ impl TypeChecker{
                     return Err(TypeCheckFailed);
                 }
                 PatternNodeKind::Struct { ty, fields  }
-            }
+            },
+            _ => todo!()
         };
         Ok(PatternNode { location:pattern.location,kind })
     }

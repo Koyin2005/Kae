@@ -185,7 +185,7 @@ pub enum ParsedPatternNodeKind {
         generic_args : Option<ParsedGenericArgs>,
         fields : Vec<(Symbol,ParsedPatternNode)>
     },
-    //Array(Vec<ParsedPatternNode>,Option<Box<ParsedPatternNode>>,Vec<ParsedPatternNode>),
+    Array(Vec<ParsedPatternNode>,Option<Box<ParsedPatternNode>>,Vec<ParsedPatternNode>),
     Wildcard
 }
 

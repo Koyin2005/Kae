@@ -656,6 +656,35 @@ impl<'a> Parser<'a>{
                 }
             }
         }
+        else if self.matches(TokenKind::LeftBracket){
+            let start = self.prev_token.line;
+            let mut ignore_pattern = None;
+            let mut before = Vec::new();
+            let mut after = Vec::new();
+            while !self.check(TokenKind::RightBracket) && !self.is_at_end(){
+                 if self.matches(TokenKind::Dots) {
+                    if ignore_pattern.is_some(){
+                        self.error(".. pattern can only be used once.");
+                        return Err(ParsingFailed);
+                    }
+                    ignore_pattern = Some(ParsedPatternNode{location:SourceLocation::one_line(self.prev_token.line),kind:ParsedPatternNodeKind::Wildcard});
+                }
+                else{
+                    let pattern = self.pattern()?;
+                    if ignore_pattern.is_none(){
+                        before.push(pattern);
+                    }
+                    else{
+                        after.push(pattern);
+                    }
+                };
+                if !self.matches(TokenKind::Coma){
+                    break;
+                }
+            }
+            self.expect(TokenKind::RightBracket,"Expected ']'.");
+            (SourceLocation::new(start, self.prev_token.line),ParsedPatternNodeKind::Array(before, ignore_pattern.map(Box::new), after))
+        }
         else if self.matches(TokenKind::LeftParen){
             let start = self.prev_token.line;
             let kind = if self.check(TokenKind::RightParen){
