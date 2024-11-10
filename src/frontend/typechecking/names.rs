@@ -116,5 +116,8 @@ impl Environment{
     pub fn get_type(&self,name:&str)->Option<&Type>{
         self.current_types.iter().rev().filter_map(|types| types.get(name)).next()
     }
+    pub fn is_type_in_local_scope(&self,name:&str)->bool{
+        self.current_types.last().is_some_and(|types| types.contains_key(name))
+    }
 
 }

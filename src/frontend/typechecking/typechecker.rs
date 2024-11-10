@@ -934,6 +934,10 @@ impl TypeChecker{
             StmtNode::Struct { name, generic_params, fields } => {
                 let generic_param_count = self.generic_param_names.len();
                 let struct_name = name.content.clone();
+                if self.environment.is_type_in_local_scope(&struct_name){
+                    self.error(format!("A type with name '{}' is already defined.",struct_name), name.location.start_line);
+                    return Err(TypeCheckFailed);
+                }
                 let Ok(generic_params) = self.check_generic_params(generic_params.as_ref()) else {
                     self.generic_param_names.truncate(generic_param_count);
                     self.environment.add_type(struct_name,Type::Unknown);
@@ -980,7 +984,14 @@ impl TypeChecker{
                     generic_params: generic_params.map_or_else(Vec::new,|params| params.into_iter().map(|(name,_)| name).collect()),
                     fields: fields.into_iter().map(|(name,ty)| (name.content,ty)).collect() })
             },
-            StmtNode::Enum {.. } => todo!()
+            StmtNode::Enum {name,variants} => {
+                let enum_name = name.content.clone();
+                if self.environment.is_type_in_local_scope(&enum_name){
+                    self.error(format!("A type with name '{}' is already defined.",enum_name), name.location.start_line);
+                    return Err(TypeCheckFailed);
+                }
+                todo!()
+            }
         }
     }
     fn check_stmts(&mut self,stmts:&[StmtNode])->Result<Vec<TypedStmtNode>,TypeCheckFailed>{
