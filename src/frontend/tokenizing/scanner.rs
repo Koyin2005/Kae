@@ -174,7 +174,14 @@ impl<'src> Scanner<'src>{
             '{' => self.make_token(TokenKind::LeftBrace),
             '}' => self.make_token(TokenKind::RightBrace),
             ';' => self.make_token(TokenKind::Semicolon),
-            '.' => self.make_token(TokenKind::Dot),
+            '.' => {
+                if self.match_char('.'){
+                    self.make_token(TokenKind::Dots)
+                }
+                else{
+                    self.make_token(TokenKind::Dot)
+                }
+            },
             ',' => self.make_token(TokenKind::Coma),
             '?' => self.make_token(TokenKind::QuestionMark),
             ':' => self.make_token(TokenKind::Colon),

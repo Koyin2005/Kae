@@ -33,6 +33,8 @@ pub enum TokenKind{
     FatArrow,
     ThinArrow,
 
+    Dots,
+    
     Int,
     Float,
     String,
