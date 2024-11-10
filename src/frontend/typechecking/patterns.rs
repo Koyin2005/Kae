@@ -7,7 +7,8 @@ fn is_irrefutable(pattern:&PatternNodeKind)->bool{
         match &pattern{
             PatternNodeKind::Name(..)| PatternNodeKind::Wildcard => true,
             PatternNodeKind::Tuple(elements) => elements.is_empty() || elements.iter().all(|element| is_irrefutable(&element.kind)),
-            PatternNodeKind::Struct { fields,.. } => fields.iter().all(|(_,field)| is_irrefutable(&field.kind)),
+            PatternNodeKind::Struct { fields,ty } => 
+                fields.iter().all(|(_,field)| is_irrefutable(&field.kind)) && matches!(ty,Type::EnumVariant {.. }),
             PatternNodeKind::Array(before, ignore, after) => ignore.is_some() && before.is_empty() && after.is_empty(),
             _  => {
                 false
@@ -39,8 +40,22 @@ impl PatternChecker{
     }
 
 
-    pub fn is_exhaustive(&self,patterns:&[&PatternNode])->bool{
-        patterns.iter().any(|pattern| is_irrefutable(&pattern.kind))
+    pub fn is_exhaustive(&self,patterns:&[&PatternNode],pattern_ty:&Type,type_context:&TypeContext)->bool{
+        if patterns.iter().any(|pattern| is_irrefutable(&pattern.kind)){
+            return true;
+        }
+        if let Type::Enum { id, .. }  = pattern_ty{
+            let mut seen_variants =Vec::new();
+            for pattern in patterns{
+                if let PatternNodeKind::Struct { ty:Type::EnumVariant{variant_index,id:variant_id,..}, .. } = &pattern.kind{
+                    if variant_id == id{
+                        seen_variants.push(*variant_index);
+                    }
+                }
+            }
+            return seen_variants.len() == type_context.enums.get_enum(*id).variants.len();
+        }
+        false
     }
     
     pub fn check_irrefutable(pattern:&PatternNode) -> Result<(),&PatternNode>{

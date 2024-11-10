@@ -419,7 +419,8 @@ impl TypeChecker{
                 Ok(TypedPatternMatchArm{ pattern,ty:pattern_type,expr:arm_expr,location:arm.location})
             }).collect::<Result<Vec<_>,_>>()?;
             
-            if !PatternChecker.is_exhaustive(&arms.iter().map(|TypedPatternMatchArm{pattern,..}| pattern).collect::<Box<_>>()){
+            let patterns = &arms.iter().map(|TypedPatternMatchArm{pattern,..}| pattern).collect::<Box<_>>();
+            if !PatternChecker.is_exhaustive(&patterns,&matchee.ty,&self.type_context){
                 self.error("Non exhaustive pattern match.".to_string(),location.start_line);
                 return Err(TypeCheckFailed);
             }
@@ -770,7 +771,7 @@ impl TypeChecker{
                         (InitKind::Variant(id, variant_index),name,fields.into_iter().collect(),display_type)
                     }
                     _ => {
-                        self.error(format!("Expected a 'struct' type got, \"{}\".",ty), path.location.start_line);
+                        self.error(format!("Expected struct or variant got \"{}\".",ty), path.location.start_line);
                         return Err(TypeCheckFailed);
                     }
                 };
