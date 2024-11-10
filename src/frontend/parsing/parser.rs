@@ -270,7 +270,7 @@ impl<'a> Parser<'a>{
     }
     fn name(&mut self)->Result<ExprNode,ParsingFailed>{
         let line = self.prev_token.line;
-        let path = self.parse_path(true);
+        let path = self.parse_path(true)?;
         if self.matches(TokenKind::LeftBrace) {
             let start = self.prev_token.line;
             let mut fields = Vec::new();
@@ -295,7 +295,7 @@ impl<'a> Parser<'a>{
             self.expect(TokenKind::RightBrace, "Expect '}' after struct fields.");
             Ok(ExprNode { 
                     location: SourceLocation::new(start, self.prev_token.line),
-                    kind: ExprNodeKind::StructInit { name: Symbol { content: name.to_string(), location: SourceLocation::one_line(line) }, generic_args, fields } 
+                    kind: ExprNodeKind::StructInit { path, generic_args, fields } 
                 })
         }
         else if let Some(generic_args) = generic_args{
@@ -611,11 +611,11 @@ impl<'a> Parser<'a>{
         };
         Ok(PathSegment {  location: SourceLocation::new(name.location.start_line, self.prev_token.line),name, generic_args })
     }
-    fn parse_path(&mut self,start_with_colon:bool)->Result<ParsedPath,ParsingFailed>{
-        let head = self.parse_path_segment(start_with_colon)?;
+    fn parse_path(&mut self,include_colon:bool)->Result<ParsedPath,ParsingFailed>{
+        let head = self.parse_path_segment(include_colon)?;
         let mut segments = Vec::new();
         while self.matches(TokenKind::Dot){
-            segments.push(self.parse_path_segment(false)?);
+            segments.push(self.parse_path_segment(include_colon)?);
         }
         Ok(ParsedPath {location: SourceLocation::new(head.location.start_line, self.prev_token.line), head, segments,  })
     }

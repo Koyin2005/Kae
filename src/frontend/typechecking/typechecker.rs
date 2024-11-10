@@ -72,13 +72,7 @@ impl TypeChecker{
                 }
             },
             ParsedPatternNodeKind::Struct { path, fields } => {
-                let name = path.head.name.clone();
-                let ty = if let Some(generic_args) = path.head.generic_args.as_ref(){
-                    self.check_type(&ParsedType::NameWithArgs(name.clone(), generic_args.clone()))?
-                }
-                else{
-                    self.check_type(&ParsedType::Name(name.clone()))?
-                };
+                let ty = self.check_type(&ParsedType::Path(path.clone()))?;
                 let Type::Struct { id, .. } = &ty else {
                     self.error(format!("Can't use struct pattern with \"{}\" type.",ty), pattern.location.start_line);
                     return Err(TypeCheckFailed);
