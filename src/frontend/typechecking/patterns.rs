@@ -5,7 +5,7 @@ use super::{names::Structs, typed_ast::{PatternNode, PatternNodeKind}, types::Ty
 
 fn is_irrefutable(pattern:&PatternNodeKind)->bool{
         match &pattern{
-            PatternNodeKind::Name(..) => true,
+            PatternNodeKind::Name(..)| PatternNodeKind::Wildcard => true,
             PatternNodeKind::Tuple(elements) => elements.is_empty() || elements.iter().all(|element| is_irrefutable(&element.kind)),
             PatternNodeKind::Struct { fields,.. } => fields.iter().all(|(_,field)| is_irrefutable(&field.kind)),
             _  => {
@@ -59,7 +59,7 @@ impl PatternChecker{
             PatternNodeKind::Float(_) => Type::Float,
             PatternNodeKind::Bool(_) => Type::Bool,
             PatternNodeKind::String(_) => Type::String,
-            PatternNodeKind::Name(_) => expected_type.clone(),
+            PatternNodeKind::Name(_) | PatternNodeKind::Wildcard => expected_type.clone(),
             PatternNodeKind::Tuple(elements) => {
                 if let Type::Tuple(element_types) = expected_type{
                     if element_types.len() == elements.len() && element_types.iter().zip(elements.iter()).all(|(ty,pattern)|Self::check_pattern_type(pattern, ty,structs).is_ok()){

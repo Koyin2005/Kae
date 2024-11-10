@@ -54,7 +54,7 @@ impl Value{
             _ => false
         }
     }
-    pub fn format(&self,heap:&Heap)->String{
+    pub fn format(&self,heap:&Heap,seen_values : &mut Vec<Value>)->String{
         match self{
             Value::Bool(bool) => {
                 format!("{}",*bool)
@@ -68,12 +68,20 @@ impl Value{
             Value::Record(record) => {
                 let mut result = String::from("{");
                 let record = record.as_record(heap);
-                for (i,field) in record.fields.iter().enumerate(){
-                    if i > 0{
-                        result.push(',');
+                if record.fields.is_empty() || !seen_values.contains(self){
+                    seen_values.push(*self);
+                
+                    for (i,field) in record.fields.iter().enumerate(){
+                        if i > 0{
+                            result.push(',');
+                        }
+                        result.push_str(&field.format(heap,seen_values));
                     }
-                    result.push_str(&field.format(heap));
                 }
+                else{
+                    result.push_str("...");
+                }
+                
                 result.push('}');
                 result
             },
@@ -84,7 +92,7 @@ impl Value{
                     if i>0{
                         result.push(',');
                     }
-                    result.push_str(&value.format(heap));
+                    result.push_str(&value.format(heap,seen_values));
                 }
                 result.push(')');
                 result
@@ -98,11 +106,17 @@ impl Value{
             Value::List(list) => {
                 let mut result = String::from("[");
                 let list = list.as_list(heap);
-                for (i,value) in list.iter().enumerate(){
-                    if i>0{
-                        result.push(',');
+                if seen_values.is_empty()||!seen_values.contains(self){
+                    seen_values.push(*self);
+                    for (i,value) in list.iter().enumerate(){
+                        if i>0{
+                            result.push(',');
+                        }
+                        result.push_str(&value.format(heap,seen_values));
                     }
-                    result.push_str(&value.format(heap));
+                }
+                else{
+                    result.push_str("...");
                 }
                 result.push(']');
                 result
@@ -113,9 +127,9 @@ impl Value{
         }
     }
     pub fn print(&self,heap:&Heap){
-        print!("{}",self.format(heap))
+        print!("{}",self.format(heap,&mut Vec::new()))
     }
     pub fn println(&self,heap:&Heap){
-        println!("{}",self.format(heap))
+        println!("{}",self.format(heap,&mut Vec::new()))
     }
 }

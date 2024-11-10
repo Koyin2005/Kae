@@ -194,6 +194,7 @@ pub struct PatternNode{
 #[derive(Clone,Debug)]
 pub enum PatternNodeKind{
     Name(String),
+    Wildcard,
     Tuple(Vec<PatternNode>),
     Int(i64),
     Float(f64),

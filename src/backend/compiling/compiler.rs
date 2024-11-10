@@ -249,6 +249,10 @@ impl Compiler{
                 }).flatten().collect()
             
             },
+            PatternNodeKind::Wildcard => {
+                self.emit_instruction(Instruction::Pop, pattern.location.end_line);
+                Vec::new()
+            }
             PatternNodeKind::Name(name) => {
                 self.define_name(name.clone(),pattern.location.end_line);
                 Vec::new()
@@ -526,6 +530,9 @@ impl Compiler{
                     self.emit_instruction(Instruction::LoadField(index as u16), line);
                     self.compile_pattern_assignment(field, ty, line);
                 }
+                self.emit_instruction(Instruction::Pop, line);
+            },
+            PatternNodeKind::Wildcard => {
                 self.emit_instruction(Instruction::Pop, line);
             }
             _ => {}

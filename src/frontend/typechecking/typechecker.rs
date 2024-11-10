@@ -48,6 +48,9 @@ impl TypeChecker{
             ParsedPatternNodeKind::Name(name) => {
                 PatternNodeKind::Name(name.clone())
             },
+            ParsedPatternNodeKind::Wildcard => {
+                PatternNodeKind::Wildcard
+            },
             ParsedPatternNodeKind::Tuple(patterns) => {
                 let patterns = patterns.iter().map(|pattern| self.get_pattern(pattern)).collect::<Result<_,_>>()?;
                 PatternNodeKind::Tuple(patterns)

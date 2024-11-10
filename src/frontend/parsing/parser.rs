@@ -648,8 +648,12 @@ impl<'a> Parser<'a>{
                 )
             }
             else{
-                (SourceLocation::new(name.line,self.prev_token.line),ParsedPatternNodeKind::Name(name.lexeme.to_string()))
-
+                if name.lexeme.chars().all(|char| char == '_'){
+                    (SourceLocation::new(name.line,self.prev_token.line),ParsedPatternNodeKind::Wildcard)
+                }
+                else{
+                    (SourceLocation::new(name.line,self.prev_token.line),ParsedPatternNodeKind::Name(name.lexeme.to_string()))
+                }
             }
         }
         else if self.matches(TokenKind::LeftParen){

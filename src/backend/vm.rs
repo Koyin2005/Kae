@@ -104,7 +104,7 @@ impl VM{
         while self.current_frame().ip < self.current_chunk().code.len(){
             if DEBUG_TRACE_EXEC{
                 for value in self.stack.iter(){
-                    print!("[{}] ",value.format(&self.heap));
+                    print!("[{}] ",value.format(&self.heap,&mut Vec::new()));
                 }
                 println!();
                 let instruction = self.current_chunk().code[self.current_frame().ip];
