@@ -68,7 +68,7 @@ impl PatternChecker{
             PatternNodeKind::Array(before,_ ,after) => {
                 if let Type::Array(element_type) = expected_type{
                     if before.iter().all(|pattern| Self::check_pattern_type(pattern, element_type, structs).is_ok()) &&
-                        after.iter().all(|after| Self::check_pattern_type(after, expected_type, structs).is_ok()){
+                        after.iter().all(|after| Self::check_pattern_type(after, &element_type, structs).is_ok()){
                             expected_type.clone()
                     }
                     else{

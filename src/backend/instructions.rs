@@ -49,9 +49,12 @@ pub enum Instruction {
     BuildList(u16),
 
     GetArrayLength,
+    GetTupleElement(u16),
     
     Jump(u16),
     Loop(u16),
+
+    JumpIfFalsePeek(u16),
     JumpIfFalse(u16),
     JumpIfTrue(u16),
 

@@ -382,6 +382,13 @@ impl VM{
                         return Err(RuntimeError);
                     }
                 },
+                Instruction::GetTupleElement(index) => {
+                    let Value::Tuple(tuple) = self.pop() else{
+                        panic!("Expected a tuple.")
+                    };
+                    let tuple = tuple.as_tuple(&self.heap);
+                    self.push(tuple[index as usize])?;
+                }
                 Instruction::StoreIndex => {
                     let value = self.pop();
                     let Value::Int(index) = self.peek(0) else {
@@ -414,6 +421,14 @@ impl VM{
                 Instruction::Jump(offset) => {
                     self.current_frame_mut().ip += offset as usize;
                 },
+                Instruction::JumpIfFalsePeek(offset) => {
+                    let Value::Bool(condition) = self.peek(0) else {
+                        panic!("Expected bool.")
+                    };
+                    if !condition{
+                        self.current_frame_mut().ip += offset as usize;
+                    }
+                }
                 Instruction::JumpIfFalse(offset) => {
                     let Value::Bool(condition) = self.pop() else {
                         panic!("Expected bool.")

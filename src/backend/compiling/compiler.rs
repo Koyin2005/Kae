@@ -105,7 +105,7 @@ impl Compiler{
     fn patch_jump(&mut self,index:usize){
         let next_instr = self.current_chunk.code.len();
         match &mut self.current_chunk.code[index]{
-            Instruction::Jump(offset) | Instruction::JumpIfFalse(offset) | Instruction::JumpIfTrue(offset) => {
+            Instruction::Jump(offset) | Instruction::JumpIfFalse(offset) | Instruction::JumpIfTrue(offset) | Instruction::JumpIfFalsePeek(offset) => {
                 *offset = (next_instr - index - 1) as u16;
             },
             _ => unreachable!()
@@ -194,35 +194,23 @@ impl Compiler{
         };
         self.load_constant_at_index(func_constant,function.body.location.end_line);
     }
-    fn compile_false_pattern(&mut self,_pattern:&PatternNode,jumps : &[usize],line:u32){
-        for (i,jump) in jumps.iter().copied().enumerate(){
-            self.patch_jump(jump);
-            if i<jumps.len()-1{
-                self.emit_instruction(Instruction::Pop, line);
-            }
-        }
-    }
-    fn compile_pattern_check(&mut self,pattern:&PatternNode)->Vec<usize>{
+    fn compile_pattern_check(&mut self,pattern:&PatternNode){
         match &pattern.kind{
             &PatternNodeKind::Bool(bool) => {
                 self.emit_instruction(Instruction::LoadBool(bool), pattern.location.end_line);
                 self.emit_instruction(Instruction::Equals, pattern.location.end_line);
-                vec![self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF),pattern.location.end_line)]
             }
             &PatternNodeKind::Int(int) => {
                 self.load_int(int, pattern.location.end_line);
                 self.emit_instruction(Instruction::Equals, pattern.location.end_line);
-                vec![self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF),pattern.location.end_line)]
             },
             &PatternNodeKind::Float(float) => {
                 self.load_constant(Constant::Float(float),pattern.location.end_line);
                 self.emit_instruction(Instruction::Equals, pattern.location.end_line);
-                vec![self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF),pattern.location.end_line)]
             },
             PatternNodeKind::String(string) => {
                 self.load_constant(Constant::String(Rc::from(string as &str)),pattern.location.end_line);
                 self.emit_instruction(Instruction::Equals, pattern.location.end_line);
-                vec![self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF),pattern.location.end_line)]
             },
             PatternNodeKind::Array(before,ignore ,after ) => {
                 let total_before_and_after_len = (before.len() + after.len()) as i64;
@@ -230,91 +218,111 @@ impl Compiler{
                 self.emit_instruction(Instruction::GetArrayLength,pattern.location.start_line);
                 self.load_constant(Constant::Int(total_before_and_after_len),pattern.location.start_line);
                 if ignore.is_some(){
-                    self.emit_instruction(Instruction::SubtractInt, pattern.location.start_line);
-                    self.load_constant(Constant::Int(0), pattern.location.start_line);
                     self.emit_instruction(Instruction::GreaterEqualsInt, pattern.location.start_line);
                 }
                 else{
                     self.emit_instruction(Instruction::Equals, pattern.location.start_line);
                 }
-                
-                let jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.start_line);
-                let mut jumps =  before.iter().enumerate().map(|(i,pattern)|{ 
+
+                let length_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.start_line);
+
+                let mut jumps = Vec::new();
+                for (i,pattern) in before.iter().enumerate(){
                     self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
-                    self.load_constant(Constant::Int(i as i64),pattern.location.start_line);
-                    self.emit_instruction(Instruction::LoadIndex, pattern.location.start_line);
-                    self.compile_pattern_check(pattern)
-                }).flatten().collect::<Vec<_>>();
-                let before_len = before.len() as i64;
-                if let Some(ignore) = ignore{
-                    
-                    self.emit_instruction(Instruction::Copy(1), ignore.location.start_line);
-                    self.emit_instruction(Instruction::GetArrayLength,ignore.location.start_line);
-                    self.load_constant(Constant::Int(total_before_and_after_len),ignore.location.start_line);
-                    self.emit_instruction(Instruction::SubtractInt, ignore.location.start_line);
-                    self.load_constant(Constant::Int(before_len),ignore.location.start_line);
-                    self.emit_instruction(Instruction::AddInt, ignore.location.start_line);
-                    
-                    jumps.extend(after.iter().enumerate().map(|(i,pattern)|{
+                    self.load_int(i as i64, pattern.location.start_line);
+                    self.emit_instruction(Instruction::LoadIndex,pattern.location.start_line);
+                    self.compile_pattern_check(pattern);
+                    jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line));
+                }
+                let mut after_jumps = Vec::new();
+                if !after.is_empty(){
+
+                    self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
+                    self.emit_instruction(Instruction::GetArrayLength, pattern.location.start_line);
+                    self.load_int(after.len() as i64, pattern.location.start_line);
+                    self.emit_instruction(Instruction::SubtractInt, pattern.location.start_line);
+
+                    for (i,pattern) in after.iter().enumerate(){
                         self.emit_instruction(Instruction::Copy(2), pattern.location.start_line);
                         self.emit_instruction(Instruction::Copy(2), pattern.location.start_line);
-                        self.load_constant(Constant::Int(i as i64),pattern.location.start_line);
+                        self.load_int(i as i64, pattern.location.start_line);
                         self.emit_instruction(Instruction::AddInt, pattern.location.start_line);
-                        self.emit_instruction(Instruction::LoadIndex, pattern.location.start_line);
-                        self.compile_pattern_check(pattern).into_iter().map(|jump|{
-                            let skip_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
-                            self.patch_jump(jump);
-                            self.emit_instruction(Instruction::Pop,pattern.location.end_line);
-                            skip_jump
-                        }).collect::<Vec<usize>>()
-                    }).flatten().collect::<Vec<usize>>());
-                    
+                        self.emit_instruction(Instruction::LoadIndex,pattern.location.start_line);
+                        self.compile_pattern_check(pattern);
+                        after_jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line));
+                    }
+
+                    self.emit_instruction(Instruction::Pop, pattern.location.end_line);
+                }
+                self.emit_instruction(Instruction::Pop, pattern.location.end_line);
+                self.emit_instruction(Instruction::LoadBool(true), pattern.location.end_line);
+                let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
+                
+                if !after_jumps.is_empty(){
                     self.emit_instruction(Instruction::Pop,pattern.location.end_line);
+                    for jump in after_jumps{
+                        self.patch_jump(jump);
+                    }
                 }
-                else{
-                    
-                    jumps.extend(after.iter().enumerate().map(|(i,pattern)|{
-                        self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
-                        self.load_constant(Constant::Int(before_len+i as i64), pattern.location.start_line);
-                        self.emit_instruction(Instruction::LoadIndex, pattern.location.start_line);
-                        self.compile_pattern_check(pattern)
-                    }).flatten().collect::<Vec<usize>>());
+                self.patch_jump(length_jump);
+                for jump in jumps{
+                    self.patch_jump(jump);
                 }
-                jumps.insert(0, jump);
-                jumps
+                self.emit_instruction(Instruction::Pop, pattern.location.end_line);
+                self.emit_instruction(Instruction::LoadBool(false), pattern.location.end_line);
+                self.patch_jump(end_jump);
             }
             PatternNodeKind::Tuple(elements) => {
-                if elements.is_empty(){
-                    self.emit_instruction(Instruction::Pop,pattern.location.end_line);
-                    Vec::new()
+                
+                let mut jump = None;
+                for (i,element) in elements.iter().enumerate(){
+                    if let Some(jump) = jump{
+                        self.patch_jump(jump);
+                    }
+                    self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
+                    self.emit_instruction(Instruction::GetTupleElement(i as u16), pattern.location.start_line);
+                    self.compile_pattern_check(element); 
+                    jump = Some(self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), element.location.start_line));
                 }
-                else{
-                    self.emit_instruction(Instruction::UnpackTuple, pattern.location.start_line);
-                    let jumps = elements.iter().flat_map(|element|{
-                        self.compile_pattern_check(element)
-                    }).collect();
-                    jumps
+                self.emit_instruction(Instruction::Pop,pattern.location.end_line);
+                self.emit_instruction(Instruction::LoadBool(true), pattern.location.end_line);
+                if let Some(jump) = jump{
+                    let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
+                    self.patch_jump(jump);
+                    self.emit_instruction(Instruction::LoadBool(false), pattern.location.end_line);
+                    self.patch_jump(end_jump);
                 }
             },
             PatternNodeKind::Struct { ty, fields } => {
-                fields.iter().enumerate().map(|(i,(field_name,pattern))|{
+                let mut jump = None;
+                for (field_name,pattern) in fields{
+                    if let Some(jump) = jump{
+                        self.patch_jump(jump);
+                    }
+                    self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
                     let field_index = ty.get_field_index(&field_name, &self.structs).expect("Can only have valid fields");
                     self.emit_instruction(Instruction::LoadField(field_index as u16),pattern.location.start_line);
-                    let jumps = self.compile_pattern_check(pattern);
-                    if i < fields.len()-1{
-                        self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
-                    }
-                    jumps
-                }).flatten().collect()
+                    self.compile_pattern_check(pattern);
+                    jump = Some(self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line));
+                    
+                }
+                self.emit_instruction(Instruction::Pop, pattern.location.end_line);
+                self.emit_instruction(Instruction::LoadBool(true), pattern.location.end_line);
+                if let Some(jump) = jump{
+                    let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
+                    self.patch_jump(jump);
+                    self.emit_instruction(Instruction::LoadBool(false), pattern.location.end_line);
+                    self.patch_jump(end_jump);
+                }
             
             },
             PatternNodeKind::Wildcard => {
                 self.emit_instruction(Instruction::Pop, pattern.location.end_line);
-                Vec::new()
+                self.emit_instruction(Instruction::LoadBool(true), pattern.location.end_line);
             }
             PatternNodeKind::Name(name) => {
                 self.define_name(name.clone(),pattern.location.end_line);
-                Vec::new()
+                self.emit_instruction(Instruction::LoadBool(true), pattern.location.end_line);
             }
 
         }
@@ -443,12 +451,12 @@ impl Compiler{
                 let jumps_to_patch = arms.iter().map(|arm|{
                     self.emit_instruction(Instruction::Copy(1),arm.pattern.location.start_line);
                     self.begin_scope();
-                    let jumps = self.compile_pattern_check(&arm.pattern);
-                    self.emit_instruction(Instruction::Pop,arm.pattern.location.end_line);
+                    self.compile_pattern_check(&arm.pattern);
+                    let then_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), arm.pattern.location.end_line);
                     self.compile_expr(&arm.expr);
                     self.end_scope();
                     let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), arm.expr.location.end_line);
-                    self.compile_false_pattern(&arm.pattern,&jumps,arm.expr.location.end_line);
+                    self.patch_jump(then_jump);
                     end_jump
                 }).collect::<Box<[_]>>();
                 for jump in jumps_to_patch.into_vec(){
