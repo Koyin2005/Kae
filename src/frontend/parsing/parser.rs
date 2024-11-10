@@ -1,6 +1,6 @@
 use crate::frontend::{parsing::ast::{ParsedGenericParam, ParsedParam, Symbol}, tokenizing::{tokens::{Token, TokenKind}, SourceLocation}};
 
-use super::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PatternMatchArmNode, StmtNode};
+use super::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PatternMatchArmNode, StmtNode};
 
 #[repr(u8)]
 #[derive(Clone, Copy,PartialEq, Eq, PartialOrd, Ord)]
@@ -761,9 +761,32 @@ impl<'a> Parser<'a>{
         self.expect(TokenKind::RightBracket, "Expect ']' after generic parameters.");
         Ok(ParsedGenericParams(params))
     }
+    fn parse_enum_variant(&mut self)->Result<ParsedEnumVariant,ParsingFailed>{
+        let variant_name = self.parse_identifer("Expect valid enum variant name.");
+        self.expect(TokenKind::LeftBrace, "Expect '{'.");
+        let mut fields = Vec::new();
+        while !self.check(TokenKind::RightBrace) && !self.is_at_end() {
+            fields.push(self.parse_struct_field()?);
+            if !self.matches(TokenKind::Coma){
+                break;
+            }
+        }
+        self.expect(TokenKind::RightBrace, "Expect '}'.");
+        Ok(ParsedEnumVariant { name:variant_name, fields })
+    }
     fn enum_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
         let name = self.parse_identifer("Expect valid enum name.");
-        todo!()
+        self.expect(TokenKind::LeftBrace, "Expect '{'.");
+        let mut variants = Vec::new();
+        while !self.check(TokenKind::RightBrace) && !self.is_at_end() {
+            let enum_variant = self.parse_enum_variant()?;
+            variants.push(enum_variant);
+            if !self.matches(TokenKind::Coma){
+                break;
+            }
+        }
+        self.expect(TokenKind::RightBrace, "Expect '}'.");
+        Ok(StmtNode::Enum { name, variants })
     }
     fn parse_struct_field(&mut self)->Result<(Symbol,ParsedType),ParsingFailed>{
         self.expect(TokenKind::Identifier, "Expect valid field name.");
@@ -806,6 +829,9 @@ impl<'a> Parser<'a>{
         }
         else if self.matches(TokenKind::Struct){
             self.struct_stmt()
+        }
+        else if self.matches(TokenKind::Enum){
+            self.enum_stmt()
         }
         else{
             return None
