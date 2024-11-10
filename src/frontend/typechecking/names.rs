@@ -63,6 +63,41 @@ impl Structs{
         update(self.structs.get_mut(id.0).expect("Cannot get struct id without creating a struct"));
     }
 }
+
+#[derive(Debug,Clone, Copy,PartialEq,Eq)]
+pub struct EnumId(usize);
+
+#[derive(Clone)]
+pub struct EnumVariant{
+    pub discrim : usize,
+    pub fields : Vec<(String,Type)>,
+}
+#[derive(Clone)]
+pub struct Enum{
+    pub variants : Vec<EnumVariant>
+}
+#[derive(Clone,Default)]
+pub struct Enums{
+    enums : Vec<Enum>
+}
+impl Enums{
+    pub fn define_enum(&mut self,variants : Vec<EnumVariant> )->EnumId{
+        self.enums.push(Enum { variants });
+        EnumId(self.enums.len()-1)
+    }
+    pub fn get_enum(&mut self,enum_id:EnumId)->&Enum{
+        &self.enums[enum_id.0]
+    }
+    pub fn update_enum(&mut self,enum_id:EnumId,mut update : impl FnMut(&mut Enum)){
+        update(&mut self.enums[enum_id.0]);
+    }
+}
+
+#[derive(Default,Clone)]
+pub struct TypeContext{
+    pub structs : Structs,
+    pub enums : Enums
+}
 #[derive(Clone)]
 pub struct Environment{
     current_variables : Vec<IndexMap<String,Variable>>,
