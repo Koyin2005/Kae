@@ -1,6 +1,6 @@
 use crate::frontend::parsing::ast::Symbol;
 
-use super::{names::Structs, typed_ast::{PatternNode, PatternNodeKind}, types::Type};
+use super::{names::TypeContext, typed_ast::{PatternNode, PatternNodeKind}, types::Type};
 
 
 fn is_irrefutable(pattern:&PatternNodeKind)->bool{
@@ -20,19 +20,19 @@ impl PatternChecker{
         eprintln!("Error on line {} : {}",line,message);
     }
     
-    pub fn collect_variables_in_pattern(pattern:&PatternNode,ty : &Type,variables:&mut Vec<(Symbol,Type)>,structs:&Structs){
+    pub fn collect_variables_in_pattern(pattern:&PatternNode,ty : &Type,variables:&mut Vec<(Symbol,Type)>,type_context:&TypeContext){
         match (&pattern.kind,ty){
             (PatternNodeKind::Name(name),ty) => variables.push((Symbol { content: name.clone(), location: pattern.location},ty.clone())),
-            (PatternNodeKind::Tuple(elements),Type::Tuple(element_types)) =>  elements.iter().zip(element_types.iter()).for_each(|(element,ty)| Self::collect_variables_in_pattern(element,ty, variables,structs)),
+            (PatternNodeKind::Tuple(elements),Type::Tuple(element_types)) =>  elements.iter().zip(element_types.iter()).for_each(|(element,ty)| Self::collect_variables_in_pattern(element,ty, variables,type_context)),
             (PatternNodeKind::Struct { fields,ty },_) => {
-                fields.iter().map(|(field_name,pattern)| (pattern,ty.get_field(field_name, structs).expect("Struct patterns have already been checked")))
+                fields.iter().map(|(field_name,pattern)| (pattern,ty.get_field(field_name, type_context).expect("Struct patterns have already been checked")))
                 .for_each(|(pattern,ty)|{
-                    Self::collect_variables_in_pattern(pattern, &ty, variables, structs);
+                    Self::collect_variables_in_pattern(pattern, &ty, variables, type_context);
                 });
             },
             (PatternNodeKind::Array(before, _, after),Type::Array(element_type)) => {
-                before.iter().for_each(|pattern| Self::collect_variables_in_pattern(pattern, element_type, variables, structs));
-                after.iter().for_each(|pattern| Self::collect_variables_in_pattern(pattern, element_type, variables, structs));
+                before.iter().for_each(|pattern| Self::collect_variables_in_pattern(pattern, element_type, variables, type_context));
+                after.iter().for_each(|pattern| Self::collect_variables_in_pattern(pattern, element_type, variables, type_context));
             }
             _ => ()
         }
@@ -52,7 +52,7 @@ impl PatternChecker{
         }
 
     }
-    pub fn check_pattern_type(pattern:&PatternNode,expected_type:&Type,structs:&Structs)->Result<Type,Type>{
+    pub fn check_pattern_type(pattern:&PatternNode,expected_type:&Type,type_context:&TypeContext)->Result<Type,Type>{
         fn unwrap<T>(result:Result<T,T>) -> T{
             match result {
                 Ok(value) => value,
@@ -67,8 +67,8 @@ impl PatternChecker{
             PatternNodeKind::Name(_) | PatternNodeKind::Wildcard => expected_type.clone(),
             PatternNodeKind::Array(before,_ ,after) => {
                 if let Type::Array(element_type) = expected_type{
-                    if before.iter().all(|pattern| Self::check_pattern_type(pattern, element_type, structs).is_ok()) &&
-                        after.iter().all(|after| Self::check_pattern_type(after, element_type, structs).is_ok()){
+                    if before.iter().all(|pattern| Self::check_pattern_type(pattern, element_type, type_context).is_ok()) &&
+                        after.iter().all(|after| Self::check_pattern_type(after, element_type, type_context).is_ok()){
                             expected_type.clone()
                     }
                     else{
@@ -81,11 +81,11 @@ impl PatternChecker{
             }
             PatternNodeKind::Tuple(elements) => {
                 if let Type::Tuple(element_types) = expected_type{
-                    if element_types.len() == elements.len() && element_types.iter().zip(elements.iter()).all(|(ty,pattern)|Self::check_pattern_type(pattern, ty,structs).is_ok()){
+                    if element_types.len() == elements.len() && element_types.iter().zip(elements.iter()).all(|(ty,pattern)|Self::check_pattern_type(pattern, ty,type_context).is_ok()){
                         expected_type.clone() 
                     }
                     else{
-                        return Err(Type::Tuple(elements.iter().map(|pattern| unwrap(Self::check_pattern_type(pattern, &Type::Unknown,structs))).collect()))
+                        return Err(Type::Tuple(elements.iter().map(|pattern| unwrap(Self::check_pattern_type(pattern, &Type::Unknown,type_context))).collect()))
                     }
                 }
                 else if let Type::Unit = expected_type{
@@ -97,12 +97,12 @@ impl PatternChecker{
                     }
                 }
                 else{
-                    return Err(Type::Tuple(elements.iter().map(|pattern| unwrap(Self::check_pattern_type(pattern, &Type::Unknown,structs))).collect()));
+                    return Err(Type::Tuple(elements.iter().map(|pattern| unwrap(Self::check_pattern_type(pattern, &Type::Unknown,type_context))).collect()));
                 }
             },
             PatternNodeKind::Struct { ty, fields } => {
                 if fields.iter().all(|(field_name,field_pattern)| {
-                    Self::check_pattern_type(field_pattern, &ty.get_field(field_name, structs).expect("Can't construct struct pattern with invalid fields"), structs).is_ok()
+                    Self::check_pattern_type(field_pattern, &ty.get_field(field_name, type_context).expect("Can't construct struct pattern with invalid fields"), type_context).is_ok()
                 }){
                     ty.clone()
                 }

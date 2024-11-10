@@ -4,7 +4,7 @@ use indexmap::{IndexMap, IndexSet};
 
 use crate::frontend::{parsing::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedFunction, ParsedGenericArgs, ParsedGenericParam, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PatternMatchArmNode, StmtNode, Symbol}, tokenizing::SourceLocation, typechecking::typed_ast::TypedPatternMatchArm};
 
-use super::{generics:: substitute, names::{Environment, Structs, ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedStmtNode, UnaryOp}, types::{FunctionId, GenericArgs, Type}};
+use super::{generics:: substitute, names::{Environment, Structs, TypeContext, ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedStmtNode, UnaryOp}, types::{FunctionId, GenericArgs, Type}};
 #[derive(Clone)]
 struct EnclosingFunction{
     return_type : Type
@@ -18,7 +18,7 @@ pub struct TypeChecker{
     enclosing_functions : Vec<EnclosingFunction>,
     generic_param_names : Vec<(String,usize)>,
 
-    structs : Structs,
+    type_context : TypeContext,
     next_generic_type : usize,
     next_function_id : FunctionId
 }
@@ -39,7 +39,7 @@ impl TypeChecker{
     }
     fn add_variables_in_pattern(&mut self,pattern:&PatternNode,ty:&Type){
         let mut variables = Vec::new();
-        PatternChecker::collect_variables_in_pattern(pattern,ty, &mut variables,&self.structs);
+        PatternChecker::collect_variables_in_pattern(pattern,ty, &mut variables,&self.type_context);
         self.environment.add_variables(variables.into_iter().map(|(name_symbol,ty)| (name_symbol.content,ty)));
         
     }
@@ -84,7 +84,7 @@ impl TypeChecker{
                 };
                 let mut seen_fields = HashSet::new();
                 let fields = fields.iter().map(|(name,pattern)|{
-                    let Some(expected_type) = ty.get_field(&name.content, &self.structs) else {
+                    let Some(expected_type) = ty.get_field(&name.content, &self.type_context) else {
                         self.error(format!("'struct {}' has no field '{}'.",ty,name.content), name.location.start_line);
                         return Err(TypeCheckFailed);
                     };
@@ -93,14 +93,14 @@ impl TypeChecker{
                         return Err(TypeCheckFailed);
                     }
                     let pattern = self.get_pattern(pattern)?;
-                    if PatternChecker::check_pattern_type(&pattern, &expected_type,&self.structs).is_err(){
+                    if PatternChecker::check_pattern_type(&pattern, &expected_type,&self.type_context).is_err(){
                         return Err(TypeCheckFailed)
                     }
 
                     Ok((name.content.clone(),pattern))
                 }).collect::<Result<Vec<_>,_>>()?;
-                if seen_fields.len() != self.structs.get_struct_info(id).unwrap().fields.len(){
-                    let field_names = self.structs.get_struct_info(id).unwrap().fields.iter().map(|(name,_)| name.clone()).collect::<Vec<_>>();
+                if seen_fields.len() != self.type_context.structs.get_struct_info(id).unwrap().fields.len(){
+                    let field_names = self.type_context.structs.get_struct_info(id).unwrap().fields.iter().map(|(name,_)| name.clone()).collect::<Vec<_>>();
                     self.missing_fields_error( |missing_field_count|
                         if  missing_field_count == 1 {
                             "Missing field pattern ".to_string()
@@ -143,7 +143,7 @@ impl TypeChecker{
                 return Err(TypeCheckFailed);
             }
             let ty = self.check_type(&param.ty)?;
-            if let Err(pattern_type) = PatternChecker::check_pattern_type(&pattern, &ty,&self.structs){
+            if let Err(pattern_type) = PatternChecker::check_pattern_type(&pattern, &ty,&self.type_context){
                     self.type_mismatch_error(pattern.location.start_line,&ty, &pattern_type);
                     return Err(TypeCheckFailed);
             };
@@ -174,7 +174,7 @@ impl TypeChecker{
         let mut variable_names =  IndexSet::new();
         for (pattern,ty) in &signature.params{
             let mut variables = Vec::new();
-            PatternChecker::collect_variables_in_pattern(pattern, ty,&mut variables,&self.structs);
+            PatternChecker::collect_variables_in_pattern(pattern, ty,&mut variables,&self.type_context);
             for name in variables.iter().map(|(name,_)| name){
                 if !variable_names.insert(name.content.clone()){
                     self.error(format!("Repeated parameter with name '{}'.",name.content),name.location.start_line);
@@ -279,7 +279,7 @@ impl TypeChecker{
                     self.error(format!("Cannot assign to field \'length\' of \"{}\".",lhs.ty),field.location.start_line);
                     return Err(TypeCheckFailed);
                  } else {
-                    lhs.ty.get_field(&field.content, &self.structs) 
+                    lhs.ty.get_field(&field.content, &self.type_context) 
                 };
                 let Some(field_type) = field_type else{
                     self.error(format!("\"{}\" has no field '{}'.",lhs.ty,field.content), field.location.start_line);
@@ -388,7 +388,7 @@ impl TypeChecker{
             let matchee = self.infer_expr_type(matchee)?;
             let arms = arms.iter().map(|arm|{
                 let pattern = self.get_pattern(&arm.pattern)?;
-                let pattern_type = match PatternChecker::check_pattern_type(&pattern,&matchee.ty,&self.structs){
+                let pattern_type = match PatternChecker::check_pattern_type(&pattern,&matchee.ty,&self.type_context){
                     Ok(ty) => ty,
                     Err(pattern_type) => {
                         self.type_mismatch_error(pattern.location.start_line, &matchee.ty, &pattern_type);
@@ -398,7 +398,7 @@ impl TypeChecker{
                 
                 let old_env = self.begin_scope();
                 let mut variables = Vec::new();
-                PatternChecker::collect_variables_in_pattern(&pattern,&pattern_type, &mut variables,&self.structs);
+                PatternChecker::collect_variables_in_pattern(&pattern,&pattern_type, &mut variables,&self.type_context);
                 self.environment.add_variables(variables.into_iter().map(|(name_symbol,ty)| (name_symbol.content,ty)));
                 let arm_expr = match self.infer_expr_type(&arm.expr){
                     Ok(arm_expr) => arm_expr,
@@ -668,7 +668,7 @@ impl TypeChecker{
             },
             ExprNodeKind::Property(lhs, property) => {
                 let lhs = self.infer_expr_type(lhs)?;
-                let Some(property_type) = lhs.ty.get_field(&property.content,&self.structs) else{
+                let Some(property_type) = lhs.ty.get_field(&property.content,&self.type_context) else{
                     self.error(format!("\"{}\" has no field or method.",property.content),property.location.start_line);
                     return Err(TypeCheckFailed);
                 };
@@ -686,7 +686,7 @@ impl TypeChecker{
                     return Err(TypeCheckFailed);
                 };
 
-                let struct_info = self.structs.get_struct_info(&id).expect("Can only use valid struct ids");
+                let struct_info = self.type_context.structs.get_struct_info(&id).expect("Can only use valid struct ids");
                 let field_names_and_types = struct_info.fields.iter().cloned().map(|(name,ty)| (name,substitute(ty, &generic_args))).collect::<IndexMap<_,_>>();
                 let mut seen_fields = HashSet::new();
                 let fields = fields.iter().map(|(field_name,field_expr)|{
@@ -854,7 +854,7 @@ impl TypeChecker{
                         return Err(TypeCheckFailed);
                     },
                     (Err(_),Ok(expr)) => {
-                        let ty = match PatternChecker::check_pattern_type(&pattern,&expr.ty,&self.structs){
+                        let ty = match PatternChecker::check_pattern_type(&pattern,&expr.ty,&self.type_context){
                             Ok(ty) => ty,
                             Err(ty) => {
                                 self.type_mismatch_error(pattern.location.start_line, &expr.ty, &ty);
@@ -865,7 +865,7 @@ impl TypeChecker{
                         return Err(TypeCheckFailed);
                     },
                     (Err(_)|Ok(None),Err(_)) => {
-                        let (Ok(ty)|Err(ty)) = PatternChecker::check_pattern_type(&pattern,&Type::Unknown,&self.structs);
+                        let (Ok(ty)|Err(ty)) = PatternChecker::check_pattern_type(&pattern,&Type::Unknown,&self.type_context);
                         self.add_variables_in_pattern(&pattern, &ty);
                         return Err(TypeCheckFailed);
                     }
@@ -877,7 +877,7 @@ impl TypeChecker{
                     self.add_variables_in_pattern(&pattern, &ty);
                     return Err(TypeCheckFailed);
                 }
-                if let Err(pattern_type) =  PatternChecker::check_pattern_type(&pattern,&expr.ty,&self.structs){
+                if let Err(pattern_type) =  PatternChecker::check_pattern_type(&pattern,&expr.ty,&self.type_context){
                     self.type_mismatch_error(pattern.location.start_line, &expr.ty, &pattern_type);
                     self.add_variables_in_pattern(&pattern, &pattern_type);
                     return Err(TypeCheckFailed);
@@ -943,7 +943,7 @@ impl TypeChecker{
                     self.environment.add_type(struct_name,Type::Unknown);
                     return Err(TypeCheckFailed);
                 };
-                let id = self.structs.define_struct (vec![].into_iter() );
+                let id = self.type_context.structs.define_struct (vec![].into_iter() );
                 let generic_params = if let Some(generic_params) = generic_params.clone(){
                     let generic_params : IndexMap<_,_> = generic_params.into_iter().map(|(name,index)|{
                         (GenericTypeId(index),Type::Param { name, index : GenericTypeId(index) })
@@ -974,7 +974,7 @@ impl TypeChecker{
                     return Err(TypeCheckFailed);
                 };
                 self.generic_param_names.truncate(generic_param_count);
-                self.structs.update_struct_info(&id, |struct_info|{
+                self.type_context.structs.update_struct_info(&id, |struct_info|{
                     struct_info.add_fields(fields.clone().into_iter().map(|(name,ty)|{
                         (name.content,ty)
                     }));
@@ -990,6 +990,9 @@ impl TypeChecker{
                     self.error(format!("A type with name '{}' is already defined.",enum_name), name.location.start_line);
                     return Err(TypeCheckFailed);
                 }
+                let variants = variants.iter().map(|variant|{
+
+                });
                 todo!()
             }
         }
@@ -1009,7 +1012,7 @@ impl TypeChecker{
         if !had_error { Ok(typed_stmts)} else {Err(TypeCheckFailed)}
 
     }
-    pub fn check(mut self,stmts:Vec<StmtNode>)->Result<(Structs,Vec<TypedStmtNode>),TypeCheckFailed>{
-        self.check_stmts(&stmts).map (|stmts| (self.structs,stmts))
+    pub fn check(mut self,stmts:Vec<StmtNode>)->Result<(TypeContext,Vec<TypedStmtNode>),TypeCheckFailed>{
+        self.check_stmts(&stmts).map (|stmts| (self.type_context,stmts))
     }
 }

@@ -11,10 +11,10 @@ fn compile(source:&str)->Option<Program>{
         return None;
     };
     let typechecker = TypeChecker::default();
-    let Ok((structs,stmts)) = typechecker.check(stmts) else {
+    let Ok((type_context,stmts)) = typechecker.check(stmts) else {
         return None;
     };
-    let Ok(code) = Compiler::new(structs).compile(stmts) else {
+    let Ok(code) = Compiler::new(type_context).compile(stmts) else {
         return None;
     };
     Some(code)

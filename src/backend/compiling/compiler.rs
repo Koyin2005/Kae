@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, values::Function}, frontend::typechecking::{substituter::{sub_function, sub_name}, names::Structs, typechecker::GenericTypeId, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::Type}};
+use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, values::Function}, frontend::typechecking::{names::{Structs, TypeContext}, substituter::{sub_function, sub_name}, typechecker::GenericTypeId, typed_ast::{BinaryOp, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::Type}};
 
 
 struct Local{
@@ -25,12 +25,12 @@ pub struct Compiler{
     generic_functions : Vec<GenericFunction>,
     locals : Vec<Local>,
     scope_depth : usize,
-    structs : Structs,
+    type_context : TypeContext,
     mono_counter : usize
 }
 impl Compiler{
-    pub fn new(structs:Structs)->Self{
-        Self { structs,..Default::default() }
+    pub fn new(type_context:TypeContext)->Self{
+        Self { type_context,..Default::default() }
     }
     fn begin_scope(&mut self){
         self.scope_depth += 1;
@@ -306,7 +306,7 @@ impl Compiler{
                         self.patch_jump(jump);
                     }
                     self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
-                    let field_index = ty.get_field_index(field_name, &self.structs).expect("Can only have valid fields");
+                    let field_index = ty.get_field_index(field_name, &self.type_context).expect("Can only have valid fields");
                     self.emit_instruction(Instruction::LoadField(field_index as u16),pattern.location.start_line);
                     self.compile_pattern_check(pattern);
                     jump = Some(self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line));
@@ -497,7 +497,7 @@ impl Compiler{
                     TypedAssignmentTargetKind::Field { lhs, name } => {
                         self.compile_expr(lhs);
                         self.compile_expr(rhs);
-                        let field_index= lhs.ty.get_field_index(&name.content, &self.structs).expect("Already checked fields");
+                        let field_index= lhs.ty.get_field_index(&name.content, &self.type_context).expect("Already checked fields");
                         self.emit_instruction(Instruction::StoreField(field_index as u16), rhs.location.end_line);
                         self.emit_instruction(Instruction::LoadField(field_index as u16), rhs.location.end_line);
                     }
@@ -554,7 +554,7 @@ impl Compiler{
                     },
                     (Type::Struct { id,.. },field) => {
                         self.emit_instruction(
-                            Instruction::LoadField(self.structs.get_struct_info(id).expect("Struct should exist").get_field(field).expect("Field should exist").0 as u16,
+                            Instruction::LoadField(self.type_context.structs.get_struct_info(id).expect("Struct should exist").get_field(field).expect("Field should exist").0 as u16,
                             ),field_name.location.end_line
                         );
                     }
@@ -567,7 +567,7 @@ impl Compiler{
                     self.compile_expr(field_expr);
                     let field_index = match &expr.ty{
                         Type::Struct { id,.. } => {
-                            self.structs.get_struct_info(id).expect("Should definitely be a struct").get_field(name).expect("Struct should definitely have field").0
+                            self.type_context.structs.get_struct_info(id).expect("Should definitely be a struct").get_field(name).expect("Struct should definitely have field").0
                         },
                         _ => unreachable!("Should definitely be a struct")
                     };
@@ -597,7 +597,7 @@ impl Compiler{
             },
             PatternNodeKind::Struct { fields,ty } => {
                 for (field_name,field) in fields.iter(){
-                    let index = ty.get_field_index(field_name, &self.structs).expect("All fields should be checked");
+                    let index = ty.get_field_index(field_name, &self.type_context).expect("All fields should be checked");
                     self.emit_instruction(Instruction::Copy(1), line);
                     self.emit_instruction(Instruction::LoadField(index as u16), line);
                     self.compile_pattern_assignment(field, ty, line);

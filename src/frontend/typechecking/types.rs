@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use indexmap::IndexMap;
 
-use super::{generics::substitute, names::{StructId, Structs}, typechecker::GenericTypeId};
+use super::{generics::substitute, names::{StructId, TypeContext}, typechecker::GenericTypeId};
 
 #[derive(Clone, Copy,PartialEq, Eq,Debug)]
 pub struct FunctionId(usize);
@@ -80,10 +80,10 @@ impl PartialEq for Type{
     }
 }
 impl Type{
-    pub fn get_field_index(&self,field_name:&str,structs:&Structs)->Option<usize>{
+    pub fn get_field_index(&self,field_name:&str,type_context:&TypeContext)->Option<usize>{
         match (self,field_name){
             (Type::Struct { id, .. },field_name) => {
-                structs.get_struct_info(id)
+                type_context.structs.get_struct_info(id)
                     .and_then(|struct_| struct_.get_field(field_name)
                     .map(|(index,_)| {
                         index
@@ -93,11 +93,11 @@ impl Type{
         }
 
     }
-    pub fn get_field(&self,field_name:&str,structs:&Structs)->Option<Type>{
+    pub fn get_field(&self,field_name:&str,type_context:&TypeContext)->Option<Type>{
         match (self,field_name){
             (Type::Array(..),"length") => Some(Type::Int),
             (Type::Struct { generic_args, id, .. },field_name) => {
-                structs.get_struct_info(id)
+                type_context.structs.get_struct_info(id)
                     .and_then(|struct_| struct_.get_field(field_name)
                     .map(|(_,ty)| {
                         let ty = ty.clone();
