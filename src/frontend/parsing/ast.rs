@@ -190,8 +190,7 @@ pub enum ParsedPatternNodeKind {
     Tuple(Vec<ParsedPatternNode>),
     Literal(LiteralKind),
     Struct{
-        name : ParsedPath,
-        generic_args : Option<ParsedGenericArgs>,
+        path : ParsedPath,
         fields : Vec<(Symbol,ParsedPatternNode)>
     },
     Array(Vec<ParsedPatternNode>,Option<Box<ParsedPatternNode>>,Vec<ParsedPatternNode>),
