@@ -235,3 +235,13 @@ pub struct ParsedGenericArgs{
     pub location : SourceLocation,
     pub types : Vec<ParsedType>
 }
+
+
+pub struct PathSegment{
+    pub name : Symbol,
+    pub generic_args : Option<ParsedGenericArgs>
+}
+pub struct ParsedPath{
+    pub head : PathSegment,
+    pub segmenets : Vec<PathSegment>
+}
