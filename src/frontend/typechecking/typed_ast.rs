@@ -184,6 +184,10 @@ pub enum TypedStmtNode {
         name : Symbol,
         generic_params : Vec<GenericTypeId>,
         fields : Vec<(String,Type)>
+    },
+    Enum{
+        name : Symbol,
+        variants : Vec<TypedEnumVariant>
     }
 }
 #[derive(Clone,Debug)]
@@ -218,4 +222,9 @@ pub struct TypedFunction{
 pub struct TypedFunctionSignature{
     pub params : Vec<(PatternNode,Type)>,
     pub return_type : Type
+}
+#[derive(Clone,Debug)]
+pub struct TypedEnumVariant{
+    pub name : Symbol,
+    pub fields : Vec<(Symbol,Type)>,
 }

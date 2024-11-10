@@ -645,7 +645,7 @@ impl Compiler{
                     monos : Vec::new()
                 });
             },
-            TypedStmtNode::Struct { .. } => {
+            TypedStmtNode::Struct { .. } | TypedStmtNode::Enum { .. } => {
 
             }
         }

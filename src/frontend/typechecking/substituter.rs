@@ -32,6 +32,13 @@ fn sub_stmt(stmt:&mut TypedStmtNode,generic_args : &GenericArgs){
         TypedStmtNode::GenericFunction { function,.. } => {
             sub_function(function, generic_args);
         },
+        TypedStmtNode::Enum { variants,.. } => {
+            variants.iter_mut().for_each(|variant|{
+                variant.fields.iter_mut().for_each(|(_,field_type)|{
+                    *field_type = substitute(field_type.clone(), generic_args);
+                });
+            });
+        }
     }
 }
 fn sub_assignment_target(target:&mut TypedAssignmentTarget,generic_args : &GenericArgs){
