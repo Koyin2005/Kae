@@ -157,8 +157,7 @@ pub struct ParsedGenericParams(pub Vec<ParsedGenericParam>);
 
 pub struct ParsedEnumVariant{
     pub name : Symbol,
-    pub fields : Vec<(Symbol,ParsedType)>,
-    pub sub_variants : Vec<ParsedEnumVariant>
+    pub fields : Vec<(Symbol,ParsedType)>
 }
 pub enum StmtNode{
     Expr{
