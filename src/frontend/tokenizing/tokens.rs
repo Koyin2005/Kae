@@ -51,6 +51,7 @@ pub enum TokenKind{
     True,
     False,
     Let,
+    Is,
     Print,
     Return,
     Typename,
