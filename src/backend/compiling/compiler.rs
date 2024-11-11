@@ -340,9 +340,10 @@ impl Compiler{
                 self.emit_instruction(Instruction::LoadBool(true), pattern.location.end_line);
             },
             PatternNodeKind::Is(name,right_pattern) => {
+                self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
+                self.define_name(name.content.clone(),pattern.location.start_line);
                 self.compile_pattern_check(&right_pattern);
                 let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), right_pattern.location.end_line);
-                self.define_name(name.content.clone(),pattern.location.end_line);
                 self.emit_instruction(Instruction::LoadBool(true), pattern.location.end_line);
                 let then_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
                 self.patch_jump(false_jump);
