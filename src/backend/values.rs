@@ -72,23 +72,25 @@ impl Value{
             },
             Value::CaseRecord(record_object) => {
                 let record = record_object.as_record(heap);
-                let mut result = format!("{}{{",Value::String(record.name).format(heap, seen_values));
+                let mut result = format!("{}",Value::String(record.name).format(heap, seen_values));
                 let record_field_count = record_object.get_record_field_count(heap);
-                if record.fields.is_empty() || !seen_values.contains(self){
-                    seen_values.push(*self);
-                
-                    for (i,field) in record.fields.iter().skip(1).enumerate().take(record_field_count){
-                        if i > 0{
-                            result.push(',');
+                if record_field_count>0{
+                    result.push('{');
+                    if record.fields.is_empty() || !seen_values.contains(self){
+                        seen_values.push(*self);
+                        for (i,field) in record.fields.iter().skip(1).enumerate().take(record_field_count){
+                            if i > 0{
+                                result.push(',');
+                            }
+                            result.push_str(&field.format(heap,seen_values));
                         }
-                        result.push_str(&field.format(heap,seen_values));
                     }
+                    else{
+                        result.push_str("...");
+                    }
+                    
+                    result.push('}');
                 }
-                else{
-                    result.push_str("...");
-                }
-                
-                result.push('}');
                 result
             }
             Value::Record(record) => {
