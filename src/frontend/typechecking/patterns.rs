@@ -10,6 +10,7 @@ fn is_irrefutable(pattern:&PatternNodeKind)->bool{
             PatternNodeKind::Struct { fields,ty } => 
                 fields.iter().all(|(_,field)| is_irrefutable(&field.kind)) && !matches!(ty,Type::EnumVariant {.. }),
             PatternNodeKind::Array(before, ignore, after) => ignore.is_some() && before.is_empty() && after.is_empty(),
+            PatternNodeKind::Is(.., pattern) => is_irrefutable(&pattern.kind),
             _  => {
                 false
             },
@@ -34,6 +35,10 @@ impl PatternChecker{
             (PatternNodeKind::Array(before, _, after),Type::Array(element_type)) => {
                 before.iter().for_each(|pattern| Self::collect_variables_in_pattern(pattern, element_type, variables, type_context));
                 after.iter().for_each(|pattern| Self::collect_variables_in_pattern(pattern, element_type, variables, type_context));
+            },
+            (PatternNodeKind::Is(name, pattern),ty) => {
+                variables.push((name.clone(),ty.clone()));
+                Self::collect_variables_in_pattern(&pattern, ty, variables, type_context);
             }
             _ => ()
         }
@@ -80,6 +85,9 @@ impl PatternChecker{
             PatternNodeKind::Bool(_) => Type::Bool,
             PatternNodeKind::String(_) => Type::String,
             PatternNodeKind::Name(_) | PatternNodeKind::Wildcard => expected_type.clone(),
+            PatternNodeKind::Is(_, pattern) => {
+                Self::check_pattern_type(&pattern, expected_type, type_context)?
+            },
             PatternNodeKind::Array(before,_ ,after) => {
                 if let Type::Array(element_type) = expected_type{
                     if before.iter().all(|pattern| Self::check_pattern_type(pattern, element_type, type_context).is_ok()) &&
