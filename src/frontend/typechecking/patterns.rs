@@ -8,7 +8,7 @@ fn is_irrefutable(pattern:&PatternNodeKind)->bool{
             PatternNodeKind::Name(..)| PatternNodeKind::Wildcard => true,
             PatternNodeKind::Tuple(elements) => elements.is_empty() || elements.iter().all(|element| is_irrefutable(&element.kind)),
             PatternNodeKind::Struct { fields,ty } => 
-                fields.iter().all(|(_,field)| is_irrefutable(&field.kind)) && matches!(ty,Type::EnumVariant {.. }),
+                fields.iter().all(|(_,field)| is_irrefutable(&field.kind)) && !matches!(ty,Type::EnumVariant {.. }),
             PatternNodeKind::Array(before, ignore, after) => ignore.is_some() && before.is_empty() && after.is_empty(),
             _  => {
                 false
