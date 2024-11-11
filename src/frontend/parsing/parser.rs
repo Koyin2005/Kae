@@ -13,8 +13,8 @@ pub enum Precedence {
     Comparison,
     Term,
     Factor,
-    Call,
     Unary,
+    Call,
     Primary
 }
 impl Precedence{
