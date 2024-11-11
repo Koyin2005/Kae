@@ -37,7 +37,7 @@ impl PatternChecker{
                 after.iter().for_each(|pattern| Self::collect_variables_in_pattern(pattern, element_type, variables, type_context));
             },
             (PatternNodeKind::Is(name, pattern),ty) => {
-                variables.push((name.clone(),ty.clone()));
+                variables.push((name.clone(),Self::check_pattern_type(&pattern, ty, type_context).unwrap()));
                 Self::collect_variables_in_pattern(&pattern, ty, variables, type_context);
             }
             _ => ()
