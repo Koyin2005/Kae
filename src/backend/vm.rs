@@ -338,7 +338,7 @@ impl VM{
                     self.push(Value::Record(record_object))?;
                 },
                 Instruction::LoadField(field) => {
-                    let Value::Record(record) = self.pop() else {
+                    let (Value::Record(record) | Value::CaseRecord(record)) = self.pop() else {
                         panic!("Can't get field of non-record")
                     };
                     let field_value = record.get_record_fields_mut(&mut self.heap)[field as usize];
@@ -354,7 +354,7 @@ impl VM{
                 },
                 Instruction::StoreField(field) => {
                     let value = self.pop();
-                    let Value::Record(record) = self.peek(0) else {
+                    let (Value::Record(record) | Value::CaseRecord(record)) = self.peek(0) else {
                         panic!("Can't get field of non-record")
                     };
                     record.get_record_fields_mut(&mut self.heap)[field as usize] = value;
