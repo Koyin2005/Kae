@@ -489,8 +489,12 @@ impl VM{
                 Instruction::Call(args) => {
                     let arg_count = args as usize;
                     let function = self.peek(arg_count);
-                    let Value::Function(function) = function else {
-                        panic!("Expect function.")
+                    let function = match function{
+                        Value::Function(function) => function,
+                        value => {
+
+                            panic!("Expect function got {}.",value.format(&self.heap, &mut Vec::new()))
+                        }
                     };
                     let function = function.as_function(&self.heap);
 
