@@ -590,8 +590,10 @@ impl Compiler{
                     }
                 };
 
-                if let InitKind::Variant(_, variant_index) = kind{
+                if let InitKind::Variant(id, variant_index) = kind{
                     self.load_int(*variant_index as i64, expr.location.start_line);
+                    let field_count = self.type_context.enums.get_enum(*id).variants[*variant_index].fields.len() as i64;
+                    self.load_int(field_count as i64, expr.location.start_line);
                     self.emit_instruction(Instruction::BuildCaseRecord(total_fields as u16), expr.location.start_line);
                 }
                 else if let InitKind::Struct(..) = kind{

@@ -20,7 +20,7 @@ impl Object{
         function.clone()
     }
     pub fn get_record_fields_mut(self,heap:&mut Heap)->&mut [Value]{
-        let ObjectType::Record(record) = heap.get_object_mut(self) else{
+        let (ObjectType::Record(record) | ObjectType::CaseRecord(_, record)) = heap.get_object_mut(self) else{
             panic!("Can't use object as record")
         };
         &mut record.fields
@@ -30,6 +30,12 @@ impl Object{
             panic!("Can't use object as record")
         };
         record
+    }
+    pub fn get_record_field_count(self,heap:&Heap)->usize{
+        let ObjectType::CaseRecord(field_count, _) = heap.get_object(self) else{
+            panic!("Can't use object as case record")
+        };
+        *field_count
     }
     pub fn as_string(self,heap:&Heap)->&str{
         let ObjectType::String(string) = heap.get_object(self) else {
@@ -63,6 +69,9 @@ impl Object{
     }
     pub fn new_record(heap:&mut Heap,record:Record)->Self{
         heap.alloc(ObjectType::Record(record))
+    }
+    pub fn new_case_record(heap:&mut Heap,record:Record,field_count:usize)->Self{
+        heap.alloc(ObjectType::CaseRecord(field_count,record))
     }
     pub fn new_tuple(heap:&mut Heap,values:&[Value]) -> Self{
         heap.alloc(ObjectType::Tuple(values.to_vec().into_boxed_slice()))

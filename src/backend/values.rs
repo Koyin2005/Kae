@@ -71,11 +71,12 @@ impl Value{
             },
             Value::CaseRecord(record) => {
                 let mut result = String::from("{");
+                let record_field_count = record.get_record_field_count(heap);
                 let record = record.as_record(heap);
                 if record.fields.is_empty() || !seen_values.contains(self){
                     seen_values.push(*self);
                 
-                    for (i,field) in record.fields.iter().skip(1).enumerate(){
+                    for (i,field) in record.fields.iter().skip(1).enumerate().take(record_field_count){
                         if i > 0{
                             result.push(',');
                         }

@@ -323,12 +323,16 @@ impl VM{
                     self.push(Value::Tuple(tuple))?;
                 },
                 Instruction::BuildCaseRecord(fields) => {
+                    let Value::Int(field_count) = self.pop() else {
+                        panic!("Expected an int for variant field count")
+                    };
+                    let field_count = field_count as usize;
                     let variant_tag = self.pop();
                     let mut fields = (0..fields).map(|_| Value::Int(0)).collect::<Box<[Value]>>();
                     fields[0] = variant_tag;
-                    let record_object = Object::new_record(&mut self.heap, Record{
+                    let record_object = Object::new_case_record(&mut self.heap, Record{
                         fields
-                    });
+                    },field_count);
                     self.push(Value::CaseRecord(record_object))?;
                 },
                 Instruction::BuildRecord(fields) => {
