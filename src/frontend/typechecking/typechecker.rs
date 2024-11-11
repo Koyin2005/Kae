@@ -48,6 +48,10 @@ impl TypeChecker{
             ParsedPatternNodeKind::Name(name) => {
                 PatternNodeKind::Name(name.clone())
             },
+            ParsedPatternNodeKind::Is(name, right_pattern) => {
+                let right_pattern = self.get_pattern(right_pattern)?;
+                PatternNodeKind::Is(name.clone(),Box::new(right_pattern))
+            },
             ParsedPatternNodeKind::Wildcard => {
                 PatternNodeKind::Wildcard
             },
