@@ -683,8 +683,7 @@ impl<'a> Parser<'a>{
                 }
             }
             else{
-                self.error("Invalid pattern.");
-               return Err(ParsingFailed); 
+                (path.location,ParsedPatternNodeKind::Struct { path: path, fields: vec![] })
             }
         }
         else if self.matches(TokenKind::LeftBracket){
@@ -793,16 +792,20 @@ impl<'a> Parser<'a>{
     }
     fn parse_enum_variant(&mut self)->Result<ParsedEnumVariant,ParsingFailed>{
         let variant_name = self.parse_identifer("Expect valid enum variant name.");
-        self.expect(TokenKind::LeftBrace, "Expect '{'.");
-        let mut fields = Vec::new();
-        while !self.check(TokenKind::RightBrace) && !self.is_at_end() {
-            fields.push(self.parse_struct_field()?);
-            if !self.matches(TokenKind::Coma){
-                break;
+        if self.matches(TokenKind::LeftBrace){let mut fields = Vec::new();
+            while !self.check(TokenKind::RightBrace) && !self.is_at_end() {
+                fields.push(self.parse_struct_field()?);
+                if !self.matches(TokenKind::Coma){
+                    break;
+                }
             }
+            self.expect(TokenKind::RightBrace, "Expect '}'.");
+            Ok(ParsedEnumVariant { name:variant_name, fields })
         }
-        self.expect(TokenKind::RightBrace, "Expect '}'.");
-        Ok(ParsedEnumVariant { name:variant_name, fields })
+        else{
+            Ok(ParsedEnumVariant{name:variant_name,fields:Vec::new()})
+        }
+        
     }
     fn enum_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
         let name = self.parse_identifer("Expect valid enum name.");

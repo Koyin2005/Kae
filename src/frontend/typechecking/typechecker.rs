@@ -645,8 +645,43 @@ impl TypeChecker{
                             else{
                                 return Err(TypeCheckFailed);
                             };
-                            self.error(format!("Expected an expression got type \"{}\".",ty), head.location.start_line);
-                            return Err(TypeCheckFailed);
+                            if matches!(ty,Type::Enum { ..}){
+                                let mut ty = ty;
+                                for segment in &path.segments{
+                                    let segment_name = segment.name.content.clone();
+                                    let mut result_ty = None;
+                                    if let Type::Enum { id, .. } = &ty{
+                                        if let Some(variant) = self.type_context.enums.get_enum(*id).variants.iter().find(|variant| variant.name == segment_name){
+                                            result_ty = Some(Type::EnumVariant { id:*id, name: variant.name.clone(), variant_index: variant.discrim })
+                                        }
+                                    }
+                                    ty = if let Some(result_ty) = result_ty{
+                                        result_ty
+                                    }
+                                    else{
+                                        self.error(format!("\"{}\" does not have variant '{}'.",ty,segment.name.content), segment.location.start_line);
+                                        return Err(TypeCheckFailed);
+                                    }
+
+                                }
+                                if let Type::EnumVariant { id, variant_index,.. } = ty.clone(){
+                                    let variant = &self.type_context.enums.get_enum(id).variants[variant_index]; 
+                                    if !variant.fields.is_empty(){
+                                        self.error(format!("\"{}\" require fields.",ty), path.location.start_line);
+                                        return Err(TypeCheckFailed);
+                                    }
+                                    
+                                    (Type::Enum { id, name: variant.name.clone() },TypedExprNodeKind::StructInit { kind:InitKind::Variant(id, variant_index),fields:Vec::new() })
+                                }
+                                else{
+                                    self.error(format!("Expected an expression got type \"{}\".",ty), head.location.start_line);
+                                    return Err(TypeCheckFailed);
+                                }
+                            }
+                            else{
+                                self.error(format!("Expected an expression got type \"{}\".",ty), head.location.start_line);
+                                return Err(TypeCheckFailed);
+                            }
                         }
                         else{
                             let (mut ty,mut expr) = self.infer_variable_expr_type(head.location, &head_name)?;
