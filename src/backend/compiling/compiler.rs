@@ -641,6 +641,11 @@ impl Compiler{
             },
             PatternNodeKind::Array(before, ignore, after) if before.is_empty() && after.is_empty() && ignore.is_some() => {
                 self.emit_instruction(Instruction::Pop, line);
+            },
+            PatternNodeKind::Is(name, right_pattern) => {
+                self.emit_instruction(Instruction::Copy(1), line);
+                self.define_name(name.content.clone(), line);
+                self.compile_pattern_assignment(right_pattern, ty, line);
             }
             _ => {}
         }
