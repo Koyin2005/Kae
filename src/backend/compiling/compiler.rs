@@ -330,11 +330,24 @@ impl Compiler{
             PatternNodeKind::Wildcard => {
                 self.emit_instruction(Instruction::Pop, pattern.location.end_line);
                 self.emit_instruction(Instruction::LoadBool(true), pattern.location.end_line);
-            }
+            },
             PatternNodeKind::Name(name) => {
                 self.define_name(name.clone(),pattern.location.end_line);
                 self.emit_instruction(Instruction::LoadBool(true), pattern.location.end_line);
-            }
+            },
+            PatternNodeKind::Is(name,right_pattern) => {
+                self.compile_pattern_check(&right_pattern);
+                let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), right_pattern.location.end_line);
+                self.emit_instruction(Instruction::Copy(1), pattern.location.end_line);
+                self.define_name(name.content.clone(),pattern.location.end_line);
+                self.emit_instruction(Instruction::LoadBool(true), pattern.location.end_line);
+                let then_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
+                self.patch_jump(false_jump);
+                self.emit_instruction(Instruction::LoadBool(false), pattern.location.end_line);
+                self.patch_jump(then_jump);
+
+            },
+
 
         }
     }
@@ -557,13 +570,13 @@ impl Compiler{
                     (Type::Array(..),"length") => {
                         self.emit_instruction(Instruction::GetArrayLength, field_name.location.end_line);
                     },
-                    (Type::Struct { id,.. },field) => {
+                    (ty @ (Type::Struct {.. } | Type::EnumVariant {.. }),field) => {
                         self.emit_instruction(
-                            Instruction::LoadField(self.type_context.structs.get_struct_info(id).expect("Struct should exist").get_field(field).expect("Field should exist").0 as u16,
+                            Instruction::LoadField(ty.get_field_index(field, &self.type_context).expect("All fields should be checked") as u16,
                             ),field_name.location.end_line
                         );
                     }
-                    _ => unreachable!("{}",lhs.ty)
+                    _ => unreachable!("{:?}",lhs.ty)
                 }
             },
             TypedExprNodeKind::StructInit { kind,fields } => {
