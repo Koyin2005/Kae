@@ -185,6 +185,7 @@ pub enum StmtNode{
 }
 #[derive(Clone)]
 pub enum ParsedPatternNodeKind {
+    Is(Symbol,Box<ParsedPatternNode>),
     Name(String),
     Tuple(Vec<ParsedPatternNode>),
     Literal(LiteralKind),
