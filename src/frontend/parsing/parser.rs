@@ -426,12 +426,13 @@ impl<'a> Parser<'a>{
             self.expect(TokenKind::FatArrow, "Expect '=>'.");
             let location = SourceLocation::one_line(self.prev_token.line);
             let arm = self.expression()?;
+            let needs_coma = Self::needs_semi_for_stmt(&arm);
             arms.push(PatternMatchArmNode{
                 location,
                 pattern,
                 expr:arm
             });
-            if !self.matches(TokenKind::Coma){
+            if !self.matches(TokenKind::Coma) && needs_coma{
                 break;
             }
         }
