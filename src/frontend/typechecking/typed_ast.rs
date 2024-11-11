@@ -214,7 +214,8 @@ pub enum PatternNodeKind{
         ty : Type,
         fields : Vec<(String,PatternNode)>
     },
-    Array(Vec<PatternNode>,Option<Box<PatternNode>>,Vec<PatternNode>)
+    Array(Vec<PatternNode>,Option<Box<PatternNode>>,Vec<PatternNode>),
+    Is(Symbol,Box<PatternNode>)
 
 }
 #[derive(Clone,Debug)]
