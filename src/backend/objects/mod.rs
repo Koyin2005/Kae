@@ -19,11 +19,11 @@ impl Object{
         };
         function.clone()
     }
-    pub fn as_record_mut(self,heap:&mut Heap)->&mut Record{
+    pub fn get_record_fields_mut(self,heap:&mut Heap)->&mut [Value]{
         let ObjectType::Record(record) = heap.get_object_mut(self) else{
             panic!("Can't use object as record")
         };
-        record
+        &mut record.fields
     }
     pub fn as_record(self,heap:&Heap)->&Record{
         let ObjectType::Record(record) = heap.get_object(self) else{
@@ -73,6 +73,7 @@ impl Object{
 }
 pub enum ObjectType{
     Record(Record),
+    CaseRecord(usize,Record),
     String(Rc<str>),
     Tuple(Box<[Value]>),
     List(Vec<Value>),

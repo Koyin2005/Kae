@@ -590,10 +590,12 @@ impl Compiler{
                     }
                 };
 
-                self.emit_instruction(Instruction::InitRecord(total_fields as u16),expr.location.start_line);
                 if let InitKind::Variant(_, variant_index) = kind{
                     self.load_int(*variant_index as i64, expr.location.start_line);
-                    self.emit_instruction(Instruction::StoreField(0), expr.location.start_line);
+                    self.emit_instruction(Instruction::BuildCaseRecord(total_fields as u16), expr.location.start_line);
+                }
+                else if let InitKind::Struct(..) = kind{
+                    self.emit_instruction(Instruction::BuildRecord(total_fields as u16),expr.location.start_line);
                 }
                 for (name,field_expr) in fields{
                     self.compile_expr(field_expr);
@@ -604,9 +606,6 @@ impl Compiler{
                         }
                     };
                     self.emit_instruction(Instruction::StoreField(field_index as u16), field_expr.location.end_line);
-                }
-                if let InitKind::Variant(..) = kind{
-                    self.emit_instruction(Instruction::ConvertToCaseRecord, expr.location.end_line);
                 }
             }
         }

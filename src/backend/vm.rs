@@ -322,13 +322,13 @@ impl VM{
                     let tuple = Object::new_tuple(&mut self.heap, &elements);
                     self.push(Value::Tuple(tuple))?;
                 },
-                Instruction::ConvertToCaseRecord => {
-                    let (Value::Record(record)|Value::CaseRecord(record)) = self.pop() else {
-                        panic!("Can't convert non-record to record.")
-                    }; 
-                    self.push(Value::CaseRecord(record))?;
-                }
-                Instruction::InitRecord(fields) => {
+                Instruction::BuildCaseRecord(fields) => {
+                    let record_object = Object::new_record(&mut self.heap, Record{
+                        fields:(0..fields).map(|_| Value::Int(0)).collect()
+                    });
+                    self.push(Value::CaseRecord(record_object))?;
+                },
+                Instruction::BuildRecord(fields) => {
                     let record_object = Object::new_record(&mut self.heap, Record{
                         fields:(0..fields).map(|_| Value::Int(0)).collect()
                     });
@@ -338,7 +338,7 @@ impl VM{
                     let Value::Record(record) = self.pop() else {
                         panic!("Can't get field of non-record")
                     };
-                    let field_value = record.as_record_mut(&mut self.heap).fields[field as usize];
+                    let field_value = record.get_record_fields_mut(&mut self.heap)[field as usize];
                     self.push(field_value)?;
 
                 },
@@ -354,7 +354,7 @@ impl VM{
                     let Value::Record(record) = self.peek(0) else {
                         panic!("Can't get field of non-record")
                     };
-                    record.as_record_mut(&mut self.heap).fields[field as usize] = value;
+                    record.get_record_fields_mut(&mut self.heap)[field as usize] = value;
                 },
                 Instruction::StoreLocal(local) => {
                     let value = self.pop();
@@ -521,7 +521,7 @@ mod vm_tests{
     pub fn test_record(){
         let mut vm = VM::new(Chunk{
             code : vec![
-                Instruction::InitRecord(2),
+                Instruction::BuildRecord(2),
                 Instruction::LoadInt(5),
                 Instruction::StoreField(0),
                 Instruction::LoadInt(10),
