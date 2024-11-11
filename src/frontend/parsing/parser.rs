@@ -650,7 +650,13 @@ impl<'a> Parser<'a>{
                 (path.location,ParsedPatternNodeKind::Wildcard)
             }
             else if path.segments.is_empty() && path.generic_args.is_none(){
-                (path.head.location,ParsedPatternNodeKind::Name(path.head.name.content))
+                if self.matches(TokenKind::Is){
+                    let pattern = self.pattern()?;
+                    (path.head.location,ParsedPatternNodeKind::Is(path.head.name, Box::new(pattern)))
+                }
+                else{
+                    (path.head.location,ParsedPatternNodeKind::Name(path.head.name.content))
+                }
             }
             else{
                 self.error("Invalid pattern.");
