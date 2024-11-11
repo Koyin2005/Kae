@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use pl4::{backend::{compiling::compiler::Compiler, instructions::{Chunk, Program}, vm::VM}, frontend::{parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::typechecker::TypeChecker}};
+use pl4::{backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::typechecker::TypeChecker}};
 
 fn compile(source:&str)->Option<Program>{
     let Ok(tokens) = Scanner::new(source).scan() else {
