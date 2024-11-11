@@ -26,7 +26,7 @@ impl Object{
         &mut record.fields
     }
     pub fn as_record(self,heap:&Heap)->&Record{
-        let ObjectType::Record(record) = heap.get_object(self) else{
+        let (ObjectType::Record(record)|ObjectType::CaseRecord(_, record)) = heap.get_object(self) else{
             panic!("Can't use object as record")
         };
         record
