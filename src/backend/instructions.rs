@@ -95,6 +95,7 @@ impl Display for Constant{
 #[derive(Default,Clone,Debug,PartialEq)]
 pub struct Program{
     pub constants : Vec<Constant>,
+    pub names : Vec<Rc<str>>,
     pub chunk : Chunk
 }
 #[derive(Default,Clone,Debug,PartialEq)]

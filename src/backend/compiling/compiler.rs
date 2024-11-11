@@ -21,6 +21,7 @@ pub struct CompileFailed;
 pub struct Compiler{
     current_chunk : Chunk,
     constants : Vec<Constant>,
+    names : Vec<String>,
     globals : Vec<String>,
     generic_functions : Vec<GenericFunction>,
     locals : Vec<Local>,
@@ -31,6 +32,9 @@ pub struct Compiler{
 impl Compiler{
     pub fn new(type_context:TypeContext)->Self{
         Self { type_context,..Default::default() }
+    }
+    fn push_string(&mut self,name:String,line:u32){
+        self.load_constant(Constant::String(name.into()), line);
     }
     fn begin_scope(&mut self){
         self.scope_depth += 1;
@@ -589,16 +593,28 @@ impl Compiler{
                         }).max().unwrap_or(0) + 1
                     }
                 };
-
-                if let InitKind::Variant(id, variant_index) = kind{
-                    self.load_int(*variant_index as i64, expr.location.start_line);
-                    let field_count = self.type_context.enums.get_enum(*id).variants[*variant_index].fields.len() as i64;
-                    self.load_int(field_count as i64, expr.location.start_line);
-                    self.emit_instruction(Instruction::BuildCaseRecord(total_fields as u16), expr.location.start_line);
-                }
-                else if let InitKind::Struct(..) = kind{
-                    self.emit_instruction(Instruction::BuildRecord(total_fields as u16),expr.location.start_line);
-                }
+                let name = match kind{
+                    InitKind::Variant(id,variant_index ) => {
+                        let enum_info = self.type_context.enums.get_enum(*id);
+                        enum_info.variants[*variant_index].name.clone()
+                    },
+                    InitKind::Struct(_) => {
+                        format!("{}",expr.ty)
+                    }
+                };
+                self.push_string(name, expr.location.start_line);
+                match kind {
+                    InitKind::Variant(id, variant_index) => {
+                        self.load_int(*variant_index as i64, expr.location.start_line);
+                        let enum_info = self.type_context.enums.get_enum(*id);
+                        let field_count = enum_info.variants[*variant_index].fields.len() as i64;
+                        self.load_int(field_count as i64, expr.location.start_line);
+                        self.emit_instruction(Instruction::BuildCaseRecord(total_fields as u16), expr.location.start_line);
+                    },
+                    InitKind::Struct(_) =>{
+                        self.emit_instruction(Instruction::BuildRecord(total_fields as u16),expr.location.start_line);
+                    }
+                };
                 for (name,field_expr) in fields{
                     self.compile_expr(field_expr);
                     let field_index =  match kind{
@@ -703,6 +719,6 @@ impl Compiler{
         self.emit_instruction(Instruction::LoadUnit,last_line);
         self.emit_instruction(Instruction::Return,last_line);
         disassemble("<main>", &self.current_chunk,&self.constants);
-        Ok(Program{constants:self.constants,chunk:self.current_chunk})
+        Ok(Program{constants:self.constants,chunk:self.current_chunk,names:self.names.into_iter().map(|name| name.into()).collect()})
     }
 }

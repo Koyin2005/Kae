@@ -18,6 +18,7 @@ pub struct CallFrame{
     bp : usize
 }
 pub struct VM{
+    names : Vec<Rc<str>>,
     stack : Vec<Value>,
     constants : Box<[Constant]>,
     frames : Vec<CallFrame>,
@@ -26,15 +27,16 @@ pub struct VM{
 }
 impl VM{
 
-    pub fn new(chunk : Chunk,constants:Vec<Constant>)->Self{
+    pub fn new(program : Program)->Self{
         Self{
-            stack:Vec::from_iter(std::iter::repeat(Value::Int(0)).take(chunk.locals)),
-            constants:constants.into_boxed_slice(),
+            names : program.names,
+            stack:Vec::from_iter(std::iter::repeat(Value::Int(0)).take(program.chunk.locals)),
+            constants:program.constants.into_boxed_slice(),
             heap:Heap::default(),
             frames : vec![CallFrame{
                 function : Rc::new(Function{
                     name : "<main>".to_string(),
-                    chunk
+                    chunk : program.chunk
                 }),
                 ip : 0,
                 bp : 0
@@ -81,6 +83,7 @@ impl VM{
         }];
         self.stack = vec![Value::Int(0); self.current_chunk().locals];
         self.constants = program.constants.into_boxed_slice();
+        self.names = program.names;
     }
     fn load_constant(&mut self,index: usize)-> Value{
         match self.constants[index].clone(){
@@ -326,18 +329,26 @@ impl VM{
                     let Value::Int(field_count) = self.pop() else {
                         panic!("Expected an int for variant field count")
                     };
-                    let field_count = field_count as usize;
                     let variant_tag = self.pop();
+                    let Value::String(name) = self.pop() else {
+                        panic!("Expectd a string")
+                    };
+                    let field_count = field_count as usize;
                     let mut fields = (0..fields).map(|_| Value::Int(0)).collect::<Box<[Value]>>();
                     fields[0] = variant_tag;
                     let record_object = Object::new_case_record(&mut self.heap, Record{
-                        fields
+                        fields,
+                        name
                     },field_count);
                     self.push(Value::CaseRecord(record_object))?;
                 },
                 Instruction::BuildRecord(fields) => {
+                    let Value::String(name) = self.pop() else {
+                        panic!("Expectd a string")
+                    };
                     let record_object = Object::new_record(&mut self.heap, Record{
-                        fields:(0..fields).map(|_| Value::Int(0)).collect()
+                        fields:(0..fields).map(|_| Value::Int(0)).collect(),
+                        name
                     });
                     self.push(Value::Record(record_object))?;
                 },
@@ -520,13 +531,13 @@ impl VM{
 #[cfg(test)]
 mod vm_tests{
 
-    use crate::backend::instructions::{Chunk, Instruction};
+    use crate::backend::instructions::{Chunk, Instruction, Program};
 
     use super::VM;
 
     #[test]
     pub fn test_record(){
-        let mut vm = VM::new(Chunk{
+        let mut vm = VM::new(Program{ chunk:Chunk{
             code : vec![
                 Instruction::BuildRecord(2),
                 Instruction::LoadInt(5),
@@ -536,7 +547,7 @@ mod vm_tests{
             ],
             lines : vec![1;5],
             ..Default::default()
-        },vec![]);
+        },names:vec![],constants:vec![]});
         let _ = vm.run();
         for value in vm.stack.iter(){
             value.println(&vm.heap);

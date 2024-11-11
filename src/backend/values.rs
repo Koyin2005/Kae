@@ -12,6 +12,7 @@ pub struct Closure{
 }
 #[derive(Debug,Clone)]
 pub struct Record{
+    pub name : Object,
     pub fields : Box<[Value]>
 }
 
@@ -69,10 +70,10 @@ impl Value{
             Value::Float(float) => {
                 format!("{}",*float)
             },
-            Value::CaseRecord(record) => {
-                let mut result = String::from("{");
-                let record_field_count = record.get_record_field_count(heap);
-                let record = record.as_record(heap);
+            Value::CaseRecord(record_object) => {
+                let record = record_object.as_record(heap);
+                let mut result = format!("{}{{",Value::String(record.name).format(heap, seen_values));
+                let record_field_count = record_object.get_record_field_count(heap);
                 if record.fields.is_empty() || !seen_values.contains(self){
                     seen_values.push(*self);
                 
@@ -91,8 +92,8 @@ impl Value{
                 result
             }
             Value::Record(record) => {
-                let mut result = String::from("{");
                 let record = record.as_record(heap);
+                let mut result = format!("{}{{",Value::String(record.name).format(heap, seen_values));
                 if record.fields.is_empty() || !seen_values.contains(self){
                     seen_values.push(*self);
                 

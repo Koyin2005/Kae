@@ -20,7 +20,7 @@ fn compile(source:&str)->Option<Program>{
     Some(code)
 }
 fn repl(){
-    let mut vm = VM::new(Chunk::default(),vec![]);
+    let mut vm = VM::new(Program::default());
     loop{
         let mut source = String::new();
         print!(">>>");
@@ -45,7 +45,7 @@ fn run_file(filepath:&str){
     let Some(code) = compile(&source) else {
         return;
     };
-    let mut vm = VM::new(code.chunk,code.constants);
+    let mut vm = VM::new(code);
     let _ = vm.run();
 
 }
