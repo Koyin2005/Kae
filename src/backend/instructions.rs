@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{fmt::Display, rc::Rc};
 
 use super::values::Function;
 
@@ -71,6 +71,24 @@ pub enum Constant{
     Int(i64),
     Function(Rc<Function>)
     
+}
+impl Display for Constant{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Float(float) => {
+                write!(f,"{}",float)
+            },
+            Self::Int(int) => {
+                write!(f,"{}",int)
+            },
+            Self::Function(function) => {
+                write!(f,"fn<{}>",function.name)
+            },
+            Self::String(string) => {
+                write!(f,"{}",string)
+            }
+        }
+    }
 }
 
 #[derive(Default,Clone,Debug,PartialEq)]

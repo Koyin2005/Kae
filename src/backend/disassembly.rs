@@ -17,7 +17,7 @@ pub fn disassemble_instruction(chunk:&Chunk,ip:usize,instruction:Instruction,con
     print!("{:04} ",ip);
     match instruction{
         Instruction::LoadConstant(constant) => {
-            println!("LoadConstant {} ({:?})",constant,&constants[constant as usize])
+            println!("LoadConstant {} ({})",constant,&constants[constant as usize])
         },
         _ => {
             
