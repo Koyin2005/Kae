@@ -456,6 +456,30 @@ impl<'a> Parser<'a>{
             ExprNodeKind::Property(lhs,field  ) => {
                 ParsedAssignmentTargetKind::Field { lhs, field }
             },
+            ExprNodeKind::GetPath(path) if path.generic_args.is_none() => {
+                if path.segments.is_empty(){
+                    ParsedAssignmentTargetKind::Name(path.head.name.content)
+                }
+                else{
+                    enum PathKind{
+                        Variable(Symbol),
+                        Property(ExprNode,Symbol)
+                    }
+                    let mut kind = PathKind::Variable(path.head.name);
+                    for segment in path.segments{
+                        let expr = match kind{
+                            PathKind::Variable(name) => ExprNode{location:name.location,kind:ExprNodeKind::Get(name.content)},
+                            PathKind::Property(expr, property) => ExprNode { location: property.location, kind: ExprNodeKind::Property(Box::new(expr), property) }
+                        };
+                        kind = PathKind::Property(expr, segment.name);
+                    }
+                    match kind{
+                        PathKind::Variable(variable) => ParsedAssignmentTargetKind::Name(variable.content),
+                        PathKind::Property(expr, property) => ParsedAssignmentTargetKind::Field { lhs: Box::new(expr), field: property }
+                    }
+
+                }
+            }
             _ => {
                 self.error("Invalid assignment target.");
                 return Err(ParsingFailed);
