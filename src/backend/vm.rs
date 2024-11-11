@@ -108,7 +108,7 @@ impl VM{
                 }
                 println!();
                 let instruction = self.current_chunk().code[self.current_frame().ip];
-                disassemble_instruction(self.current_chunk(), self.current_frame().ip, instruction);
+                disassemble_instruction(self.current_chunk(), self.current_frame().ip, instruction,&self.constants);
             }
             match self.read_instruction(){
                 Instruction::LoadInt(value) => {

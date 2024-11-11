@@ -178,7 +178,7 @@ impl Compiler{
         if function.body.ty != Type::Never{
             self.emit_instruction(Instruction::Return, function.body.location.end_line);
         }
-        disassemble(&function_name, &self.current_chunk);
+        disassemble(&function_name, &self.current_chunk,&self.constants);
         self.locals = old_locals;
         let func_code = std::mem::replace(&mut self.current_chunk, old_chunk);
         let func_constant = Constant::Function(Rc::new(Function{
@@ -680,7 +680,7 @@ impl Compiler{
         let last_line = self.current_chunk.lines.last().copied().unwrap_or(1);
         self.emit_instruction(Instruction::LoadUnit,last_line);
         self.emit_instruction(Instruction::Return,last_line);
-        disassemble("<main>", &self.current_chunk);
+        disassemble("<main>", &self.current_chunk,&self.constants);
         Ok(Program{constants:self.constants,chunk:self.current_chunk})
     }
 }
