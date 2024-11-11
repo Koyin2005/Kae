@@ -605,6 +605,9 @@ impl Compiler{
                     };
                     self.emit_instruction(Instruction::StoreField(field_index as u16), field_expr.location.end_line);
                 }
+                if let InitKind::Variant(..) = kind{
+                    self.emit_instruction(Instruction::ConvertToCaseRecord, expr.location.end_line);
+                }
             }
         }
     }
