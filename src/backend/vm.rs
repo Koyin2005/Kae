@@ -322,6 +322,12 @@ impl VM{
                     let tuple = Object::new_tuple(&mut self.heap, &elements);
                     self.push(Value::Tuple(tuple))?;
                 },
+                Instruction::ConvertToCaseRecord => {
+                    let (Value::Record(record)|Value::CaseRecord(record)) = self.pop() else {
+                        panic!("Can't convert non-record to record.")
+                    }; 
+                    self.push(Value::CaseRecord(record))?;
+                }
                 Instruction::InitRecord(fields) => {
                     let record_object = Object::new_record(&mut self.heap, Record{
                         fields:(0..fields).map(|_| Value::Int(0)).collect()

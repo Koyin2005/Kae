@@ -17,6 +17,9 @@ pub struct Record{
 
 
 
+
+
+
 #[derive(Clone,Copy,Debug,PartialEq)]
 pub enum Value{
     Int(i64),
@@ -24,6 +27,7 @@ pub enum Value{
     Bool(bool),
     Unit,
     Record(Object),
+    CaseRecord(Object),
     Tuple(Object),
     String(Object),
     List(Object),
@@ -65,6 +69,26 @@ impl Value{
             Value::Float(float) => {
                 format!("{}",*float)
             },
+            Value::CaseRecord(record) => {
+                let mut result = String::from("{");
+                let record = record.as_record(heap);
+                if record.fields.is_empty() || !seen_values.contains(self){
+                    seen_values.push(*self);
+                
+                    for (i,field) in record.fields.iter().skip(1).enumerate(){
+                        if i > 0{
+                            result.push(',');
+                        }
+                        result.push_str(&field.format(heap,seen_values));
+                    }
+                }
+                else{
+                    result.push_str("...");
+                }
+                
+                result.push('}');
+                result
+            }
             Value::Record(record) => {
                 let mut result = String::from("{");
                 let record = record.as_record(heap);
