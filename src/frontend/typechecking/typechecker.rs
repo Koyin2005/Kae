@@ -688,7 +688,7 @@ impl TypeChecker{
                             for segment in &path.segments{
                                 let property = segment.name.clone();
                                 let Some(property_type) = ty.get_field(&property.content,&self.type_context) else{
-                                    self.error(format!("\"{}\" has no field or method.",property.content),property.location.start_line);
+                                    self.error(format!("\"{}\" has no field or method '{}'.",ty,property.content),property.location.start_line);
                                     return Err(TypeCheckFailed);
                                 };
                                 let location = property.location;
