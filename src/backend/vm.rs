@@ -323,8 +323,11 @@ impl VM{
                     self.push(Value::Tuple(tuple))?;
                 },
                 Instruction::BuildCaseRecord(fields) => {
+                    let variant_tag = self.pop();
+                    let mut fields = (0..fields).map(|_| Value::Int(0)).collect::<Box<[Value]>>();
+                    fields[0] = variant_tag;
                     let record_object = Object::new_record(&mut self.heap, Record{
-                        fields:(0..fields).map(|_| Value::Int(0)).collect()
+                        fields
                     });
                     self.push(Value::CaseRecord(record_object))?;
                 },
