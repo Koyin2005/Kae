@@ -60,6 +60,14 @@ impl Value{
         }
     }
     pub fn format(&self,heap:&Heap,seen_values : &mut Vec<Value>)->String{
+        fn is_value_recursive(value:&Value,seen_values : &[Value],heap: &Heap)->bool{
+            match value{
+                Value::CaseRecord(record) | Value::Record(record) if seen_values.contains(value) => {
+                    record.as_record(heap).fields.iter().any(|value| is_value_recursive(value, seen_values, heap))
+                },
+                _ => false
+            }
+        }
         match self{
             Value::Bool(bool) => {
                 format!("{}",*bool)
@@ -76,19 +84,18 @@ impl Value{
                 let record_field_count = record_object.get_record_field_count(heap);
                 if record_field_count>0{
                     result.push('{');
-                    if record.fields.is_empty() || !seen_values.contains(self){
-                        seen_values.push(*self);
-                        for (i,field) in record.fields.iter().skip(1).enumerate().take(record_field_count){
-                            if i > 0{
-                                result.push(',');
-                            }
+                    seen_values.push(*self);
+                    for (i,field) in record.fields.iter().skip(1).enumerate().take(record_field_count){
+                        if i > 0{
+                            result.push(',');
+                        }
+                        if seen_values.contains(field) && is_value_recursive(field, seen_values, heap) {
+                            result.push_str("...");
+                        }
+                        else{
                             result.push_str(&field.format(heap,seen_values));
                         }
                     }
-                    else{
-                        result.push_str("...");
-                    }
-                    
                     result.push('}');
                 }
                 result
@@ -96,20 +103,18 @@ impl Value{
             Value::Record(record) => {
                 let record = record.as_record(heap);
                 let mut result = format!("{}{{",Value::String(record.name).format(heap, seen_values));
-                if record.fields.is_empty() || !seen_values.contains(self){
-                    seen_values.push(*self);
-                
-                    for (i,field) in record.fields.iter().enumerate(){
-                        if i > 0{
-                            result.push(',');
-                        }
+                seen_values.push(*self);
+                for (i,field) in record.fields.iter().enumerate(){
+                    if i > 0{
+                        result.push(',');
+                    }
+                    if seen_values.contains(field)&& is_value_recursive(field, seen_values, heap) {
+                        result.push_str("...");
+                    }
+                    else{
                         result.push_str(&field.format(heap,seen_values));
                     }
                 }
-                else{
-                    result.push_str("...");
-                }
-                
                 result.push('}');
                 result
             },
