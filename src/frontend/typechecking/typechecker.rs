@@ -138,7 +138,7 @@ impl TypeChecker{
         self.error(format!("Cannot find value '{}' in scope.",name), line);
     }
     fn check_type_match(&mut self,ty:&Type,expected_type:&Type,line:u32)->Result<(),TypeCheckFailed>{
-        if ty != expected_type &&  ty != &Type::Never{
+        if ty != expected_type &&  ty != &Type::Never && !ty.is_variant_of(expected_type) {
             self.type_mismatch_error(line, expected_type, ty);
             return Err(TypeCheckFailed);
         }

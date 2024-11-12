@@ -175,6 +175,12 @@ impl PartialEq for Type{
     }
 }
 impl Type{
+    pub fn is_variant_of(&self,other:&Type)->bool{
+        match (self,other){
+            (Type::EnumVariant { id:other_id,.. },Type::Enum { id, .. }) => id == other_id,
+            _ => false
+        }
+    }
     pub fn get_field_index(&self,field_name:&str,type_context:&TypeContext)->Option<usize>{
         match (self,field_name){
             (Type::Struct { id, .. },field_name) => {
