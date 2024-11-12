@@ -42,6 +42,7 @@ impl Value{
             (Self::Bool(bool),Self::Bool(other)) => bool == other,
             (Self::Unit,Self::Unit) => true,
             (Self::Record(record),Self::Record(other)) => 
+                record == other ||
                 record.as_record(heap).fields.iter().zip(other.as_record(heap).fields.iter()).all(|(field,other)|{
                     field.is_equal(other, heap)
                 }),
@@ -51,6 +52,7 @@ impl Value{
                 tuple1.len() == tuple2.len() && tuple1.iter().zip(tuple2.iter()).all(|(value1,value2)| value1.is_equal(value2, heap))
             },
             (Self::List(list),Self::List(other)) => {
+                if list == other { return  true;}
                 let list = list.as_list(heap);
                 let other = other.as_list(heap);
                 list.len() == other.len() && list.iter().zip(other.iter()).all(|(value1,value2)| value1.is_equal(value2, heap))
