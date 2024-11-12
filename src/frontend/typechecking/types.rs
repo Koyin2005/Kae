@@ -211,8 +211,9 @@ impl Type{
                         if !generic_args.is_empty() { substitute(ty, generic_args)} else { ty }
                 }))
             },
-            (Type::EnumVariant { id,  variant_index,.. },field_name) => {
-                type_context.enums.get_enum(*id).variants[*variant_index].fields.iter().find(|(field,_)| field ==  field_name).map(|(_,ty)| ty.clone())
+            (Type::EnumVariant { id,  variant_index,generic_args,.. },field_name) => {
+                type_context.enums.get_enum(*id).variants[*variant_index].fields.iter().find(|(field,_)| field ==  field_name).map(|(_,ty)| 
+                   if !generic_args.is_empty() {substitute(ty.clone(), generic_args)} else { ty.clone()})
                     
             }
             _ => None

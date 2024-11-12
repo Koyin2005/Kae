@@ -22,7 +22,19 @@ pub fn substitute(ty:Type,generic_args:&GenericArgs)->Type{
                 (name,substitute(ty, generic_args))
             }).collect();
             Type::Struct { generic_args:struct_generic_args, id, name }
-        }
+        },
+        Type::Enum { generic_args:enum_generic_args, id, name } => {
+            let enum_generic_args = enum_generic_args.into_iter().map(|(name,ty)|{
+                (name,substitute(ty, generic_args))
+            }).collect();
+            Type::Enum { generic_args: enum_generic_args, id, name }
+        },
+        Type::EnumVariant { generic_args:enum_generic_args, id,variant_index, name } => {
+            let enum_generic_args = enum_generic_args.into_iter().map(|(name,ty)|{
+                (name,substitute(ty, generic_args))
+            }).collect();
+            Type::EnumVariant { generic_args: enum_generic_args, id, name ,variant_index}
+        },
         _ => ty
     }
 }

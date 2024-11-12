@@ -650,9 +650,9 @@ impl TypeChecker{
                                 for segment in &path.segments{
                                     let segment_name = segment.name.content.clone();
                                     let mut result_ty = None;
-                                    if let Type::Enum { id, .. } = &ty{
+                                    if let Type::Enum { id, generic_args,.. } = &ty{
                                         if let Some(variant) = self.type_context.enums.get_enum(*id).variants.iter().find(|variant| variant.name == segment_name){
-                                            result_ty = Some(Type::EnumVariant { id:*id, name: variant.name.clone(), variant_index: variant.discrim })
+                                            result_ty = Some(Type::EnumVariant { id:*id, name: variant.name.clone(), variant_index: variant.discrim,generic_args:generic_args.clone() })
                                         }
                                     }
                                     ty = if let Some(result_ty) = result_ty{
@@ -664,14 +664,14 @@ impl TypeChecker{
                                     }
 
                                 }
-                                if let Type::EnumVariant { id, variant_index,.. } = ty.clone(){
+                                if let Type::EnumVariant { id, variant_index,generic_args,.. } = ty.clone(){
                                     let variant = &self.type_context.enums.get_enum(id).variants[variant_index]; 
                                     if !variant.fields.is_empty(){
                                         self.error(format!("\"{}\" require fields.",ty), path.location.start_line);
                                         return Err(TypeCheckFailed);
                                     }
                                     
-                                    (Type::Enum { id, name: variant.name.clone() },TypedExprNodeKind::StructInit { kind:InitKind::Variant(id, variant_index),fields:Vec::new() })
+                                    (Type::Enum { id, name: variant.name.clone() ,generic_args},TypedExprNodeKind::StructInit { kind:InitKind::Variant(id, variant_index),fields:Vec::new() })
                                 }
                                 else{
                                     self.error(format!("Expected an expression got type \"{}\".",ty), head.location.start_line);
@@ -802,11 +802,11 @@ impl TypeChecker{
                         
                         (InitKind::Struct(id),name,field_names_and_types,ty.clone())
                     },
-                    Type::EnumVariant { id, name, variant_index } => {
+                    Type::EnumVariant { id, name, variant_index ,generic_args} => {
                         let variant = &self.type_context.enums.get_enum(id).variants[variant_index];
                         let fields = variant.fields.clone();
                         let display_type = ty.clone();
-                        ty = Type::Enum { id, name: self.type_context.enums.get_enum(id).name.clone() };
+                        ty = Type::Enum { id, name: self.type_context.enums.get_enum(id).name.clone() ,generic_args};
                         (InitKind::Variant(id, variant_index),name,fields.into_iter().collect(),display_type)
                     }
                     _ => {
@@ -845,29 +845,33 @@ impl TypeChecker{
         Ok(TypedExprNode { location: expr.location, ty, kind })
     }
     fn check_type(&mut self,ty:&ParsedType)->Result<Type,TypeCheckFailed>{
+        fn get_substituted(this:&mut TypeChecker,ty:Type,args:&ParsedGenericArgs)->Result<Type,TypeCheckFailed>{
+
+            let generic_args = args.types.iter().map(|ty| this.check_type(ty)).collect::<Result<Vec<_>,_>>()?;
+            let expected_args = match &ty { 
+                Type::Struct { generic_args, .. }|Type::Enum { generic_args, .. } if generic_args.values().all(|ty| !ty.is_closed()) => {
+                    generic_args
+                },
+                ty => {
+                    this.error(format!("Cannot apply generic args to non-generic type \"{}\".",ty), args.location.start_line);
+                    return Err(TypeCheckFailed);
+                }
+            };
+            if generic_args.len() != expected_args.len(){
+                this.error(format!("Expected '{}' generic args, but got '{}'.",expected_args.len(),generic_args.len()),args.location.start_line);
+                return Err(TypeCheckFailed);
+            }
+            let subbed_generic_args = expected_args.keys().zip(generic_args).map(|(name,ty)|{
+                (*name,ty)
+            }).collect();
+            Ok(substitute(ty, &subbed_generic_args))
+        }
         fn get_type_at_path(this:&mut TypeChecker,path:&ParsedPath)->Result<Type,TypeCheckFailed>{
             
             let ty = get_named_type(this, &path.head.name)?;
             let ty = match path.generic_args.as_ref(){
                 Some(args) if path.segments.is_empty() => {
-                    let generic_args = args.types.iter().map(|ty| this.check_type(ty)).collect::<Result<Vec<_>,_>>()?;
-                    let expected_args = match &ty { 
-                        Type::Struct { generic_args, .. } if generic_args.values().all(|ty| !ty.is_closed()) => {
-                            generic_args
-                        },
-                        ty => {
-                            this.error(format!("Cannot apply generic args to non-generic type \"{}\".",ty), args.location.start_line);
-                            return Err(TypeCheckFailed);
-                        }
-                    };
-                    if generic_args.len() != expected_args.len(){
-                        this.error(format!("Expected '{}' generic args, but got '{}'.",expected_args.len(),generic_args.len()),args.location.start_line);
-                        return Err(TypeCheckFailed);
-                    }
-                    let subbed_generic_args = expected_args.keys().zip(generic_args).map(|(name,ty)|{
-                        (*name,ty)
-                    }).collect();
-                    substitute(ty, &subbed_generic_args)
+                    get_substituted(this, ty, args)?
                 },
                 None if path.segments.is_empty() => {
                     if !matches!(&ty,Type::Param { ..}) && !ty.is_closed(){
@@ -877,17 +881,34 @@ impl TypeChecker{
                     ty
                 },
                 Some(generic_args) => {
-                    this.error("Generic enums are not supported.".to_string(),generic_args.location.start_line);
-                    return Err(TypeCheckFailed);
+                    let mut ty = get_substituted(this, ty, generic_args)?;
+                    for segment in &path.segments{
+                        let segment_name = segment.name.content.clone();
+                        let mut result_ty = None;
+                        if let Type::Enum { id, generic_args,.. } = &ty{
+                            if let Some(variant) = this.type_context.enums.get_enum(*id).variants.iter().find(|variant| variant.name == segment_name){
+                                result_ty = Some(Type::EnumVariant { id:*id, name: variant.name.clone(), variant_index: variant.discrim ,generic_args:generic_args.clone()})
+                            }
+                        }
+                        ty = if let Some(result_ty) = result_ty{
+                            result_ty
+                        }
+                        else{
+                            this.error(format!("\"{}\" does not have variant '{}'.",ty,segment.name.content), segment.location.start_line);
+                            return Err(TypeCheckFailed);
+                        }
+
+                    }
+                    ty
                 },
                 None => {
                     let mut ty = ty;
                     for segment in &path.segments{
                         let segment_name = segment.name.content.clone();
                         let mut result_ty = None;
-                        if let Type::Enum { id, .. } = &ty{
+                        if let Type::Enum { id, generic_args,.. } = &ty{
                             if let Some(variant) = this.type_context.enums.get_enum(*id).variants.iter().find(|variant| variant.name == segment_name){
-                                result_ty = Some(Type::EnumVariant { id:*id, name: variant.name.clone(), variant_index: variant.discrim })
+                                result_ty = Some(Type::EnumVariant { id:*id, name: variant.name.clone(), variant_index: variant.discrim ,generic_args:generic_args.clone()})
                             }
                         }
                         ty = if let Some(result_ty) = result_ty{
@@ -1007,6 +1028,17 @@ impl TypeChecker{
         Ok(checked_generic_params)
 
     }
+    fn convert_to_generic_params(&self,generic_params : &Option<Vec<(String,usize)>>)->Option<GenericArgs>{
+        if let Some(generic_params) = generic_params.clone(){
+            let generic_params : IndexMap<_,_> = generic_params.into_iter().map(|(name,index)|{
+                (GenericTypeId(index),Type::Param { name, index : GenericTypeId(index) })
+            }).collect();
+            Some(generic_params)
+        }
+        else{   
+            None
+        }
+    }
     fn check_stmt(&mut self,stmt:&StmtNode)->Result<TypedStmtNode,TypeCheckFailed>{
         match stmt{
             &StmtNode::Expr { ref expr, has_semi } => {
@@ -1088,10 +1120,8 @@ impl TypeChecker{
                 };
                 let params = signature.params.iter().map(|(_,ty)| ty).cloned().collect();
                 let return_type = signature.return_type.clone();
-                if let Some(names) = generic_params.clone(){
-                    self.environment.add_generic_function(function_name, params, return_type, id, names.into_iter().map(|(name,index)|{
-                        (GenericTypeId(index),Type::Param { name, index:GenericTypeId(index) })
-                    }));
+                if let Some(generic_params) = self.convert_to_generic_params(&generic_params){
+                    self.environment.add_generic_function(function_name, params, return_type, id, generic_params.into_iter());
                 }
                 else{
                     self.environment.add_function(function_name,params, return_type, id);
@@ -1116,15 +1146,7 @@ impl TypeChecker{
                     return Err(TypeCheckFailed);
                 };
                 let id = self.type_context.structs.define_struct (vec![].into_iter() );
-                let generic_params = if let Some(generic_params) = generic_params.clone(){
-                    let generic_params : IndexMap<_,_> = generic_params.into_iter().map(|(name,index)|{
-                        (GenericTypeId(index),Type::Param { name, index : GenericTypeId(index) })
-                    }).collect();
-                    Some(generic_params)
-                }
-                else{   
-                    None
-                };
+                let generic_params = self.convert_to_generic_params(&generic_params);
                 self.environment.add_type(
                     struct_name.clone(), 
                 Type::Struct { 
@@ -1134,7 +1156,6 @@ impl TypeChecker{
                 });
                 let mut field_names = HashSet::new();
                 let Ok(fields) = fields.iter().map(|(field,ty)|{
-
                     let field_type = self.check_type(ty)?;
                     if !field_names.insert(&field.content){
                         self.error(format!("Repeated field '{}'.",field.content), field.location.start_line);
@@ -1160,12 +1181,16 @@ impl TypeChecker{
                 let generic_param_count = self.generic_param_names.len();
                 self.check_type_not_in_local_scope(&name.content, name.location)?;
                 let enum_name = name.content.clone();
-
+                let Ok(generic_names) = self.check_generic_params_def(generic_params.as_ref()) else {
+                    self.environment.add_type(enum_name.clone(), Type::Unknown);
+                    return Err(TypeCheckFailed);
+                };
+                let generic_params = self.convert_to_generic_params(&generic_names);
                 let id = self.type_context.enums.define_enum(enum_name.clone(),Vec::new());
-                self.environment.add_type(enum_name.clone(), Type::Enum { id, name: enum_name});                
+                self.environment.add_type(enum_name.clone(), Type::Enum { id, name: enum_name.clone(),generic_args:generic_params.unwrap_or_default()});                
                 let variants = {
                     let mut seen_variant_names = HashSet::new();
-                    let variants = variants.iter().map(|variant|{
+                    let Ok(variants) = variants.iter().map(|variant|{
                         if !seen_variant_names.insert(&variant.name.content){
                             self.error(format!("Redefined variant '{}'.",variant.name.content),variant.name.location.start_line);
                             return Err(TypeCheckFailed);
@@ -1183,7 +1208,11 @@ impl TypeChecker{
                             name : variant.name.clone(),
                             fields
                         })
-                    }).collect::<Result<Vec<_>,_>>()?;
+                    }).collect::<Result<Vec<_>,_>>() else {
+                        self.generic_param_names.truncate(generic_param_count);
+                        self.environment.add_type(enum_name.clone(), Type::Unknown);
+                        return Err(TypeCheckFailed);
+                    };
                     variants
                 };
                 self.type_context.enums.update_enum(id, |enum_|{
@@ -1195,6 +1224,7 @@ impl TypeChecker{
                         }
                     }).collect();
                 });
+                self.generic_param_names.truncate(generic_param_count);
                 Ok(TypedStmtNode::Enum { name:name.clone(), variants })
             }
         }
