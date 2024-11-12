@@ -60,7 +60,7 @@ impl Compiler{
         }
 
     }
-    fn push_string(&mut self,name:String,line:u32){
+    fn load_string(&mut self,name:String,line:u32){
         self.load_constant(Constant::String(name.into()), line);
     }
     fn push_top_of_stack(&mut self,line:u32){
@@ -209,6 +209,21 @@ impl Compiler{
     }
     fn compile_pattern_check(&mut self,pattern:&PatternNode){
         match &pattern.kind{
+            PatternNodeKind::Int(int) => {
+                self.push_top_of_stack(pattern.location.end_line);
+                self.load_int(*int, pattern.location.end_line);
+                self.emit_instruction(Instruction::Equals, pattern.location.end_line);
+            },
+            PatternNodeKind::Float(float) => {
+                self.push_top_of_stack(pattern.location.end_line);
+                self.load_constant(Constant::Float(*float), pattern.location.end_line);
+                self.emit_instruction(Instruction::Equals, pattern.location.end_line);
+            },
+            PatternNodeKind::String(string) => {
+                self.push_top_of_stack(pattern.location.end_line);
+                self.load_string(string.clone(), pattern.location.end_line);
+                self.emit_instruction(Instruction::Equals, pattern.location.end_line);
+            },
             PatternNodeKind::Wildcard => {
                 self.load_bool(true, pattern.location.end_line);
             },
@@ -228,6 +243,32 @@ impl Compiler{
                 self.emit_instruction(Instruction::Pop, right_pattern.location.end_line);
                 self.load_bool(false, right_pattern.location.end_line);
                 self.patch_jump(true_jump);
+            },
+            PatternNodeKind::Tuple(elements) => {
+                let mut jumps = Vec::new();
+                for (i,element) in  elements.iter().enumerate(){
+                    self.push_top_of_stack(element.location.start_line);
+                    self.emit_instruction(Instruction::GetTupleElement(i as u16), element.location.start_line);
+                    self.compile_pattern_check(element);
+                    let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), element.location.end_line);
+                    self.emit_instruction(Instruction::Pop,element.location.end_line);
+                    self.load_bool(true, element.location.end_line);
+                    let true_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), element.location.end_line);
+                    self.patch_jump(false_jump);
+                    self.emit_instruction(Instruction::Pop,element.location.end_line);
+                    let skip_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), element.location.end_line);
+                    self.load_bool(false, element.location.end_line);
+                    self.patch_jump(true_jump);
+                    jumps.push(skip_jump);
+                }
+                self.load_bool(true,pattern.location.end_line);
+                let jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
+                for jump in jumps{
+                    self.patch_jump(jump);
+                }
+                self.load_bool(false, pattern.location.end_line);
+                self.patch_jump(jump);
+
             },
             PatternNodeKind::Struct { ty, fields } => {
                 let mut jumps = Vec::new();
@@ -510,7 +551,7 @@ impl Compiler{
                         format!("{}",expr.ty)
                     }
                 };
-                self.push_string(name, expr.location.start_line);
+                self.load_string(name, expr.location.start_line);
                 match kind {
                     InitKind::Variant(id, variant_index) => {
                         self.load_int(*variant_index as i64, expr.location.start_line);
