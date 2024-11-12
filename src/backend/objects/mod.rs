@@ -73,6 +73,9 @@ impl Object{
         };
         list
     }
+    pub fn new_native_function(heap:&mut Heap,function:Rc< NativeFunction>)->Self{
+        heap.alloc(ObjectType::NativeFunction(function))
+    }
     pub fn new_function(heap:&mut Heap,function:Rc<Function>)->Self{
         heap.alloc(ObjectType::Function(function))
     }

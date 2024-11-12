@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, values::Function}, frontend::typechecking::{ substituter::{sub_function, sub_name}, typechecker::GenericTypeId, typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{Type, TypeContext}}};
+use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, natives::{native_input, native_panic, native_pop, native_push}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name}, typechecker::GenericTypeId, typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{Type, TypeContext}}};
 
 
 struct Local{
@@ -493,9 +493,11 @@ impl Compiler{
                 self.emit_instruction(Instruction::Return, expr.location.end_line);
             },
             TypedExprNodeKind::GetGeneric { name, args } => {
-                let (index,generic_function) = self.generic_functions.iter().enumerate().rev()
-                    .find(|(_,generic_function)| &generic_function.name == name)
-                .expect("Should have already checked functions");
+                let Some((index,generic_function)) = self.generic_functions.iter().enumerate().rev()
+                    .find(|(_,generic_function)| &generic_function.name == name) else {
+                        self.load_name(&name, expr.location.end_line);
+                        return;
+                    };
 
                 let name = sub_name(name, args);
                 if let Some((_,constant))  = generic_function.monos.iter().find(|(monoed_name,..)| monoed_name == &name){
@@ -660,7 +662,31 @@ impl Compiler{
         }
     }
     pub fn compile(mut self,stmts : Vec<TypedStmtNode>) -> Result<Program,CompileFailed> {
+        self.load_constant(Constant::NativeFunction(Rc::new(NativeFunction{
+            name : "input".to_string(),
+            function : native_input
+        })), 1);
+        self.define_name("input".to_string(), 1);
+
+        self.load_constant(Constant::NativeFunction(Rc::new(NativeFunction{
+            name : "panic".to_string(),
+            function : native_panic
+        })), 1);
+        self.define_name("panic".to_string(), 1);
         
+        self.load_constant(Constant::NativeFunction(Rc::new(NativeFunction{
+            name : "push".to_string(),
+            function : native_push
+        })), 1);
+        self.define_name("push".to_string(), 1);
+
+        
+        self.load_constant(Constant::NativeFunction(Rc::new(NativeFunction{
+            name : "pop".to_string(),
+            function : native_pop
+        })), 1);
+        self.define_name("pop".to_string(), 1);
+
         self.compile_stmts(&stmts);
         let last_line = self.current_chunk.lines.last().copied().unwrap_or(1);
         self.emit_instruction(Instruction::LoadUnit,last_line);

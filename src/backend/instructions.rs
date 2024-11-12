@@ -1,6 +1,6 @@
 use std::{fmt::Display, rc::Rc};
 
-use super::values::Function;
+use super::values::{Function, NativeFunction};
 
 #[derive(Clone, Copy,Debug,PartialEq)]
 pub enum Instruction {
@@ -70,7 +70,8 @@ pub enum Constant{
     String(Rc<str>),
     Float(f64),
     Int(i64),
-    Function(Rc<Function>)
+    Function(Rc<Function>),
+    NativeFunction(Rc<NativeFunction>),
     
 }
 impl Display for Constant{
@@ -84,6 +85,9 @@ impl Display for Constant{
             },
             Self::Function(function) => {
                 write!(f,"fn<{}>",function.name)
+            },
+            Self::NativeFunction(function) => {
+                write!(f,"native<{}>",function.name)
             },
             Self::String(string) => {
                 write!(f,"{}",string)

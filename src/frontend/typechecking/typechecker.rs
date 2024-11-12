@@ -31,6 +31,15 @@ impl TypeChecker{
     fn end_scope(&mut self,old_env:Environment){
         self.environment = old_env;
     }
+    fn declare_new_function(&mut self)->FunctionId{
+        let id = self.next_function_id;
+        self.next_function_id = self.next_function_id.next();
+        id
+    }
+    fn declare_generic_type(&mut self,name:String)->(String,usize){
+        self.next_generic_type+=1;
+        (name,self.next_generic_type-1)
+    }
     fn error(&self,message:String,line:u32){
         eprintln!("Error on line {}: {}",line,message);
     }
@@ -693,7 +702,7 @@ impl TypeChecker{
                     ParsedBinaryOp::Multiply => BinaryOp::Multiply,
                     ParsedBinaryOp::Divide => BinaryOp::Divide,
                     ParsedBinaryOp::Lesser => BinaryOp::Lesser,
-                    ParsedBinaryOp::Greater => BinaryOp::Lesser,
+                    ParsedBinaryOp::Greater => BinaryOp::Greater,
                     ParsedBinaryOp::LesserEquals => BinaryOp::LesserEquals,
                     ParsedBinaryOp::GreaterEquals => BinaryOp::GreaterEquals,
                     ParsedBinaryOp::Equals => BinaryOp::Equals,
@@ -1115,9 +1124,7 @@ impl TypeChecker{
                     return Err(TypeCheckFailed);
                 }
 
-                let id = self.next_function_id;
-                self.next_function_id = self.next_function_id.next();
-
+                let id = self.declare_new_function();
                 let generic_param_count = self.generic_param_names.len();
                 let Ok(generic_params) = self.check_generic_params_def(generic_params.as_ref()) else{
                     self.environment.add_function(name.content.clone(), Vec::new(),Type::Unknown,id);
@@ -1256,6 +1263,24 @@ impl TypeChecker{
 
     }
     pub fn check(mut self,stmts:Vec<StmtNode>)->Result<(TypeContext,Vec<TypedStmtNode>),TypeCheckFailed>{
+        let id = self.declare_new_function();
+        self.environment.add_function("input".to_string(), Vec::new(), Type::String, id);
+        let id = self.declare_new_function();
+        self.environment.add_function("panic".to_string(), vec![Type::String], Type::Never, id);
+        {
+            let id = self.declare_new_function();
+            let (generic_name,index) = self.declare_generic_type("T".to_string());
+            let param_type = Type::Param { name:generic_name, index:GenericTypeId(index) };
+            self.environment.add_generic_function("push".to_string(), vec![Type::Array(Box::new(param_type.clone())),param_type.clone()], Type::Unit, id,
+                [(GenericTypeId(index),param_type)].into_iter());
+        }
+        {
+            let id = self.declare_new_function();
+            let (generic_name,index) = self.declare_generic_type("T".to_string());
+            let param_type = Type::Param { name:generic_name, index:GenericTypeId(index) };
+            self.environment.add_generic_function("pop".to_string(), vec![Type::Array(Box::new(param_type.clone()))], param_type.clone(), id,
+                [(GenericTypeId(index),param_type)].into_iter());
+        }
         self.check_stmts(&stmts).map (|stmts| (self.type_context,stmts))
     }
 }

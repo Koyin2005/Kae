@@ -22,8 +22,8 @@ pub struct VM{
     stack : Vec<Value>,
     constants : Box<[Constant]>,
     frames : Vec<CallFrame>,
-    heap : Heap,
     globals : FxHashMap<usize,Value>,
+    pub heap : Heap,
 }
 impl VM{
 
@@ -95,14 +95,15 @@ impl VM{
             Constant::Int(int) => Value::Int(int),
             Constant::String(string) => Value::String(Object::new_string(&mut self.heap, string)),
             Constant::Float(float) => Value::Float(float),
-            Constant::Function(function) => Value::Function(Object::new_function(&mut self.heap, function))
+            Constant::Function(function) => Value::Function(Object::new_function(&mut self.heap, function)),
+            Constant::NativeFunction(function) => Value::NativeFunction(Object::new_native_function(&mut self.heap, function))
         }
     }
     fn store_top(&mut self,value:Value){
         let index =self.stack.len() - 1;
         self.stack[index] = value;
     }
-    fn runtime_error(&self,message:&str){
+    pub fn runtime_error(&self,message:&str){
         eprintln!("Error : {}",message);
         for frame in self.frames.iter().rev(){
             eprintln!("[line {}] in {}",frame.function.chunk.lines[frame.ip],frame.function.name);
