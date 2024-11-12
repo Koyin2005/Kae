@@ -180,6 +180,7 @@ pub enum StmtNode{
     },
     Enum{
         name : Symbol,
+        generic_params : Option<ParsedGenericParams>,
         variants : Vec<ParsedEnumVariant>
     }
 }

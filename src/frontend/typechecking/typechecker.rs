@@ -1143,7 +1143,7 @@ impl TypeChecker{
                     generic_params: generic_params.map_or_else(Vec::new,|params| params.into_iter().map(|(name,_)| name).collect()),
                     fields: fields.into_iter().map(|(name,ty)| (name.content,ty)).collect() })
             },
-            StmtNode::Enum {name,variants} => {
+            StmtNode::Enum {name,generic_params,variants} => {
                 let enum_name = name.content.clone();
                 if self.environment.is_type_in_local_scope(&enum_name){
                     self.error(format!("A type with name '{}' is already defined.",enum_name), name.location.start_line);

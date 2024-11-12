@@ -773,6 +773,14 @@ impl<'a> Parser<'a>{
         self.expect(TokenKind::Semicolon, "Expect ';'.");
         Ok(StmtNode::Let { pattern, expr ,ty})
     }
+    fn optional_generic_params(&mut self)->Result<Option<ParsedGenericParams>,ParsingFailed>{
+        if self.matches(TokenKind::LeftBracket){
+            Ok(Some(self.parse_generic_params()?))
+        }
+        else{
+            Ok(None)
+        }
+    }
     fn parse_generic_params(&mut self)->Result<ParsedGenericParams,ParsingFailed>{
         fn parse_generic_param(this:&mut Parser)->Result<ParsedGenericParam,ParsingFailed>{
             Ok(ParsedGenericParam(this.parse_identifer("Expect valid generic parameter name.")))
@@ -809,6 +817,7 @@ impl<'a> Parser<'a>{
     }
     fn enum_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
         let name = self.parse_identifer("Expect valid enum name.");
+        let generic_params = self.optional_generic_params()?;
         self.expect(TokenKind::LeftBrace, "Expect '{'.");
         let mut variants = Vec::new();
         while !self.check(TokenKind::RightBrace) && !self.is_at_end() {
@@ -819,7 +828,7 @@ impl<'a> Parser<'a>{
             }
         }
         self.expect(TokenKind::RightBrace, "Expect '}'.");
-        Ok(StmtNode::Enum { name, variants })
+        Ok(StmtNode::Enum { name,generic_params, variants })
     }
     fn parse_struct_field(&mut self)->Result<(Symbol,ParsedType),ParsingFailed>{
         self.expect(TokenKind::Identifier, "Expect valid field name.");
@@ -832,7 +841,7 @@ impl<'a> Parser<'a>{
         self.expect(TokenKind::Identifier, "Expect valid structure name.");
         let name = Symbol{content:self.prev_token.lexeme.to_string(),location:SourceLocation::one_line(self.prev_token.line)};
 
-        let generic_params = if self.matches(TokenKind::LeftBracket) { Some(self.parse_generic_params()?)} else { None };
+        let generic_params = self.optional_generic_params()?;
         self.expect(TokenKind::LeftBrace, "Expect '{'.");
         let mut fields = vec![];
         while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
@@ -847,7 +856,7 @@ impl<'a> Parser<'a>{
     fn fun_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
         self.expect(TokenKind::Identifier, "Expect valid function name.");
         let name = Symbol{content:self.prev_token.lexeme.to_string(),location:SourceLocation::one_line(self.prev_token.line)};
-        let generic_params = if self.matches(TokenKind::LeftBracket){Some(self.parse_generic_params()?)} else { None};
+        let generic_params = self.optional_generic_params()?;
         
         self.expect(TokenKind::LeftParen, "Expect '(' after function name.");
         let function = self.parse_function()?;
