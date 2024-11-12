@@ -33,9 +33,6 @@ impl Compiler{
     pub fn new(type_context:TypeContext)->Self{
         Self { type_context,..Default::default() }
     }
-    fn push_string(&mut self,name:String,line:u32){
-        self.load_constant(Constant::String(name.into()), line);
-    }
     fn begin_scope(&mut self){
         self.scope_depth += 1;
     }
@@ -62,6 +59,18 @@ impl Compiler{
             self.emit_instruction(Instruction::StoreLocal(index as u16),line);
         }
 
+    }
+    fn push_string(&mut self,name:String,line:u32){
+        self.load_constant(Constant::String(name.into()), line);
+    }
+    fn push_top_of_stack(&mut self,line:u32){
+        self.push_slots_below_to_top(1, line);
+    }
+    fn push_slots_below_to_top(&mut self,slots:u16,line:u32){
+        self.emit_instruction(Instruction::Copy(slots), line);
+    }
+    fn load_bool(&mut self,bool:bool,line:u32){
+        self.emit_instruction(Instruction::LoadBool(bool), line);
     }
     fn define_name(&mut self,name:String,line:u32){
         let index = self.declare_name(name);
@@ -200,159 +209,58 @@ impl Compiler{
     }
     fn compile_pattern_check(&mut self,pattern:&PatternNode){
         match &pattern.kind{
-            &PatternNodeKind::Bool(bool) => {
-                self.emit_instruction(Instruction::LoadBool(bool), pattern.location.end_line);
-                self.emit_instruction(Instruction::Equals, pattern.location.end_line);
-            }
-            &PatternNodeKind::Int(int) => {
-                self.load_int(int, pattern.location.end_line);
-                self.emit_instruction(Instruction::Equals, pattern.location.end_line);
+            PatternNodeKind::Wildcard => {
+                self.load_bool(true, pattern.location.end_line);
             },
-            &PatternNodeKind::Float(float) => {
-                self.load_constant(Constant::Float(float),pattern.location.end_line);
-                self.emit_instruction(Instruction::Equals, pattern.location.end_line);
+            PatternNodeKind::Name(name) => {
+                self.push_top_of_stack(pattern.location.start_line);
+                self.define_name(name.clone(), pattern.location.end_line);
+                self.load_bool(true, pattern.location.end_line);
             },
-            PatternNodeKind::String(string) => {
-                self.load_constant(Constant::String(Rc::from(string as &str)),pattern.location.end_line);
-                self.emit_instruction(Instruction::Equals, pattern.location.end_line);
-            },
-            PatternNodeKind::Array(before,ignore ,after ) => {
-
-                match ignore.as_ref(){
-                    Some(ignore) if before.is_empty() && after.is_empty() => {
-                        self.emit_instruction(Instruction::Pop, ignore.location.start_line);
-                        self.emit_instruction(Instruction::LoadBool(true), ignore.location.start_line);
-                        return;
-                    },
-                    _ => ()
-                }
-                let total_before_and_after_len = (before.len() + after.len()) as i64;
-                self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
-                self.emit_instruction(Instruction::GetArrayLength,pattern.location.start_line);
-                self.load_constant(Constant::Int(total_before_and_after_len),pattern.location.start_line);
-                if ignore.is_some(){
-                    self.emit_instruction(Instruction::GreaterEqualsInt, pattern.location.start_line);
-                }
-                else{
-                    self.emit_instruction(Instruction::Equals, pattern.location.start_line);
-                }
-
-                let length_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.start_line);
-
-                let mut jumps = Vec::new();
-                for (i,pattern) in before.iter().enumerate(){
-                    self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
-                    self.load_int(i as i64, pattern.location.start_line);
-                    self.emit_instruction(Instruction::LoadIndex,pattern.location.start_line);
-                    self.compile_pattern_check(pattern);
-                    jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line));
-                }
-                let mut after_jumps = Vec::new();
-                if !after.is_empty(){
-                    self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
-                    self.emit_instruction(Instruction::GetArrayLength, pattern.location.start_line);
-                    self.load_int(after.len() as i64, pattern.location.start_line);
-                    self.emit_instruction(Instruction::SubtractInt, pattern.location.start_line);
-                    for (i,pattern) in after.iter().enumerate(){
-                        self.emit_instruction(Instruction::Copy(2), pattern.location.start_line);
-                        self.emit_instruction(Instruction::Copy(2), pattern.location.start_line);
-                        self.load_int(i as i64, pattern.location.start_line);
-                        self.emit_instruction(Instruction::AddInt, pattern.location.start_line);
-                        self.emit_instruction(Instruction::LoadIndex,pattern.location.start_line);
-                        self.compile_pattern_check(pattern);
-                        after_jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line));
-                    }
-                    self.emit_instruction(Instruction::Pop, pattern.location.end_line);
-                }
-                self.emit_instruction(Instruction::Pop, pattern.location.end_line);
-                self.emit_instruction(Instruction::LoadBool(true), pattern.location.end_line);
-                let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
-                
-                if !after_jumps.is_empty(){
-                    self.emit_instruction(Instruction::Pop,pattern.location.end_line);
-                    for jump in after_jumps{
-                        self.patch_jump(jump);
-                    }
-                }
-                self.patch_jump(length_jump);
-                for jump in jumps{
-                    self.patch_jump(jump);
-                }
-                self.emit_instruction(Instruction::Pop, pattern.location.end_line);
-                self.emit_instruction(Instruction::LoadBool(false), pattern.location.end_line);
-                self.patch_jump(end_jump);
-            }
-            PatternNodeKind::Tuple(elements) => {
-                
-                let mut jump = None;
-                for (i,element) in elements.iter().enumerate(){
-                    if let Some(jump) = jump{
-                        self.patch_jump(jump);
-                    }
-                    self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
-                    self.emit_instruction(Instruction::GetTupleElement(i as u16), pattern.location.start_line);
-                    self.compile_pattern_check(element); 
-                    jump = Some(self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), element.location.start_line));
-                }
-                self.emit_instruction(Instruction::Pop,pattern.location.end_line);
-                self.emit_instruction(Instruction::LoadBool(true), pattern.location.end_line);
-                if let Some(jump) = jump{
-                    let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
-                    self.patch_jump(jump);
-                    self.emit_instruction(Instruction::LoadBool(false), pattern.location.end_line);
-                    self.patch_jump(end_jump);
-                }
+            PatternNodeKind::Is(name,right_pattern) => {
+                self.push_top_of_stack(right_pattern.location.start_line);
+                self.compile_pattern_check(&right_pattern);
+                let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), right_pattern.location.end_line);
+                self.define_name(name.content.clone(), right_pattern.location.end_line);
+                self.load_bool(true, right_pattern.location.end_line);
+                let true_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), right_pattern.location.end_line);
+                self.patch_jump(false_jump);
+                self.emit_instruction(Instruction::Pop, right_pattern.location.end_line);
+                self.load_bool(false, right_pattern.location.end_line);
+                self.patch_jump(true_jump);
             },
             PatternNodeKind::Struct { ty, fields } => {
                 let mut jumps = Vec::new();
-                if let Type::EnumVariant {  variant_index,.. } = ty{
-                    self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
+                if let Type::EnumVariant { variant_index,.. } = ty{
+                    self.push_top_of_stack(pattern.location.start_line);
                     self.emit_instruction(Instruction::LoadField(0), pattern.location.start_line);
                     self.load_int(*variant_index as i64, pattern.location.start_line);
                     self.emit_instruction(Instruction::Equals, pattern.location.start_line);
                     jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.start_line));
                 }
-                for (field_name,pattern) in fields{
-                    self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
-                    let field_index = ty.get_field_index(field_name, &self.type_context).expect("Can only have valid fields");
-                    self.emit_instruction(Instruction::LoadField(field_index as u16),pattern.location.start_line);
-                    self.compile_pattern_check(pattern);
-                    jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line));
-                    
+                for (field_name,field_pattern) in fields{
+                    self.push_top_of_stack(field_pattern.location.start_line);
+                    self.emit_instruction(Instruction::LoadField(ty.get_field_index(field_name, &self.type_context).unwrap() as u16),field_pattern.location.start_line);
+                    self.compile_pattern_check(field_pattern);
+                    let false_jump  = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), field_pattern.location.end_line);
+                    self.emit_instruction(Instruction::Pop, field_pattern.location.end_line);
+                    let skip_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), field_pattern.location.end_line);
+                    self.patch_jump(false_jump);
+                    self.emit_instruction(Instruction::Pop, field_pattern.location.end_line);
+                    let false_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), field_pattern.location.end_line);
+                    self.patch_jump(skip_jump);
+                    jumps.push(false_jump);
                 }
-                self.emit_instruction(Instruction::Pop, pattern.location.end_line);
-                self.emit_instruction(Instruction::LoadBool(true), pattern.location.end_line);
+                self.load_bool(true, pattern.location.end_line);
                 let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
                 for jump in jumps{
                     self.patch_jump(jump);
                 }
-                self.emit_instruction(Instruction::Pop, pattern.location.end_line);
-                self.emit_instruction(Instruction::LoadBool(false), pattern.location.end_line);
+                self.load_bool(false, pattern.location.end_line);
                 self.patch_jump(end_jump);
+            },
             
-            },
-            PatternNodeKind::Wildcard => {
-                self.emit_instruction(Instruction::Pop, pattern.location.end_line);
-                self.emit_instruction(Instruction::LoadBool(true), pattern.location.end_line);
-            },
-            PatternNodeKind::Name(name) => {
-                self.define_name(name.clone(),pattern.location.end_line);
-                self.emit_instruction(Instruction::LoadBool(true), pattern.location.end_line);
-            },
-            PatternNodeKind::Is(name,right_pattern) => {
-                self.emit_instruction(Instruction::Copy(1), pattern.location.start_line);
-                self.define_name(name.content.clone(),pattern.location.start_line);
-                self.compile_pattern_check(&right_pattern);
-                let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), right_pattern.location.end_line);
-                self.emit_instruction(Instruction::LoadBool(true), pattern.location.end_line);
-                let then_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
-                self.patch_jump(false_jump);
-                self.emit_instruction(Instruction::LoadBool(false), pattern.location.end_line);
-                self.patch_jump(then_jump);
-
-            },
-
-
+            _ => todo!("{:?}",pattern.kind)
         }
     }
     fn compile_expr(&mut self,expr:&TypedExprNode){
@@ -477,10 +385,10 @@ impl Compiler{
             TypedExprNodeKind::Match { matchee, arms } => {
                 self.compile_expr(matchee);
                 let jumps_to_patch = arms.iter().map(|arm|{
-                    self.emit_instruction(Instruction::Copy(1),arm.pattern.location.start_line);
                     self.begin_scope();
                     self.compile_pattern_check(&arm.pattern);
                     let then_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), arm.pattern.location.end_line);
+                    self.emit_instruction(Instruction::Pop, arm.pattern.location.end_line);
                     self.compile_expr(&arm.expr);
                     self.end_scope();
                     let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), arm.expr.location.end_line);
