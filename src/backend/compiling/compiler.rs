@@ -252,12 +252,10 @@ impl Compiler{
                     self.compile_pattern_check(element);
                     let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), element.location.end_line);
                     self.emit_instruction(Instruction::Pop,element.location.end_line);
-                    self.load_bool(true, element.location.end_line);
                     let true_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), element.location.end_line);
                     self.patch_jump(false_jump);
                     self.emit_instruction(Instruction::Pop,element.location.end_line);
                     let skip_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), element.location.end_line);
-                    self.load_bool(false, element.location.end_line);
                     self.patch_jump(true_jump);
                     jumps.push(skip_jump);
                 }
