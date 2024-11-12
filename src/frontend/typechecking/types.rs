@@ -132,10 +132,12 @@ pub enum Type {
         name : String,
     },
     Enum{
+        generic_args : GenericArgs,
         id : EnumId,
         name : String
     },
     EnumVariant{
+        generic_args : GenericArgs,
         id : EnumId,
         name : String,
         variant_index : usize,
@@ -250,6 +252,22 @@ impl Type{
     }
 
 }
+
+fn fmt_generic_args(f:&mut std::fmt::Formatter<'_>,generic_args:&GenericArgs)->std::fmt::Result{
+    if !generic_args.is_empty(){
+        write!(f,"[")?;
+        for (i,arg) in generic_args.values().enumerate(){
+            if i>0{
+                write!(f,",")?;
+            }
+            write!(f,"{}",arg)?;
+        }
+        write!(f,"]")
+    }
+    else{
+        Ok(())
+    }
+}
 impl Display for Type{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self{
@@ -282,27 +300,17 @@ impl Display for Type{
             },
             Type::Param { name ,..} => write!(f,"{}",name),
             Type::Unknown => write!(f,"_"),
-            Type::Enum {name,.. } => {
-                write!(f,"{}",name)
+            Type::Enum {name,generic_args,.. } => {
+                write!(f,"{}",name)?;
+                fmt_generic_args(f, generic_args)
             },
-            Type::EnumVariant {name,.. } => {
-                write!(f,"{}",name)
+            Type::EnumVariant {name,generic_args,.. } => {
+                write!(f,"{}",name)?;
+                fmt_generic_args(f, generic_args)
             }
             Type::Struct { generic_args, name,.. } => {
                 write!(f,"{}",name)?;
-                if !generic_args.is_empty(){
-                    write!(f,"[")?;
-                    for (i,arg) in generic_args.values().enumerate(){
-                        if i>0{
-                            write!(f,",")?;
-                        }
-                        write!(f,"{}",arg)?;
-                    }
-                    write!(f,"]")
-                }
-                else{
-                    Ok(())
-                }
+                fmt_generic_args(f, generic_args)
             }
         }
     }
