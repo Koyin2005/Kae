@@ -9,13 +9,14 @@ pub struct Scanner<'src>{
     source : &'src str,
     current_char : char,
     start_index : usize,
+    start_line:u32,
     current_index : usize,
     line : u32
 }
 
 impl<'src> Scanner<'src>{
     pub fn new(source:&'src str)->Self{
-        Scanner { source , current_char:'\0', start_index:0, current_index:0,line:1}
+        Scanner { source , current_char:'\0', start_index:0,start_line:1, current_index:0,line:1}
     }
     fn is_at_end(&self)->bool{
         self.current_index >= self.source.len()
@@ -56,7 +57,7 @@ impl<'src> Scanner<'src>{
         }
     }
     fn error(&self,message:String)->ScanError{
-        ScanError { message, line:self.line }
+        ScanError { message, line:self.start_line }
     }
     fn number(&mut self)->Token<'src>{
         while self.peek().is_ascii_digit() {
@@ -162,6 +163,7 @@ impl<'src> Scanner<'src>{
     fn scan_token(&mut self)->Result<Token<'src>,ScanError>{
         self.skip_whitespace()?;
         self.start_index = self.current_index;
+        self.start_line = self.line;
         if self.is_at_end() { return Ok(self.make_token(TokenKind::Eof));}
         let char = self.advance();
         Ok(match char{
