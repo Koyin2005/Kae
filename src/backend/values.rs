@@ -40,10 +40,11 @@ impl Value{
             (Self::Int(int),Self::Int(other)) => int == other,
             (Self::Float(float),Self::Float(other)) => float == other,
             (Self::Bool(bool),Self::Bool(other)) => bool == other,
-            (Self::Record(record),Self::Record(other)) => record.as_record(heap).fields.iter().zip(other.as_record(heap).fields.iter()).all(|(field,other)|{
-                field.is_equal(other, heap)
-            }),
             (Self::Unit,Self::Unit) => true,
+            (Self::Record(record),Self::Record(other)) => 
+                record.as_record(heap).fields.iter().zip(other.as_record(heap).fields.iter()).all(|(field,other)|{
+                    field.is_equal(other, heap)
+                }),
             (Self::Tuple(tuple1),Self::Tuple(tuple2)) => {
                 let tuple1 = tuple1.as_tuple(heap);
                 let tuple2 = tuple2.as_tuple(heap);
