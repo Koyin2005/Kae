@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use super::values::{Function, Value,Record};
+use super::values::{Function, NativeFunction, Record, Value};
 
 #[derive(Clone,Copy,Debug,Hash,PartialEq)]
 pub struct Object(usize);
@@ -12,6 +12,18 @@ impl Object{
             panic!("Can't use object as function.")
         };
         function
+    }
+    pub fn as_native_function(self,heap:&Heap)->&NativeFunction{
+        let ObjectType::NativeFunction(function) = heap.get_object(self) else {
+            panic!("Can't use object as native function.")
+        };
+        &function
+    }
+    pub fn try_as_function(self,heap:&Heap)->Option<Rc<Function>>{
+        let ObjectType::Function(function) = heap.get_object(self) else {
+            return None;
+        };
+        Some(function.clone())
     }
     pub fn as_function(self,heap:&Heap)->Rc<Function>{
         let ObjectType::Function(function) = heap.get_object(self) else {
@@ -86,7 +98,8 @@ pub enum ObjectType{
     String(Rc<str>),
     Tuple(Box<[Value]>),
     List(Vec<Value>),
-    Function(Rc<Function>)
+    Function(Rc<Function>),
+    NativeFunction(Rc<NativeFunction>)
 }
 
 

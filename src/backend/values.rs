@@ -1,8 +1,15 @@
-use super::{instructions::Chunk, objects::{Heap, Object}};
+use super::{instructions::Chunk, objects::{Heap, Object}, vm::{RuntimeError, VM}};
 #[derive(Clone,Debug,PartialEq,Default)]
 pub struct Function{
     pub name : String,
     pub chunk : Chunk
+}
+
+pub type NativeFn = fn(&mut VM,args:&[Value])->Result<Value,RuntimeError>;
+#[derive(Clone,Debug,PartialEq)]
+pub struct NativeFunction{
+    pub name : String,
+    pub function : NativeFn
 }
 
 #[derive(Clone,Debug,PartialEq,Default)]
@@ -32,7 +39,8 @@ pub enum Value{
     Tuple(Object),
     String(Object),
     List(Object),
-    Function(Object)
+    Function(Object),
+    NativeFunction(Object)
 }
 impl Value{
     pub fn is_equal(&self,other:&Value,heap:&Heap)->bool{
@@ -59,6 +67,7 @@ impl Value{
             },
             (Self::Function(object),Self::Function(other)) => object == other,
             (Self::String(object),Self::String(other)) => object.as_string(heap) == other.as_string(heap),
+            (Self::NativeFunction(object),Self::NativeFunction(other)) => object == other,
             _ => false
         }
     }
@@ -159,6 +168,9 @@ impl Value{
             },
             Value::Function(object) => {
                 format!("fn<{}>",object.as_function(heap).name)
+            },
+            Value::NativeFunction(object) => {
+                format!("native<{}>",object.as_native_function(heap).name)
             }
         }
     }

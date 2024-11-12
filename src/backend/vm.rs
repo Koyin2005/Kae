@@ -55,6 +55,11 @@ impl VM{
     fn pop(&mut self)->Value{
         self.stack.pop().unwrap()
     }
+    fn pop_values(&mut self,values:usize)->Vec<Value>{
+        let mut values  = (0..values).into_iter().map(|_| self.pop()).collect::<Vec<_>>();
+        values.reverse();
+        values
+    }
     fn peek(&self,offset:usize)->Value{
         self.stack[self.stack.len() - offset - 1]
     }
@@ -491,28 +496,36 @@ impl VM{
                     let function = self.peek(arg_count);
                     let function = match function{
                         Value::Function(function) => function,
+                        Value::NativeFunction(function) => function,
                         value => {
 
                             panic!("Expect function got {}.",value.format(&self.heap, &mut Vec::new()))
                         }
                     };
-                    let function = function.as_function(&self.heap);
-
-                    let bp = self.stack.len() - arg_count - 1;
-                    let stack_size = self.stack.len();
-                    self.stack.copy_within(bp+1..stack_size, bp);
-                    self.pop();
-
-                    self.stack.extend(std::iter::repeat(Value::Int(0)).take(function.chunk.locals - arg_count));
-                    self.frames.push(CallFrame{
-                        function,
-                        ip : 0,
-                        bp
-                    });
-                    if self.frames.len() > MAX_FRAMES{
-                        self.runtime_error("Exceeeded max call frames.");
-                        return Err(RuntimeError);
+                    if let Some(function) = function.try_as_function(&self.heap){
+                        let bp = self.stack.len() - arg_count - 1;
+                        let stack_size = self.stack.len();
+                        self.stack.copy_within(bp+1..stack_size, bp);
+                        self.pop();
+    
+                        self.stack.extend(std::iter::repeat(Value::Int(0)).take(function.chunk.locals - arg_count));
+                        self.frames.push(CallFrame{
+                            function,
+                            ip : 0,
+                            bp
+                        });
+                        if self.frames.len() > MAX_FRAMES{
+                            self.runtime_error("Exceeeded max call frames.");
+                            return Err(RuntimeError);
+                        }
                     }
+                    else{
+                        let args = self.pop_values(arg_count);
+                        let function = function.as_native_function(&self.heap);
+                        let result = (function.function)(self,&args)?;
+                        self.store_top(result);
+                    }
+
                 },
                 Instruction::Return => {
                     let value = self.pop();
