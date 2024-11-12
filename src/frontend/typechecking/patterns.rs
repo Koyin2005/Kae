@@ -52,8 +52,8 @@ impl PatternChecker{
         if let Type::Enum { id, .. }  = pattern_ty{
             let mut seen_variants =Vec::new();
             for pattern in patterns{
-                if let PatternNodeKind::Struct { ty:Type::EnumVariant{variant_index,id:variant_id,..}, .. } = &pattern.kind{
-                    if variant_id == id{
+                if let PatternNodeKind::Struct { ty:Type::EnumVariant{variant_index,id:variant_id,..}, fields } = &pattern.kind{
+                    if variant_id == id && fields.iter().all(|(_,pattern)| is_irrefutable(&pattern.kind)){
                         seen_variants.push(*variant_index);
                     }
                 }
