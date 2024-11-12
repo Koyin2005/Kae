@@ -168,10 +168,10 @@ impl PartialEq for Type{
             (Type::Struct { generic_args, id, .. },Type::Struct { generic_args:other_generic_args, id:other_id,.. }) => {
                 id == other_id && generic_args.values().zip(other_generic_args.values()).all(|(arg,other_arg)| arg == other_arg)
             },
-            (Type::Enum { id, .. },Type::Enum { id:other_id,.. }) => id == other_id,
+            (Type::Enum { id, generic_args,.. },Type::Enum { id:other_id,generic_args:other_generic_args,.. }) => id == other_id && generic_args == other_generic_args,
             
-            (Type::EnumVariant { id, variant_index,.. },Type::EnumVariant { id:other_id,variant_index:other_index,.. }) => 
-                id == other_id && variant_index == other_index,
+            (Type::EnumVariant { id, variant_index,generic_args,.. },Type::EnumVariant { id:other_id,variant_index:other_index,generic_args:other_generic_args,.. }) => 
+                id == other_id && variant_index == other_index && generic_args == other_generic_args,
             (_,_) => false
         }
     }
@@ -212,8 +212,9 @@ impl Type{
                 }))
             },
             (Type::EnumVariant { id,  variant_index,generic_args,.. },field_name) => {
-                type_context.enums.get_enum(*id).variants[*variant_index].fields.iter().find(|(field,_)| field ==  field_name).map(|(_,ty)| 
-                   if !generic_args.is_empty() {substitute(ty.clone(), generic_args)} else { ty.clone()})
+                type_context.enums.get_enum(*id).variants[*variant_index].fields.iter().find(|(field,_)| field ==  field_name).map(|(_,ty)| {
+                   if !generic_args.is_empty() {substitute(ty.clone(), generic_args)} else { ty.clone()}
+                })
                     
             }
             _ => None
@@ -236,6 +237,9 @@ impl Type{
                     Some(generic_args.clone())
                 }
             },
+            Type::Enum { generic_args,.. } => {
+                if generic_args.is_empty() { None} else {Some(generic_args.clone())}
+            }
             _ => None
         }
     }
@@ -247,7 +251,9 @@ impl Type{
             Type::Tuple(elements) => elements.iter().all(|ty| ty.is_closed()),
             Type::Function { generic_args, params, return_type } => 
                 generic_args.values().all(|ty| ty.is_closed()) && params.iter().all(|param| param.is_closed()) && return_type.is_closed(),
-            Type::Struct { generic_args, ..} => generic_args.values().all(|ty| ty.is_closed()),
+            Type::Struct { generic_args, ..} | 
+            Type::Enum { generic_args, .. } | 
+            Type::EnumVariant { generic_args, .. } => generic_args.values().all(|ty| ty.is_closed()),
             _ => true,
         }
     }

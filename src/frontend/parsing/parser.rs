@@ -683,7 +683,7 @@ impl<'a> Parser<'a>{
                 }
             }
             else{
-                (path.location,ParsedPatternNodeKind::Struct { path: path, fields: vec![] })
+                (path.location,ParsedPatternNodeKind::Struct { path, fields: vec![] })
             }
         }
         else if self.matches(TokenKind::LeftBracket){
