@@ -400,38 +400,40 @@ impl Compiler{
                     }
                 }, left.location.end_line);
                 self.compile_expr(right);
+                let then_jump = self.emit_jump_instruction(Instruction::Jump(0xFF),right.location.end_line);
                 self.patch_jump(jump);
                 self.emit_instruction(match op{
                     LogicalOp::And => Instruction::LoadBool(false),
                     LogicalOp::Or => Instruction::LoadBool(true),
                 },
                 right.location.end_line);
+                self.patch_jump(then_jump);
             },
             TypedExprNodeKind::If { condition, then_branch, else_branch } => {
                 self.compile_expr(condition);
                 let else_branchjump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), condition.location.end_line);
                 self.compile_expr(then_branch);
+                let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), else_branch.as_ref().map_or(then_branch.location.end_line, |else_branch| else_branch.location.start_line));
+                self.patch_jump(else_branchjump);
                 if let Some(else_branch) = else_branch{
-                    let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), else_branch.location.start_line);
-                    self.patch_jump(else_branchjump);
                     self.compile_expr(else_branch);
-                    self.patch_jump(end_jump);
                 }
                 else{
-                    self.patch_jump(else_branchjump);
+                    self.emit_instruction(Instruction::LoadUnit, then_branch.location.end_line);
                 }
+                self.patch_jump(end_jump);
             },
             TypedExprNodeKind::Match { matchee, arms } => {
                 self.compile_expr(matchee);
                 let jumps_to_patch = arms.iter().map(|arm|{
                     self.begin_scope();
                     self.compile_pattern_check(&arm.pattern);
-                    let then_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), arm.pattern.location.end_line);
+                    let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), arm.pattern.location.end_line);
                     self.emit_instruction(Instruction::Pop, arm.pattern.location.end_line);
                     self.compile_expr(&arm.expr);
                     self.end_scope();
                     let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), arm.expr.location.end_line);
-                    self.patch_jump(then_jump);
+                    self.patch_jump(false_jump);
                     end_jump
                 }).collect::<Box<[_]>>();
                 for jump in jumps_to_patch.into_vec(){
@@ -452,8 +454,8 @@ impl Compiler{
                 match &lhs.kind{
                     TypedAssignmentTargetKind::Name(name) => {
                         self.compile_expr(rhs);
+                        self.push_top_of_stack(rhs.location.end_line);
                         self.store_name(name, rhs.location.end_line);
-                        self.load_name(name,rhs.location.end_line);
 
                     },
                     TypedAssignmentTargetKind::Index { lhs, rhs:index } => {
