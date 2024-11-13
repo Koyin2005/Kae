@@ -117,6 +117,7 @@ impl VM{
                 }
                 println!();
                 let instruction = self.current_chunk().code[self.current_frame().ip];
+                print!("{} ",self.current_frame().function.name);
                 disassemble_instruction(self.current_chunk(), self.current_frame().ip, instruction,&self.constants);
             }
             match self.read_instruction(){
@@ -408,7 +409,7 @@ impl VM{
                         self.push(list[index as usize])?;
                     }
                     else{
-                        self.runtime_error("Index out of bounds");
+                        self.runtime_error(&format!("Index out of bounds, index was '{}' but length was '{}'.",index,list.len()));
                         return Err(RuntimeError);
                     }
                 },
@@ -427,15 +428,16 @@ impl VM{
                     let Value::List(list) = self.peek(1) else{
                         panic!("Expected a list.")
                     };
-                    let list = list.as_list_mut(&mut self.heap);
-                    if 0 <= index && (index as usize)< list.len(){
+                    let len = list.as_list(&self.heap).len();
+                    if 0 <= index && (index as usize)< len{
+                        let list = list.as_list_mut(&mut self.heap);
                         list[index as usize] = value;
                     }
                     else{
-                        self.runtime_error("Index out of bounds.");
+                        self.runtime_error(&format!("Index out of bounds : index was '{}', but len was '{}'.",index,len));
                         return Err(RuntimeError);
                     }
-                }
+                },
                 Instruction::UnpackTuple => {
                     let Value::Tuple(tuple) = self.pop() else{
                         panic!("Expected a tuple.")
@@ -516,15 +518,16 @@ impl VM{
                             bp
                         });
                         if self.frames.len() > MAX_FRAMES{
-                            self.runtime_error("Exceeeded max call frames.");
+                            self.runtime_error("Exceeded max call frames.");
                             return Err(RuntimeError);
                         }
                     }
                     else{
                         let args = self.pop_values(arg_count);
+                        self.pop();
                         let function = function.as_native_function(&self.heap);
                         let result = (function.function)(self,&args)?;
-                        self.store_top(result);
+                        self.push(result)?;
                     }
 
                 },
