@@ -185,7 +185,7 @@ pub enum StmtNode{
     },
     Impl{
         ty : ParsedType,
-        methods : Vec<ParsedFunction>
+        methods : Vec<ParsedMethod>
     }
 }
 #[derive(Clone)]
@@ -228,6 +228,11 @@ pub struct ParsedParam{
     pub ty : ParsedType
 }
 
+pub struct ParsedMethod{
+    pub name : Symbol,
+    pub has_receiver : bool,
+    pub function : ParsedFunction
+}
 pub struct ParsedFunction{
     pub params : Vec<ParsedParam>,
     pub return_type : Option<ParsedType>,
