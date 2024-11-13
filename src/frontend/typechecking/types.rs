@@ -177,6 +177,9 @@ impl PartialEq for Type{
     }
 }
 impl Type{
+    pub fn new_param_type(name:String,id:GenericTypeId)->Self{
+        Self::Param { name, index:id }
+    }
     pub fn is_variant_of(&self,other:&Type)->bool{
         match (self,other){
             (Type::EnumVariant { id:other_id,.. },Type::Enum { id, .. }) => id == other_id,
