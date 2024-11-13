@@ -85,8 +85,8 @@ impl Object{
     pub fn new_record(heap:&mut Heap,record:Record)->Self{
         heap.alloc(ObjectType::Record(record))
     }
-    pub fn new_case_record(heap:&mut Heap,record:Record,current_field_count:usize)->Self{
-        heap.alloc(ObjectType::CaseRecord(current_field_count,record))
+    pub fn new_case_record(heap:&mut Heap,record:Record,variant_field_count:usize)->Self{
+        heap.alloc(ObjectType::CaseRecord(variant_field_count,record))
     }
     pub fn new_tuple(heap:&mut Heap,values:&[Value]) -> Self{
         heap.alloc(ObjectType::Tuple(values.to_vec().into_boxed_slice()))

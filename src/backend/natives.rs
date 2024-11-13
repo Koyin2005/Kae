@@ -45,3 +45,18 @@ pub fn native_pop(vm:&mut VM,args:&[Value])->Result<Value,RuntimeError>{
         Err(RuntimeError)
     }
 }
+
+pub fn native_parse_int(vm:&mut VM,args:&[Value])->Result<Value,RuntimeError>{
+    let Value::String(string) = args[0] else {
+        panic!("Expected a string.")
+    };
+    let string = string.as_string(&vm.heap).to_string();
+    let (variant_name,variant_tag,fields) = if let Ok(int) = string.parse(){
+        ("Some",0,vec![Value::Int(int)])
+    }
+    else{
+        ("None",1,vec![])
+    };
+    Ok(Value::make_case_record(&mut vm.heap, variant_name, variant_tag,&fields , 2))
+    
+}

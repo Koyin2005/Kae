@@ -1305,6 +1305,11 @@ impl TypeChecker{
             self.environment.add_generic_function("pop".to_string(), vec![Type::Array(Box::new(param_type.clone()))], param_type.clone(), id,
                 [(GenericTypeId(index),param_type)].into_iter());
         }
+        {
+            let id = self.declare_new_function();
+            self.environment.add_function("parse_int".to_string(), vec![Type::String], 
+                substitute(option_type.clone(),&vec![(option_generic_param,Type::Int)].into_iter().collect()), id);
+        }
         self.check_stmts(&stmts).map (|stmts| (self.type_context,stmts))
     }
 }

@@ -43,6 +43,15 @@ pub enum Value{
     NativeFunction(Object)
 }
 impl Value{
+    pub fn make_case_record(heap:&mut Heap,variant_name:&str,variant_tag:usize,variant_fields : &[Self],total_field_count:usize)->Self{
+        assert!(total_field_count>=1);
+        let name = Object::new_string(heap, variant_name.into());
+        let mut fields = vec![Value::Int(variant_tag as i64)];
+        fields.extend_from_slice(variant_fields);
+        let padding = total_field_count - fields.len();
+        fields.extend(std::iter::repeat(Value::Int(0)).take(padding));
+        Value::CaseRecord(Object::new_case_record(heap, Record { name, fields: fields.into_boxed_slice() },variant_fields.len()))
+    }
     pub fn is_equal(&self,other:&Value,heap:&Heap)->bool{
         match (self,other){
             (Self::Int(int),Self::Int(other)) => int == other,
