@@ -909,7 +909,7 @@ impl<'a> Parser<'a>{
         while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
             self.expect(TokenKind::Fun, "Expected 'fun'.");
             let (method_name,has_receiver,method) = parse_method(self)?;
-            methods.push(ParsedMethod{name:method_name,has_receiver,function:method});
+            methods.push(ParsedMethod{name:method_name,has_receiver,generic_params:None,function:method});
         }
         self.expect(TokenKind::RightBrace, "Expect '}'.");
         Ok(StmtNode::Impl { ty, methods })

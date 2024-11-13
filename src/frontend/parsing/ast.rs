@@ -231,6 +231,7 @@ pub struct ParsedParam{
 pub struct ParsedMethod{
     pub name : Symbol,
     pub has_receiver : bool,
+    pub generic_params : Option<ParsedGenericParams>,
     pub function : ParsedFunction
 }
 pub struct ParsedFunction{
