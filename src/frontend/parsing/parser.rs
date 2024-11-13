@@ -589,6 +589,9 @@ impl<'a> Parser<'a>{
             let path = self.parse_path(false)?;
             ParsedType::Path(path)
         }
+        else if self.matches(TokenKind::UpperSelf){
+            ParsedType::SelfTy(SourceLocation::one_line(self.prev_token.line))
+        }
         else if self.matches(TokenKind::LeftBracket){
             let ty = self.parse_type()?;
             self.expect(TokenKind::RightBracket, "Expect ']'.");
@@ -873,13 +876,13 @@ impl<'a> Parser<'a>{
             let mut params = Vec::new();
             let mut has_self = false;
             while !this.check(TokenKind::RightParen) && !this.is_at_end(){
-                let param = if this.check(TokenKind::LowerSelf){
+                let param = if this.matches(TokenKind::LowerSelf){
                     if params.len() > 1 {
                         this.error("Can only have 1 'self' parameter as first parameter.");
                         return Err(ParsingFailed);
                     }
                     has_self = true;
-                    let self_name = this.parse_identifer("Expect 'self'.");
+                    let self_name = Symbol{content:this.prev_token.lexeme.to_string(),location:SourceLocation::one_line(this.prev_token.line)};
                     ParsedParam{
                         pattern:
                             ParsedPatternNode{
