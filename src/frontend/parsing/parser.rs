@@ -872,7 +872,7 @@ impl<'a> Parser<'a>{
             this.expect(TokenKind::LeftParen, "Expect '(' after method name.");
             let mut params = Vec::new();
             let mut has_self = false;
-            while this.check(TokenKind::RightParen) && !this.is_at_end(){
+            while !this.check(TokenKind::RightParen) && !this.is_at_end(){
                 let param = if this.check(TokenKind::LowerSelf){
                     if params.len() > 1 {
                         this.error("Can only have 1 'self' parameter as first parameter.");
@@ -909,7 +909,7 @@ impl<'a> Parser<'a>{
         let ty = self.parse_type()?;
         self.expect(TokenKind::LeftBrace, "Expect '{' after impl type.");
         let mut methods = Vec::new();
-        while self.check(TokenKind::RightBrace) && !self.is_at_end(){
+        while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
             self.expect(TokenKind::Fun, "Expected 'fun'.");
             let (method_name,has_receiver,method) = parse_method(self)?;
             methods.push(ParsedMethod{name:method_name,has_receiver,function:method});
