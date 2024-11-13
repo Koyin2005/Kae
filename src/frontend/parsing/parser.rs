@@ -895,6 +895,7 @@ impl<'a> Parser<'a>{
                 }
                 else{
                     let param_pattern = this.pattern()?;
+                    this.expect(TokenKind::Colon, "Expect ':' after param.");
                     let param_ty = this.parse_type()?;
                     ParsedParam{
                         pattern:param_pattern,
