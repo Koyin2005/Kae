@@ -90,7 +90,7 @@ impl Display for Constant{
                 write!(f,"native<{}>",function.name)
             },
             Self::String(string) => {
-                write!(f,"{}",string)
+                write!(f,"{:?}",string)
             }
         }
     }
