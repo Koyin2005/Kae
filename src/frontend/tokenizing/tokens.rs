@@ -53,6 +53,7 @@ pub enum TokenKind{
     Let,
     Is,
     Print,
+    Impl,
     Return,
     Typename,
     
