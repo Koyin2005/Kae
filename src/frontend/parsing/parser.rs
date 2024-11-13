@@ -347,6 +347,15 @@ impl<'a> Parser<'a>{
                 TokenKind::Identifier|TokenKind::LeftParen| TokenKind::LeftBracket |
                 TokenKind::Bang| TokenKind::Minus | TokenKind::Fun)
     }
+    fn parse_function_param(&mut self)->Result<ParsedParam,ParsingFailed>{
+        let param_pattern = self.pattern()?;
+        self.expect(TokenKind::Colon, "Expect ':' after param.");
+        let param_ty = self.parse_type()?;
+        Ok(ParsedParam{
+            pattern:param_pattern,
+            ty:param_ty
+        })
+    }
     fn parse_function_return_type_and_body(&mut self)->Result<(Option<ParsedType>,ExprNode),ParsingFailed>{
 
         let return_type = if self.matches(TokenKind::ThinArrow){
@@ -367,14 +376,7 @@ impl<'a> Parser<'a>{
         let params = if self.check(TokenKind::RightParen) { Vec::new() } else {
             let mut params = Vec::new();
             loop{
-                let pattern = self.pattern()?;
-                self.expect(TokenKind::Colon, "Expect ':'.");
-                let ty = self.parse_type()?;
-
-                params.push(ParsedParam{
-                    pattern,
-                    ty
-                });
+                params.push(self.parse_function_param()?);
                 if !self.matches(TokenKind::Coma){
                     break params;
                 }
@@ -894,13 +896,7 @@ impl<'a> Parser<'a>{
                     }
                 }
                 else{
-                    let param_pattern = this.pattern()?;
-                    this.expect(TokenKind::Colon, "Expect ':' after param.");
-                    let param_ty = this.parse_type()?;
-                    ParsedParam{
-                        pattern:param_pattern,
-                        ty:param_ty
-                    }
+                    this.parse_function_param()?
                 };
                 params.push(param);
                 if !this.matches(TokenKind::Coma){
