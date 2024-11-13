@@ -50,8 +50,8 @@ pub fn native_parse_int(vm:&mut VM,args:&[Value])->Result<Value,RuntimeError>{
     let Value::String(string) = args[0] else {
         panic!("Expected a string.")
     };
-    let string = string.as_string(&vm.heap).to_string();
-    let (variant_name,variant_tag,fields) = if let Ok(int) = string.parse(){
+    let number = string.as_string(&vm.heap).parse().ok();
+    let (variant_name,variant_tag,fields) = if let Some(int) = number{
         ("Some",0,vec![Value::Int(int)])
     }
     else{
