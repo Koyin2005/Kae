@@ -347,7 +347,23 @@ impl<'a> Parser<'a>{
                 TokenKind::Identifier|TokenKind::LeftParen| TokenKind::LeftBracket |
                 TokenKind::Bang| TokenKind::Minus | TokenKind::Fun)
     }
-    fn parse_function(&mut self)->Result<ParsedFunction,ParsingFailed>{
+    fn parse_function_return_type_and_body(&mut self)->Result<(Option<ParsedType>,ExprNode),ParsingFailed>{
+
+        let return_type = if self.matches(TokenKind::ThinArrow){
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        let body = if self.matches(TokenKind::LeftBrace){self.block()? }else{
+            let expr = self.expression()?;
+            if Self::needs_semi_for_stmt(&expr){
+                self.expect(TokenKind::Semicolon, "Expected ';'.");
+            }
+            expr
+        };
+        Ok((return_type,body))
+    }
+    fn parse_function_body_and_params(&mut self)->Result<ParsedFunction,ParsingFailed>{
         let params = if self.check(TokenKind::RightParen) { Vec::new() } else {
             let mut params = Vec::new();
             loop{
@@ -364,29 +380,17 @@ impl<'a> Parser<'a>{
                 }
             }
         };
-        self.expect(TokenKind::RightParen, "Expect ')'.");
-        let return_type = if self.matches(TokenKind::ThinArrow){
-            Some(self.parse_type()?)
-        } else {
-            None
-        };
-        let body = if self.matches(TokenKind::LeftBrace){self.block()? }else{
-            let expr = self.expression()?;
-            if Self::needs_semi_for_stmt(&expr){
-                self.expect(TokenKind::Semicolon, "Expected ';'.");
-            }
-            expr
-        };
+        self.expect(TokenKind::RightParen, "Expect ')'."); 
+        let (return_type,body) = self.parse_function_return_type_and_body()?;
         Ok(ParsedFunction{
-                    params,
-                    return_type,
-                    body
-        }) 
-            
+            params,
+            return_type,
+            body
+        })
     }
     fn function(&mut self,start:u32)->Result<ExprNode,ParsingFailed>{
         self.expect(TokenKind::LeftParen, "Expect '(' after 'fun'.");
-        let function = self.parse_function()?;
+        let function = self.parse_function_body_and_params()?;
         let end_line = self.prev_token.line;
         Ok(ExprNode { 
             location: SourceLocation::new(start, end_line), 
@@ -859,15 +863,18 @@ impl<'a> Parser<'a>{
         let generic_params = self.optional_generic_params()?;
         
         self.expect(TokenKind::LeftParen, "Expect '(' after function name.");
-        let function = self.parse_function()?;
+        let function = self.parse_function_body_and_params()?;
         Ok(StmtNode::Fun { name,generic_params, function })
     }
     fn impl_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
         let ty = self.parse_type()?;
         self.expect(TokenKind::LeftBrace, "Expect '{' after impl type.");
-        
+        let mut methods = Vec::new();
+        while self.check(TokenKind::RightBrace) && self.is_at_end(){
+            
+        }
         self.expect(TokenKind::RightBrace, "Expect '}'.");
-        Ok(StmtNode::Impl { ty, methods: Vec::new() })
+        Ok(StmtNode::Impl { ty, methods })
     }
     fn try_non_expr_stmt(&mut self)->Option<Result<StmtNode,ParsingFailed>>{
         Some(if self.matches(TokenKind::Let){
@@ -881,6 +888,9 @@ impl<'a> Parser<'a>{
         }
         else if self.matches(TokenKind::Enum){
             self.enum_stmt()
+        }
+        else if self.matches(TokenKind::Impl){
+            self.impl_stmt()
         }
         else{
             return None
