@@ -106,7 +106,7 @@ impl VM{
     pub fn runtime_error(&self,message:&str){
         eprintln!("Error : {}",message);
         for frame in self.frames.iter().rev(){
-            eprintln!("[line {}] in {}",frame.function.chunk.lines[frame.ip],frame.function.name);
+            eprintln!("[line {}] in {}",frame.function.chunk.lines[frame.ip.min(frame.function.chunk.lines.len()-1)],frame.function.name);
         }
     }
     pub fn run(&mut self)->Result<(),RuntimeError>{
