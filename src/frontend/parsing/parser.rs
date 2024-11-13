@@ -869,8 +869,9 @@ impl<'a> Parser<'a>{
         Ok(StmtNode::Fun { name,generic_params, function })
     }
     fn impl_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
-        fn parse_method(this:&mut Parser)->Result<(Symbol,bool,ParsedFunction),ParsingFailed>{
+        fn parse_method(this:&mut Parser)->Result<(Symbol,Option<ParsedGenericParams>,bool,ParsedFunction),ParsingFailed>{
             let name = this.parse_identifer("Expected a method name.");
+            let generic_params = this.optional_generic_params()?;
             this.expect(TokenKind::LeftParen, "Expect '(' after method name.");
             let mut params = Vec::new();
             let mut has_self = false;
@@ -901,15 +902,15 @@ impl<'a> Parser<'a>{
             }
             this.expect(TokenKind::RightParen, "Expect ')'.");
             let (return_type,body) = this.parse_function_return_type_and_body()?;
-            Ok((name,has_self,ParsedFunction { params, return_type, body }))
+            Ok((name,generic_params,has_self,ParsedFunction { params, return_type, body }))
         }
         let ty = self.parse_type()?;
         self.expect(TokenKind::LeftBrace, "Expect '{' after impl type.");
         let mut methods = Vec::new();
         while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
             self.expect(TokenKind::Fun, "Expected 'fun'.");
-            let (method_name,has_receiver,method) = parse_method(self)?;
-            methods.push(ParsedMethod{name:method_name,has_receiver,generic_params:None,function:method});
+            let (method_name,generic_params,has_receiver,method) = parse_method(self)?;
+            methods.push(ParsedMethod{name:method_name,has_receiver,generic_params,function:method});
         }
         self.expect(TokenKind::RightBrace, "Expect '}'.");
         Ok(StmtNode::Impl { ty, methods })
