@@ -522,7 +522,7 @@ impl<'a> Parser<'a>{
             TokenKind::If => self.if_expression(),
             TokenKind::LeftBrace => self.block(),
             TokenKind::LeftBracket => self.array(),
-            TokenKind::Identifier => self.name(),
+            TokenKind::Identifier | TokenKind::LowerSelf | TokenKind::UpperSelf => self.name(),
             TokenKind::Print => self.print(),
             TokenKind::Match => self.pattern_match(),
             TokenKind::While => self.while_expression(),
@@ -587,13 +587,9 @@ impl<'a> Parser<'a>{
         Ok(StmtNode::Expr { expr:expression, has_semi })
     }
     fn parse_type(&mut self)->Result<ParsedType,ParsingFailed>{
-        Ok(if self.matches(TokenKind::Identifier){
+        Ok(if self.matches(TokenKind::Identifier)||self.matches(TokenKind::UpperSelf){
             let path = self.parse_path(false)?;
             ParsedType::Path(path)
-        }
-        else if self.matches(TokenKind::UpperSelf){
-            let name = Symbol { content: "self".to_string(), location: SourceLocation::one_line(self.prev_token.line) };
-            ParsedType::Path(ParsedPath {  location: name.location,head: PathSegment{location:name.location,name}, generic_args: None, segments: Vec::new() })
         }
         else if self.matches(TokenKind::LeftBracket){
             let ty = self.parse_type()?;
