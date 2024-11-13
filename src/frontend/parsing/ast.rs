@@ -182,6 +182,10 @@ pub enum StmtNode{
         name : Symbol,
         generic_params : Option<ParsedGenericParams>,
         variants : Vec<ParsedEnumVariant>
+    },
+    Impl{
+        ty : ParsedType,
+        methods : Vec<ParsedFunction>
     }
 }
 #[derive(Clone)]

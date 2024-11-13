@@ -1247,6 +1247,9 @@ impl TypeChecker{
                 });
                 self.generic_param_names.truncate(generic_param_count);
                 Ok(TypedStmtNode::Enum { name:name.clone(), variants })
+            },
+            StmtNode::Impl { ty, methods } => {
+                todo!("Implement impl")
             }
         }
     }

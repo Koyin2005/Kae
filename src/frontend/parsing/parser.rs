@@ -862,6 +862,13 @@ impl<'a> Parser<'a>{
         let function = self.parse_function()?;
         Ok(StmtNode::Fun { name,generic_params, function })
     }
+    fn impl_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
+        let ty = self.parse_type()?;
+        self.expect(TokenKind::LeftBrace, "Expect '{' after impl type.");
+        
+        self.expect(TokenKind::RightBrace, "Expect '}'.");
+        Ok(StmtNode::Impl { ty, methods: Vec::new() })
+    }
     fn try_non_expr_stmt(&mut self)->Option<Result<StmtNode,ParsingFailed>>{
         Some(if self.matches(TokenKind::Let){
             self.let_stmt()
