@@ -220,7 +220,6 @@ pub enum ParsedType{
     Path(ParsedPath),
     Array(Box<ParsedType>),
     Tuple(Vec<ParsedType>),
-    SelfTy(SourceLocation),
     Fun(Vec<ParsedType>,Option<Box<ParsedType>>),
 }
 

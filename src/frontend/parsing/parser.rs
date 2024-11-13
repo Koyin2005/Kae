@@ -590,7 +590,8 @@ impl<'a> Parser<'a>{
             ParsedType::Path(path)
         }
         else if self.matches(TokenKind::UpperSelf){
-            ParsedType::SelfTy(SourceLocation::one_line(self.prev_token.line))
+            let name = Symbol { content: "self".to_string(), location: SourceLocation::one_line(self.prev_token.line) };
+            ParsedType::Path(ParsedPath {  location: name.location,head: PathSegment{location:name.location,name}, generic_args: None, segments: Vec::new() })
         }
         else if self.matches(TokenKind::LeftBracket){
             let ty = self.parse_type()?;
