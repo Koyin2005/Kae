@@ -54,6 +54,8 @@ pub enum TokenKind{
     Is,
     Print,
     Impl,
+    LowerSelf,
+    UpperSelf,
     Return,
     Typename,
     

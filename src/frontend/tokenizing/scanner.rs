@@ -158,6 +158,8 @@ impl<'src> Scanner<'src>{
             "enum" => TokenKind::Enum,
             "is" => TokenKind::Is,
             "impl" => TokenKind::Impl,
+            "self" => TokenKind::LowerSelf,
+            "Self" => TokenKind::UpperSelf,
             _ => TokenKind::Identifier
         })
     }
