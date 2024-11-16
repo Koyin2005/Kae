@@ -659,7 +659,9 @@ impl Compiler{
             },
             TypedStmtNode::Impl { ty, methods } => {
                 for method in methods{
-                    self.compile_function(&method.function, method.name.content.clone(), None);
+                    let method_name = format!("{}::{}",ty,method.name.content);
+                    self.compile_function(&method.function, method_name.clone(), None);
+                    self.define_name(method_name, method.function.body.location.end_line);
                 }
             }
         }
