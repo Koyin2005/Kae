@@ -577,7 +577,12 @@ impl Compiler{
                 }
             },
             TypedExprNodeKind::MethodCall { lhs, method, args } => {
-                
+                self.load_name(&format!("{}::{}",lhs.ty,method.content), lhs.location.start_line);
+                self.compile_expr(lhs);
+                for arg in args{
+                    self.compile_expr(arg);
+                }
+                self.emit_instruction(Instruction::Call((args.len()+1) as u16), expr.location.end_line);
             }
         }
     }
