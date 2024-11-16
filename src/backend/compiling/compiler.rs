@@ -651,8 +651,13 @@ impl Compiler{
                     monos : Vec::new()
                 });
             },
-            TypedStmtNode::Struct { .. } | TypedStmtNode::Enum { .. } => {
+            TypedStmtNode::Struct { .. } | TypedStmtNode::Enum { .. }  => {
 
+            },
+            TypedStmtNode::Impl { ty, methods } => {
+                for method in methods{
+                    self.compile_function(&method.function, method.name.content.clone(), None);
+                }
             }
         }
     }

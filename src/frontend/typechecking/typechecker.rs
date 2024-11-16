@@ -4,7 +4,7 @@ use indexmap::{IndexMap, IndexSet};
 
 use crate::frontend::{parsing::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedFunction, ParsedGenericArgs, ParsedGenericParam, ParsedGenericParams, ParsedLogicalOp, ParsedPath, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PatternMatchArmNode, StmtNode, Symbol}, tokenizing::SourceLocation, typechecking::typed_ast::{TypedEnumVariant, TypedPatternMatchArm}};
 
-use super::{generics:: substitute, names::{ Environment,ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedStmtNode, UnaryOp}, types::{EnumVariant, FunctionId, GenericArgs, Type, TypeContext}};
+use super::{generics:: substitute, names::{ Environment,ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedMethod, TypedStmtNode, UnaryOp}, types::{EnumVariant, FunctionId, GenericArgs, Type, TypeContext}};
 #[derive(Clone)]
 struct EnclosingFunction{
     return_type : Type
@@ -1258,14 +1258,14 @@ impl TypeChecker{
                         return Err(TypeCheckFailed);
                     }
                     let method_function = self.check_function(&method.function, signature.clone())?;
-                    Ok((signature,method_function))
+                    Ok(TypedMethod{name:method.name.clone(),function:method_function})
                 }).collect::<Result<Vec<_>,TypeCheckFailed>>() else{
                     self.self_type = old_type;
                     return Err(TypeCheckFailed);
                 };
                 
                 self.self_type = old_type;
-                todo!("Implement Impl")
+                Ok(TypedStmtNode::Impl { ty: self_type, methods})
             }
         }
     }

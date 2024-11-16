@@ -194,7 +194,11 @@ pub enum TypedStmtNode {
     Enum{
         name : Symbol,
         variants : Vec<TypedEnumVariant>
-    }
+    },
+    Impl{
+        ty : Type,
+        methods : Vec<TypedMethod>,
+    },
 }
 #[derive(Clone,Debug)]
 pub struct PatternNode{
@@ -234,4 +238,10 @@ pub struct TypedFunctionSignature{
 pub struct TypedEnumVariant{
     pub name : Symbol,
     pub fields : Vec<(Symbol,Type)>,
+}
+
+#[derive(Clone,Debug)]
+pub struct TypedMethod{
+    pub name : Symbol,
+    pub function : TypedFunction
 }

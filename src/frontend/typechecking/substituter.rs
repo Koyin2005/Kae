@@ -38,6 +38,9 @@ fn sub_stmt(stmt:&mut TypedStmtNode,generic_args : &GenericArgs){
                     *field_type = substitute(field_type.clone(), generic_args);
                 });
             });
+        },
+        TypedStmtNode::Impl { .. } => {
+
         }
     }
 }
