@@ -189,7 +189,7 @@ impl<'a> Parser<'a>{
         let end_line = self.prev_token.line;
         Ok(ExprNode { location:SourceLocation::new(start_line,end_line), kind: ExprNodeKind::Index { lhs:Box::new(lhs), rhs: Box::new(rhs) } })
     }
-    fn call(&mut self,receiver:ExprNode)->Result<ExprNode,ParsingFailed>{
+    fn call(&mut self,callee:ExprNode)->Result<ExprNode,ParsingFailed>{
         let start_line = self.prev_token.line;
         let args = if self.check(TokenKind::RightParen){ Vec::new() } else {
             let mut args = Vec::new();
@@ -202,7 +202,7 @@ impl<'a> Parser<'a>{
         };
         self.expect(TokenKind::RightParen, "Expect ')' after args.");
         let end_line = self.prev_token.line;
-        Ok(ExprNode { location: SourceLocation::new(start_line,end_line), kind: ExprNodeKind::Call { callee: Box::new(receiver), args } })
+        Ok(ExprNode { location: SourceLocation::new(start_line,end_line), kind:ExprNodeKind::Call { callee: Box::new(callee), args } })
     }
     fn if_expression(&mut self)->Result<ExprNode,ParsingFailed>{
         let if_start = self.prev_token.line;
