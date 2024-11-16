@@ -1,10 +1,5 @@
 use std::fmt::Display;
-
-use indexmap::IndexMap;
-
 use super::generics::substitute;
-
-
 
 #[derive(Clone, Copy,PartialEq, Eq,Debug,Default,Hash)]
 pub struct StructId(usize);
