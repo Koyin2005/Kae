@@ -87,6 +87,11 @@ pub enum ExprNodeKind {
     StructInit{
         path : ParsedPath,
         fields : Vec<(Symbol,ExprNode)>
+    },
+    MethodCall{
+        receiver:Box<ExprNode>,
+        method : Symbol,
+        args : Vec<ExprNode>
     }
 }
 pub enum ParsedBinaryOp {
