@@ -1,8 +1,5 @@
-use std::collections::HashMap;
-
 use indexmap::IndexMap;
-
-use super::{ types::{FunctionId, Type}};
+use super::types::{FunctionId, Type};
 
 
 pub enum ValueKind{

@@ -33,17 +33,6 @@ impl TypeChecker{
         self.next_function_id = self.next_function_id.next();
         id
     }
-    fn declare_generic_type(&mut self,name:String)->(String,usize){
-        self.generic_param_names.push(name.clone());
-        (name,self.generic_param_names.len()-1)
-    }
-    fn pop_generic_types(&mut self,count:usize)
-    {
-        self.generic_param_names.truncate(self.generic_param_names.len() - count);
-    }
-    fn make_param_type(name:String,index:usize)->Type{
-        Type::Param { name, index }
-    }
     fn error(&self,message:String,line:u32){
         eprintln!("Error on line {}: {}",line,message);
     }
