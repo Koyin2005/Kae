@@ -756,7 +756,7 @@ impl TypeChecker{
             ExprNodeKind::Property(lhs, property) => {
                 let lhs = self.infer_expr_type(lhs)?;
                 let Some(property_type) = lhs.ty.get_field(&property.content,&self.type_context) else{
-                    self.error(format!("\"{}\" has no field or method.",property.content),property.location.start_line);
+                    self.error(format!("\"{}\" has no field or method '{}'.",lhs.ty,property.content),property.location.start_line);
                     return Err(TypeCheckFailed);
                 };
                 (property_type,TypedExprNodeKind::Field(Box::new(lhs), property.clone()))
