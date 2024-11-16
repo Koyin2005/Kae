@@ -641,7 +641,7 @@ impl<'a> Parser<'a>{
             None
         };
         let mut segments = Vec::new();
-        while self.matches(TokenKind::Dot){
+        while self.matches(TokenKind::DoubleColon){
             self.advance();
             segments.push(self.parse_path_segment()?);
         }
