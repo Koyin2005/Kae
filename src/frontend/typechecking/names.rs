@@ -18,15 +18,18 @@ struct Function{
     return_type : Type
 }
 #[derive(Clone)]
-struct Association{
-    pub methods : IndexMap<String,Function>
+struct Method{
+    name : String,
+    generic_types : Vec<Type>,
+    param_types : Vec<Type>,
+    return_type : Type
 }
 #[derive(Clone)]
 pub struct Environment{
     current_variables : Vec<IndexMap<String,Variable>>,
     current_types : Vec<IndexMap<String,Type>>,
     current_functions : Vec<IndexMap<String,Function>>,
-    current_associations : Vec<IndexMap<Type,Association>>,
+    current_associations : Vec<IndexMap<Type,Vec<Method>>>,
 }
 impl Default for Environment{
     fn default() -> Self {
