@@ -1253,7 +1253,10 @@ impl TypeChecker{
                 self.self_type = Some(self_type.clone());
                 let Ok(methods) = methods.iter().map(|method|{
                     let signature = self.check_signature(&method.function)?;
-                    self.environment.add_method(self_type.clone(),method.name.content.clone(), signature.params.clone().into_iter().map(|(_,ty)| ty).collect(), signature.return_type.clone());
+                    if !self.environment.add_method(self_type.clone(),method.name.content.clone(), signature.params.clone().into_iter().map(|(_,ty)| ty).collect(), signature.return_type.clone()){
+                        self.error(format!("There is already a method with name '{}' for type \"{}\".",method.name.content,self_type), method.name.location.start_line);
+                        return Err(TypeCheckFailed);
+                    }
                     let method_function = self.check_function(&method.function, signature.clone())?;
                     Ok((signature,method_function))
                 }).collect::<Result<Vec<_>,TypeCheckFailed>>() else{
