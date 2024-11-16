@@ -58,7 +58,7 @@ impl Value{
             (Self::Float(float),Self::Float(other)) => float == other,
             (Self::Bool(bool),Self::Bool(other)) => bool == other,
             (Self::Unit,Self::Unit) => true,
-            (Self::Record(record),Self::Record(other)) => 
+            (Self::Record(record),Self::Record(other))|(Self::CaseRecord(record),Self::CaseRecord(other)) => 
                 record == other ||
                 record.as_record(heap).fields.iter().zip(other.as_record(heap).fields.iter()).all(|(field,other)|{
                     field.is_equal(other, heap)
