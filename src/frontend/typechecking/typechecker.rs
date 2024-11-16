@@ -732,7 +732,11 @@ impl TypeChecker{
                 
                 let (arg_types,return_type,field_ty) = 
                 if let Some(method_info) = self.environment.get_method(&receiver.ty, &method.content){
-                    (method_info.param_types.clone(),method_info.return_type.clone(),None)
+                    let mut params = method_info.param_types.clone();
+                    if method_info.has_self_param{
+                        params.remove(0);
+                    }
+                    (params,method_info.return_type.clone(),None)
                 }
                 else if let Some(field) = receiver.ty.get_field(&method.content, &self.type_context){
 
@@ -1300,7 +1304,7 @@ impl TypeChecker{
                 self.self_type = Some(self_type.clone());
                 let Ok(methods) = methods.iter().map(|method|{
                     let signature = self.check_signature(&method.function)?;
-                    if !self.environment.add_method(self_type.clone(),method.name.content.clone(), signature.params.clone().into_iter().map(|(_,ty)| ty).collect(), signature.return_type.clone()){
+                    if !self.environment.add_method(self_type.clone(),method.name.content.clone(),method.has_receiver ,signature.params.clone().into_iter().map(|(_,ty)| ty).collect(), signature.return_type.clone()){
                         self.error(format!("There is already a method with name '{}' for type \"{}\".",method.name.content,self_type), method.name.location.start_line);
                         return Err(TypeCheckFailed);
                     }
