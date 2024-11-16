@@ -20,7 +20,7 @@ pub fn native_panic(vm:&mut VM,args:&[Value])->Result<Value,RuntimeError>{
     let Value::String(string) = args[0] else {
         panic!("Expected a string.")
     };
-    vm.runtime_error(&format!("{}",string.as_string(&vm.heap)));
+    vm.runtime_error(string.as_string(&vm.heap));
     Err(RuntimeError)
 }
 

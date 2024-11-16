@@ -233,7 +233,7 @@ impl Compiler{
             },
             PatternNodeKind::Is(name,right_pattern) => {
                 self.push_top_of_stack(right_pattern.location.start_line);
-                self.compile_pattern_check(&right_pattern);
+                self.compile_pattern_check(right_pattern);
                 let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), right_pattern.location.end_line);
                 self.define_name(name.content.clone(), right_pattern.location.end_line);
                 self.load_bool(true, right_pattern.location.end_line);
@@ -496,7 +496,7 @@ impl Compiler{
             TypedExprNodeKind::GetGeneric { name, args } => {
                 let Some((index,generic_function)) = self.generic_functions.iter().enumerate().rev()
                     .find(|(_,generic_function)| &generic_function.name == name) else {
-                        self.load_name(&name, expr.location.end_line);
+                        self.load_name(name, expr.location.end_line);
                         return;
                     };
 
@@ -558,7 +558,7 @@ impl Compiler{
                         self.load_int(*variant_index as i64, expr.location.start_line);
                         let enum_info = self.type_context.enums.get_enum(*id);
                         let field_count = enum_info.variants[*variant_index].fields.len() as i64;
-                        self.load_int(field_count as i64, expr.location.start_line);
+                        self.load_int(field_count , expr.location.start_line);
                         self.emit_instruction(Instruction::BuildCaseRecord(total_fields as u16), expr.location.start_line);
                     },
                     InitKind::Struct(_) =>{

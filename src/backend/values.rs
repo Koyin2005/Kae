@@ -101,7 +101,7 @@ impl Value{
             },
             Value::CaseRecord(record_object) => {
                 let record = record_object.as_record(heap);
-                let mut result = format!("{}",Value::String(record.name).format(heap, seen_values));
+                let mut result = Value::String(record.name).format(heap, seen_values);
                 let record_field_count = record_object.get_record_field_count(heap);
                 if record_field_count>0{
                     result.push('{');

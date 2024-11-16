@@ -56,7 +56,7 @@ impl VM{
         self.stack.pop().unwrap()
     }
     fn pop_values(&mut self,values:usize)->Vec<Value>{
-        let mut values  = (0..values).into_iter().map(|_| self.pop()).collect::<Vec<_>>();
+        let mut values  = (0..values).map(|_| self.pop()).collect::<Vec<_>>();
         values.reverse();
         values
     }

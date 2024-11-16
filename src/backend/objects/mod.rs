@@ -17,7 +17,7 @@ impl Object{
         let ObjectType::NativeFunction(function) = heap.get_object(self) else {
             panic!("Can't use object as native function.")
         };
-        &function
+        function
     }
     pub fn try_as_function(self,heap:&Heap)->Option<Rc<Function>>{
         let ObjectType::Function(function) = heap.get_object(self) else {

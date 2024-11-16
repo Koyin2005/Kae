@@ -3,7 +3,7 @@ use super::types::Type;
 
 pub fn substitute(ty:Type,generic_args:&[Type])->Type{
     match ty{
-        ty @ Type::Param { index,.. } => generic_args.get(index).cloned().unwrap_or_else(|| ty),
+        ty @ Type::Param { index,.. } => generic_args.get(index).cloned().unwrap_or(ty),
         Type::Array(element_type) => Type::Array(Box::new(substitute(*element_type, generic_args))),
         Type::Function { generic_args:mut func_generic_args, params, return_type } => {
             func_generic_args.iter_mut().for_each(|arg|{

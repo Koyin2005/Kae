@@ -102,7 +102,7 @@ impl Default for FunctionId{
 
 pub type GenericArgs = Vec<Type>;
 
-#[derive(Clone,Debug,Hash,Eq)]
+#[derive(Clone,Debug,Hash,PartialEq,Eq)]
 pub enum Type {
     Int,
     Float,
@@ -139,35 +139,6 @@ pub enum Type {
     },
     Unknown,
 
-}
-impl PartialEq for Type{
-    fn eq(&self, other: &Self) -> bool {
-        match (self,other){
-            (Type::Int,Type::Int)|
-            (Type::Float,Type::Float)|
-            (Type::String,Type::String)|
-            (Type::Bool,Type::Bool)|
-            (Type::Unit,Type::Unit)|
-            (Type::Never,Type::Never) => true,
-            (Type::Array(self_elements),Type::Array(other_elements)) => self_elements == other_elements,
-            (Type::Param { name, index },Type::Param { name:other_name, index:other_index }) => 
-                name == other_name && index == other_index,
-            (Type::Function { params, return_type,.. },Type::Function { params:other_params, return_type:other_return_type,.. }) => {
-                   
-                return params.len() == other_params.len() &&params.iter().zip(other_params.iter()).all(|(param,other_param)| param == other_param) && return_type == other_return_type;
-                    
-            },
-            (Type::Tuple(elements),Type::Tuple(other_elements)) => elements == other_elements,
-            (Type::Struct { generic_args, id, .. },Type::Struct { generic_args:other_generic_args, id:other_id,.. }) => {
-                id == other_id && generic_args.iter().zip(other_generic_args.iter()).all(|(arg,other_arg)| arg == other_arg)
-            },
-            (Type::Enum { id, generic_args,.. },Type::Enum { id:other_id,generic_args:other_generic_args,.. }) => id == other_id && generic_args == other_generic_args,
-            
-            (Type::EnumVariant { id, variant_index,generic_args,.. },Type::EnumVariant { id:other_id,variant_index:other_index,generic_args:other_generic_args,.. }) => 
-                id == other_id && variant_index == other_index && generic_args == other_generic_args,
-            (_,_) => false
-        }
-    }
 }
 impl Type{
     pub fn new_param_type(name:String,index:usize)->Self{

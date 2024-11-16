@@ -426,7 +426,7 @@ impl TypeChecker{
             }).collect::<Result<Vec<_>,_>>()?;
             
             let patterns = &arms.iter().map(|TypedPatternMatchArm{pattern,..}| pattern).collect::<Box<_>>();
-            if !PatternChecker.is_exhaustive(&patterns,&matchee.ty,&self.type_context){
+            if !PatternChecker.is_exhaustive(patterns,&matchee.ty,&self.type_context){
                 self.error("Non exhaustive pattern match.".to_string(),location.start_line);
                 return Err(TypeCheckFailed);
             }
@@ -447,19 +447,19 @@ impl TypeChecker{
                     }
                     else{
                         self.error(format!("Cannot use generic function '{}' without generic arguments.",name), location.start_line);
-                        return Err(TypeCheckFailed);
+                        Err(TypeCheckFailed)
                     }
                 }
                 else if !ty.is_unknown(){
                     Ok((ty.clone(),TypedExprNodeKind::Get(name.clone())))
                 }
                 else{
-                    return Err(TypeCheckFailed);
+                    Err(TypeCheckFailed)
                 }
             },
             None =>  {
                 self.value_scope_error(name, location.start_line);
-                return Err(TypeCheckFailed);
+                Err(TypeCheckFailed)
             }
         }
     }
@@ -849,12 +849,12 @@ impl TypeChecker{
             }
             else{
                 self.error(format!("Expected an expression got type \"{}\".",ty), path.head.location.start_line);
-                return Err(TypeCheckFailed);
+                Err(TypeCheckFailed)
             }
         }
         else{
             self.error(format!("Expected an expression got type \"{}\".",ty), path.head.location.start_line);
-            return Err(TypeCheckFailed);
+            Err(TypeCheckFailed)
         }
     }
     fn check_type(&mut self,ty:&ParsedType)->Result<Type,TypeCheckFailed>{
@@ -881,7 +881,7 @@ impl TypeChecker{
             
             let ty = get_named_type(this, &path.head.name)?;
             if path.head.name.content == "Self" && path.generic_args.is_some(){
-                this.error(format!("Cannot use \"Self\" type with generic args."), path.head.location.start_line);
+                this.error("Cannot use \"Self\" type with generic args.".to_string(), path.head.location.start_line);
                 return Err(TypeCheckFailed);
             }
             let ty = match path.generic_args.as_ref(){
@@ -1014,9 +1014,7 @@ impl TypeChecker{
                     generic_param_names.push(name.content.clone());
                 }
             }
-            self.generic_param_names.extend(generic_param_names.iter().map(|name|{
-               name.clone()
-            }));
+            self.generic_param_names.extend(generic_param_names.iter().cloned());
             let generic_params = generic_param_names.into_iter().enumerate().map(|(i,name)|{
                 (name,generic_param_count+i)
             }).collect::<Vec<(String,_)>>();
@@ -1194,7 +1192,7 @@ impl TypeChecker{
 
                 Ok(TypedStmtNode::Struct { name:name.clone(), 
                     generic_params: generic_params.map_or_else(Vec::new,|params| params.into_iter().map(|param|{
-                        let Type::Param { name, index } = param else {unreachable!()};
+                        let Type::Param {  index ,..} = param else {unreachable!()};
                         index
                     }).collect()),
                     fields: fields.into_iter().map(|(name,ty)| (name.content,ty)).collect() })
@@ -1324,7 +1322,7 @@ impl TypeChecker{
         {
             let id = self.declare_new_function();
             self.environment.add_function("parse_int".to_string(), vec![Type::String], 
-                substitute(option_type.clone(),&vec![Type::Int]), id);
+                substitute(option_type.clone(),&[Type::Int]), id);
         }
         self.check_stmts(&stmts).map (|stmts| (self.type_context,stmts))
     }

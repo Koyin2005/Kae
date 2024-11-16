@@ -37,8 +37,8 @@ impl PatternChecker{
                 after.iter().for_each(|pattern| Self::collect_variables_in_pattern(pattern, element_type, variables, type_context));
             },
             (PatternNodeKind::Is(name, pattern),ty) => {
-                variables.push((name.clone(),Self::check_pattern_type(&pattern, ty, type_context).unwrap()));
-                Self::collect_variables_in_pattern(&pattern, ty, variables, type_context);
+                variables.push((name.clone(),Self::check_pattern_type(pattern, ty, type_context).unwrap()));
+                Self::collect_variables_in_pattern(pattern, ty, variables, type_context);
             }
             _ => ()
         }
@@ -86,7 +86,7 @@ impl PatternChecker{
             PatternNodeKind::String(_) => Type::String,
             PatternNodeKind::Name(_) | PatternNodeKind::Wildcard => expected_type.clone(),
             PatternNodeKind::Is(_, pattern) => {
-                Self::check_pattern_type(&pattern, expected_type, type_context)?
+                Self::check_pattern_type(pattern, expected_type, type_context)?
             },
             PatternNodeKind::Array(before,_ ,after) => {
                 if let Type::Array(element_type) = expected_type{
