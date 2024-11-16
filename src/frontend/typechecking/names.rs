@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use indexmap::IndexMap;
 use super::types::{FunctionId, Type};
 
@@ -29,7 +31,7 @@ pub struct Environment{
     current_variables : Vec<IndexMap<String,Variable>>,
     current_types : Vec<IndexMap<String,Type>>,
     current_functions : Vec<IndexMap<String,Function>>,
-    current_associations : Vec<IndexMap<Type,Vec<Method>>>,
+    current_associations : Vec<IndexMap<Type,HashMap<String,Method>>>,
 }
 impl Default for Environment{
     fn default() -> Self {
@@ -83,8 +85,13 @@ impl Environment{
         self.current_types.last().is_some_and(|types| types.contains_key(name))
     }
 
-    pub fn add_method(&mut self,ty:Type,name:String,param_types:Vec<Type>,return_type : Type){
-        todo!()
+    pub fn add_method(&mut self,ty:Type,name:String,param_types:Vec<Type>,return_type : Type)->bool{
+        let methods = self.current_associations.last_mut().unwrap();
+        if !methods.contains_key(&ty){
+            methods.insert(ty.clone(), HashMap::new());
+        }
+        let methods = methods.get_mut(&ty).unwrap();
+        methods.insert(name.clone(),Method{name,generic_types:Vec::new(),param_types,return_type}).is_none()
     }
     
 
