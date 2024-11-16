@@ -143,6 +143,12 @@ fn sub_expr(expr:&mut TypedExprNode,generic_args : &GenericArgs){
             fields.iter_mut().for_each(|(_,expr)|{
                 sub_expr(expr, generic_args);
             });
+        },
+        TypedExprNodeKind::MethodCall { lhs, args,.. } => {
+            sub_expr(lhs, generic_args);
+            args.iter_mut().for_each(|(arg)|{
+                sub_expr(arg, generic_args);
+            });
         }
     };
 }

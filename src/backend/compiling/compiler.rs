@@ -575,6 +575,9 @@ impl Compiler{
                     };
                     self.emit_instruction(Instruction::StoreField(field_index as u16), field_expr.location.end_line);
                 }
+            },
+            TypedExprNodeKind::MethodCall { lhs, method, args } => {
+                
             }
         }
     }

@@ -167,6 +167,11 @@ pub enum TypedExprNodeKind{
     StructInit{
         kind : InitKind,
         fields : Vec<(String,TypedExprNode)>
+    },
+    MethodCall{
+        lhs : Box<TypedExprNode>,
+        method : Symbol,
+        args : Vec<TypedExprNode>
     }
 }
 #[derive(Clone,Debug)]

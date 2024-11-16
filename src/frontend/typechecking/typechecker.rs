@@ -727,6 +727,53 @@ impl TypeChecker{
                 }
                 (lhs.ty.clone(),TypedExprNodeKind::Assign { lhs, rhs: Box::new(rhs) })
             },
+            ExprNodeKind::MethodCall { receiver, method, args } => {
+                let receiver = self.infer_expr_type(receiver)?;
+                
+                let (arg_types,return_type,field_ty) = 
+                if let Some(method_info) = self.environment.get_method(&receiver.ty, &method.content){
+                    (method_info.param_types.clone(),method_info.return_type.clone(),None)
+                }
+                else if let Some(field) = receiver.ty.get_field(&method.content, &self.type_context){
+
+                    let (arg_types,return_type) = match &field{
+                        Type::Function { params:arg_types, return_type ,..}=> {
+                            (arg_types,return_type)
+                        },
+                        _ => {
+                            self.error(format!("Cannot call \"{}\".",field),expr.location.start_line);
+                            return Err(TypeCheckFailed);
+                        }
+                    };
+                    (arg_types.clone(),*return_type.clone(),Some(field))
+                }
+                else {
+                    self.error(format!("\"{}\" has no method or field '{}'.",receiver.ty,method.content), method.location.start_line);
+                    return Err(TypeCheckFailed);
+                };
+
+                if arg_types.len() != args.len(){
+                    self.error(format!("Expected \'{}\' args got \'{}\'.",arg_types.len(),args.len()),expr.location.start_line);
+                    return Err(TypeCheckFailed);
+                }
+                let args = arg_types.iter().zip(args.iter()).map(|(ty,arg)| {
+                    self.check_expr_type(arg, ty)
+                }).collect::<Result<Vec<_>,_>>()?;
+
+                let kind = 
+                    if let Some(field_ty) = field_ty {
+                     TypedExprNodeKind::Call { 
+                        callee:Box::new(TypedExprNode{
+                            location:method.location,kind:TypedExprNodeKind::Field(Box::new(receiver), 
+                            method.clone()),ty:field_ty
+                        }), args } 
+                    } 
+                    else {
+                         TypedExprNodeKind::MethodCall { lhs:Box::new(receiver),method:method.clone(), args }
+                    };
+                (return_type,kind)
+                
+            }
             ExprNodeKind::Call { callee, args } =>{
                 let callee = self.infer_expr_type(callee)?;
                 let (arg_types,return_type) = match &callee.ty{
