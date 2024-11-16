@@ -2,7 +2,7 @@ use std::{fmt::Display, rc::Rc};
 
 use crate::frontend::{parsing::ast::Symbol, tokenizing::SourceLocation};
 
-use super::{ types::{EnumId, StructId, Type}};
+use super::types::{EnumId, StructId, Type};
 #[derive(Clone, Copy,Debug)]
 pub enum NumberKind {
     Int(i64),
