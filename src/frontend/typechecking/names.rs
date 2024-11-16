@@ -20,11 +20,11 @@ struct Function{
     return_type : Type
 }
 #[derive(Clone)]
-struct Method{
-    name : String,
-    generic_types : Vec<Type>,
-    param_types : Vec<Type>,
-    return_type : Type
+pub struct Method{
+    pub name : String,
+    pub generic_types : Vec<Type>,
+    pub param_types : Vec<Type>,
+    pub return_type : Type
 }
 #[derive(Clone)]
 pub struct Environment{
@@ -92,6 +92,10 @@ impl Environment{
         }
         let methods = methods.get_mut(&ty).unwrap();
         methods.insert(name.clone(),Method{name,generic_types:Vec::new(),param_types,return_type}).is_none()
+    }
+
+    pub fn get_method(&self,ty:&Type,name:&str)->Option<&Method>{
+        self.current_associations.iter().rev().filter_map(|methods| methods.get(ty).and_then(|methods| methods.get(name))).next()
     }
     
 
