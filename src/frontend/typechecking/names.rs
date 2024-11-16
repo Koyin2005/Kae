@@ -83,7 +83,7 @@ impl Environment{
         self.current_types.last().is_some_and(|types| types.contains_key(name))
     }
 
-    pub fn add_method(&mut self,ty:Type,name:String,param_types:Vec<Type>,return_type : Type,id : FunctionId){
+    pub fn add_method(&mut self,ty:Type,name:String,param_types:Vec<Type>,return_type : Type){
         todo!()
     }
     
