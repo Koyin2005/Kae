@@ -1014,7 +1014,7 @@ impl TypeChecker{
                     generic_param_names.push(name.content.clone());
                 }
             }
-            self.generic_param_names.extend(generic_param_names.iter().enumerate().map(|(i,name)|{
+            self.generic_param_names.extend(generic_param_names.iter().map(|name|{
                name.clone()
             }));
             let generic_params = generic_param_names.into_iter().enumerate().map(|(i,name)|{
