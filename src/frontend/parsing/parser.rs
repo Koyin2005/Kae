@@ -202,7 +202,13 @@ impl<'a> Parser<'a>{
         };
         self.expect(TokenKind::RightParen, "Expect ')' after args.");
         let end_line = self.prev_token.line;
-        Ok(ExprNode { location: SourceLocation::new(start_line,end_line), kind:ExprNodeKind::Call { callee: Box::new(callee), args } })
+        let kind = if let ExprNodeKind::Property(receiver, field) = callee.kind{
+            ExprNodeKind::MethodCall{receiver,method:field,args}
+        }
+        else{
+            ExprNodeKind::Call { callee: Box::new(ExprNode { location: callee.location, kind: callee.kind }), args }
+        };
+        Ok(ExprNode { location: SourceLocation::new(start_line,end_line), kind })
     }
     fn if_expression(&mut self)->Result<ExprNode,ParsingFailed>{
         let if_start = self.prev_token.line;
