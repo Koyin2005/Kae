@@ -1250,12 +1250,11 @@ impl TypeChecker{
             StmtNode::Impl { ty, methods } => {
                 let self_type = self.check_type(ty)?;
                 let old_type = self.self_type.take();
-                self.self_type = Some(self_type);
+                self.self_type = Some(self_type.clone());
                 let Ok(methods) = methods.iter().map(|method|{
                     let signature = self.check_signature(&method.function)?;
-                    //self.environment.add_method(name, param_types, return_type, id);
+                    self.environment.add_method(self_type.clone(),method.name.content.clone(), signature.params.clone().into_iter().map(|(_,ty)| ty).collect(), signature.return_type.clone());
                     let method_function = self.check_function(&method.function, signature.clone())?;
-                    
                     Ok((signature,method_function))
                 }).collect::<Result<Vec<_>,TypeCheckFailed>>() else{
                     self.self_type = old_type;
