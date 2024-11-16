@@ -191,7 +191,7 @@ impl<'src> Scanner<'src>{
             },
             ',' => self.make_token(TokenKind::Coma),
             '?' => self.make_token(TokenKind::QuestionMark),
-            ':' => self.make_token(TokenKind::Colon),
+            ':' => if self.match_char(':') {self.make_token(TokenKind::DoubleColon)} else {self.make_token(TokenKind::Colon)},
             '=' => if self.match_char('=') {self.make_token(TokenKind::EqualsEquals)} else if self.match_char('>'){self.make_token(TokenKind::FatArrow)} else {self.make_token(TokenKind::Equals)},
             '<' => if self.match_char('=') {self.make_token(TokenKind::LesserEquals)} else {self.make_token(TokenKind::Lesser)},
             '>' => if self.match_char('=') {self.make_token(TokenKind::GreaterEquals)} else { self.make_token(TokenKind::Greater)},
