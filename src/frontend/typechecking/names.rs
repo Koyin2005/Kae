@@ -22,6 +22,7 @@ struct Function{
 #[derive(Clone)]
 pub struct Method{
     pub name : String,
+    pub has_self_param : bool,
     pub generic_types : Vec<Type>,
     pub param_types : Vec<Type>,
     pub return_type : Type
