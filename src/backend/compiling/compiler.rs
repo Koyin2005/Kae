@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, natives::{native_input, native_panic, native_parse_int, native_pop, native_push}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name}, typechecker::GenericTypeId, typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{Type, TypeContext}}};
+use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, natives::{native_input, native_panic, native_parse_int, native_pop, native_push}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{Type, TypeContext}}};
 
 
 struct Local{
@@ -11,7 +11,6 @@ struct Local{
 
 struct GenericFunction{
     name : String,
-    generic_params : Vec<GenericTypeId>,
     depth : usize,
     template : TypedFunction,
     monos : Vec<(String,usize)>
@@ -509,7 +508,7 @@ impl Compiler{
                     let mut monoed_function = generic_function.template.clone();
                     let mono_name = format!("{}{}",name,self.mono_counter);
                     self.mono_counter +=1 ;
-                    sub_function(&mut monoed_function,&generic_function.generic_params.iter().cloned().zip(args.clone()).collect());
+                    sub_function(&mut monoed_function,&args.clone());
                     let  function_placeholder = Function { name: mono_name, ..Default::default()};
                     let function_constant_index = self.add_constant(Constant::Function(Rc::new(function_placeholder)));
                     self.generic_functions[index].monos.push((name.clone(),function_constant_index));
@@ -646,9 +645,8 @@ impl Compiler{
                     self.emit_define_instruction(index, function.body.location.end_line);
                 
             },
-            TypedStmtNode::GenericFunction {function,name,generic_params } => {
+            TypedStmtNode::GenericFunction {function,name,.. } => {
                 self.generic_functions.push(GenericFunction { name: name.content.clone(),
-                        generic_params:generic_params.clone(), 
                         depth: self.scope_depth, template: function.clone(),
                     monos : Vec::new()
                 });

@@ -889,7 +889,7 @@ impl<'a> Parser<'a>{
                                 location: self_name.location,
                                 kind : ParsedPatternNodeKind::Name(self_name.content.clone())
                             },
-                        ty : ParsedType::Path(ParsedPath{head:PathSegment { name: self_name.clone(), location: self_name.location},generic_args:None,segments:Vec::new(),location:name.location})
+                        ty : ParsedType::Path(ParsedPath{head:PathSegment { name: Symbol { content: "Self".to_string(), location: self_name.location }, location: self_name.location},generic_args:None,segments:Vec::new(),location:name.location})
                     }
                 }
                 else{

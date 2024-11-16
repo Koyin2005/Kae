@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use indexmap::IndexMap;
 
-use super::{typechecker::GenericTypeId, types::{FunctionId, Type}};
+use super::{ types::{FunctionId, Type}};
 
 
 pub enum ValueKind{
@@ -14,19 +16,24 @@ struct Variable{
 #[derive(Clone)]
 struct Function{
     id : FunctionId,
-    generic_types : IndexMap<GenericTypeId,Type>,
+    generic_types : Vec<Type>,
     param_types : Vec<Type>,
     return_type : Type
+}
+#[derive(Clone)]
+struct Association{
+    pub methods : IndexMap<String,Function>
 }
 #[derive(Clone)]
 pub struct Environment{
     current_variables : Vec<IndexMap<String,Variable>>,
     current_types : Vec<IndexMap<String,Type>>,
     current_functions : Vec<IndexMap<String,Function>>,
+    current_associations : Vec<IndexMap<Type,Association>>,
 }
 impl Default for Environment{
     fn default() -> Self {
-        Self { current_variables: vec![IndexMap::new()], current_types:vec![IndexMap::new()], current_functions: vec![IndexMap::new()] }
+        Self { current_variables: vec![IndexMap::new()], current_types:vec![IndexMap::new()], current_functions: vec![IndexMap::new()],current_associations:vec![IndexMap::new()] }
     }
 }
 impl Environment{
@@ -34,6 +41,7 @@ impl Environment{
         self.current_functions.push(IndexMap::new());
         self.current_types.push(IndexMap::new());
         self.current_functions.push(IndexMap::new());
+        self.current_associations.push(IndexMap::new());
     }
     pub fn add_variable(&mut self,name:String,ty:Type){
          self.current_variables.last_mut().unwrap().insert(name, Variable{ty});
@@ -46,10 +54,10 @@ impl Environment{
     }
 
     pub fn add_function(&mut self,name:String,param_types:Vec<Type>,return_type : Type,id : FunctionId){
-        self.current_functions.last_mut().unwrap().insert(name, Function { id, param_types, return_type ,generic_types:IndexMap::new()});
+        self.current_functions.last_mut().unwrap().insert(name, Function { id, param_types, return_type ,generic_types:Vec::new()});
     }
 
-    pub fn add_generic_function(&mut self,name:String,param_types:Vec<Type>,return_type : Type,id : FunctionId,generic_params : impl Iterator<Item = (GenericTypeId,Type)>){
+    pub fn add_generic_function(&mut self,name:String,param_types:Vec<Type>,return_type : Type,id : FunctionId,generic_params : impl Iterator<Item = Type>){
         self.current_functions.last_mut().unwrap().insert(name, Function { id, param_types, return_type ,generic_types:generic_params.collect()});
     }
     pub fn get_variable(&self,name:&str)->Option<&Type>{
@@ -74,5 +82,10 @@ impl Environment{
     pub fn is_type_in_local_scope(&self,name:&str)->bool{
         self.current_types.last().is_some_and(|types| types.contains_key(name))
     }
+
+    pub fn add_method(&mut self,ty:Type,name:String,param_types:Vec<Type>,return_type : Type,id : FunctionId){
+        todo!()
+    }
+    
 
 }

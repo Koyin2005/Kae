@@ -2,11 +2,11 @@ use std::fmt::Display;
 
 use indexmap::IndexMap;
 
-use super::{generics::substitute,  typechecker::GenericTypeId};
+use super::generics::substitute;
 
 
 
-#[derive(Clone, Copy,PartialEq, Eq,Debug,Default)]
+#[derive(Clone, Copy,PartialEq, Eq,Debug,Default,Hash)]
 pub struct StructId(usize);
 
 #[derive(Clone)]
@@ -51,7 +51,7 @@ impl Structs{
     }
 }
 
-#[derive(Debug,Clone, Copy,PartialEq,Eq)]
+#[derive(Debug,Clone,Hash,Copy,PartialEq,Eq)]
 pub struct EnumId(usize);
 
 #[derive(Clone)]
@@ -105,9 +105,9 @@ impl Default for FunctionId{
     }
 }
 
-pub type GenericArgs = IndexMap<GenericTypeId,Type>;
+pub type GenericArgs = Vec<Type>;
 
-#[derive(Clone,Debug)]
+#[derive(Clone,Debug,Hash,Eq)]
 pub enum Type {
     Int,
     Float,
@@ -118,26 +118,26 @@ pub enum Type {
     Array(Box<Type>),
     Tuple(Vec<Type>),
     Function{
-        generic_args : GenericArgs,
+        generic_args : Vec<Type>,
         params : Vec<Type>, 
         return_type : Box<Type>
     },
     Param{
         name : String,
-        index : GenericTypeId,
+        index : usize,
     },
     Struct{
-        generic_args :  GenericArgs,
+        generic_args :  Vec<Type>,
         id : StructId,
         name : String,
     },
     Enum{
-        generic_args : GenericArgs,
+        generic_args : Vec<Type>,
         id : EnumId,
         name : String
     },
     EnumVariant{
-        generic_args : GenericArgs,
+        generic_args : Vec<Type>,
         id : EnumId,
         name : String,
         variant_index : usize,
@@ -157,16 +157,14 @@ impl PartialEq for Type{
             (Type::Array(self_elements),Type::Array(other_elements)) => self_elements == other_elements,
             (Type::Param { name, index },Type::Param { name:other_name, index:other_index }) => 
                 name == other_name && index == other_index,
-            (Type::Function { generic_args, params, return_type },Type::Function { generic_args:other_generic_args, params:other_params, return_type:other_return_type }) => {
-                    if generic_args.is_empty() && other_generic_args.is_empty(){
-                        return params.iter().zip(other_params.iter()).all(|(param,other_param)| param == other_param) && return_type == other_return_type;
-                    }
-                    params.iter().map(|ty| substitute(ty.clone(), generic_args)).zip(other_params.iter().map(|ty| substitute(ty.clone(), other_generic_args))).all(|(ty,other)| ty == other) &&
-                    substitute(*return_type.clone(), generic_args) == substitute(*other_return_type.clone(), other_generic_args)
+            (Type::Function { params, return_type,.. },Type::Function { params:other_params, return_type:other_return_type,.. }) => {
+                   
+                return params.len() == other_params.len() &&params.iter().zip(other_params.iter()).all(|(param,other_param)| param == other_param) && return_type == other_return_type;
+                    
             },
             (Type::Tuple(elements),Type::Tuple(other_elements)) => elements == other_elements,
             (Type::Struct { generic_args, id, .. },Type::Struct { generic_args:other_generic_args, id:other_id,.. }) => {
-                id == other_id && generic_args.values().zip(other_generic_args.values()).all(|(arg,other_arg)| arg == other_arg)
+                id == other_id && generic_args.iter().zip(other_generic_args.iter()).all(|(arg,other_arg)| arg == other_arg)
             },
             (Type::Enum { id, generic_args,.. },Type::Enum { id:other_id,generic_args:other_generic_args,.. }) => id == other_id && generic_args == other_generic_args,
             
@@ -177,8 +175,8 @@ impl PartialEq for Type{
     }
 }
 impl Type{
-    pub fn new_param_type(name:String,id:GenericTypeId)->Self{
-        Self::Param { name, index:id }
+    pub fn new_param_type(name:String,index:usize)->Self{
+        Self::Param { name, index }
     }
     pub fn is_variant_of(&self,other:&Type)->bool{
         match (self,other){
@@ -253,10 +251,10 @@ impl Type{
             Type::Param{..} => false,
             Type::Tuple(elements) => elements.iter().all(|ty| ty.is_closed()),
             Type::Function { generic_args, params, return_type } => 
-                generic_args.values().all(|ty| ty.is_closed()) && params.iter().all(|param| param.is_closed()) && return_type.is_closed(),
+                generic_args.iter().all(|ty| ty.is_closed()) && params.iter().all(|param| param.is_closed()) && return_type.is_closed(),
             Type::Struct { generic_args, ..} | 
             Type::Enum { generic_args, .. } | 
-            Type::EnumVariant { generic_args, .. } => generic_args.values().all(|ty| ty.is_closed()),
+            Type::EnumVariant { generic_args, .. } => generic_args.iter().all(|ty| ty.is_closed()),
             _ => true,
         }
     }
@@ -266,7 +264,7 @@ impl Type{
 fn fmt_generic_args(f:&mut std::fmt::Formatter<'_>,generic_args:&GenericArgs)->std::fmt::Result{
     if !generic_args.is_empty(){
         write!(f,"[")?;
-        for (i,arg) in generic_args.values().enumerate(){
+        for (i,arg) in generic_args.iter().enumerate(){
             if i>0{
                 write!(f,",")?;
             }
@@ -308,7 +306,7 @@ impl Display for Type{
                 }
                 write!(f,")->{}",return_type)
             },
-            Type::Param { name ,..} => write!(f,"{}",name),
+            Type::Param { name ,index} => write!(f,"{}/{}",name,index),
             Type::Unknown => write!(f,"_"),
             Type::Enum {name,generic_args,.. } => {
                 write!(f,"{}",name)?;

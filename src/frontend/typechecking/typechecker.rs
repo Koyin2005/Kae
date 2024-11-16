@@ -9,17 +9,14 @@ use super::{generics:: substitute, names::{ Environment,ValueKind}, patterns::Pa
 struct EnclosingFunction{
     return_type : Type
 }
-#[derive(Clone,Copy,PartialEq,Debug,Eq,Hash)]
-pub struct GenericTypeId(usize);
 pub struct TypeCheckFailed;
 #[derive(Default)]
 pub struct TypeChecker{
     environment : Environment,
     enclosing_functions : Vec<EnclosingFunction>,
-    generic_param_names : Vec<(String,GenericTypeId)>,
-
+    generic_param_names : Vec<String>,
+    self_type : Option<Type>,
     type_context : TypeContext,
-    next_generic_type : usize,
     next_function_id : FunctionId
 }
 impl TypeChecker{
@@ -37,11 +34,15 @@ impl TypeChecker{
         id
     }
     fn declare_generic_type(&mut self,name:String)->(String,usize){
-        self.next_generic_type+=1;
-        (name,self.next_generic_type-1)
+        self.generic_param_names.push(name.clone());
+        (name,self.generic_param_names.len()-1)
+    }
+    fn pop_generic_types(&mut self,count:usize)
+    {
+        self.generic_param_names.truncate(self.generic_param_names.len() - count);
     }
     fn make_param_type(name:String,index:usize)->Type{
-        Type::Param { name, index: GenericTypeId(index) }
+        Type::Param { name, index }
     }
     fn error(&self,message:String,line:u32){
         eprintln!("Error on line {}: {}",line,message);
@@ -608,7 +609,7 @@ impl TypeChecker{
                             self.error(format!("Expected '{}' generic args got '{}'.",params.len(),args.len()), location.start_line);
                             return Err(TypeCheckFailed);
                         }
-                        for (value,ty) in params.values_mut().zip(args.iter().cloned()){
+                        for (value,ty) in params.iter_mut().zip(args.iter().cloned()){
                             *value = ty;
                         }
         
@@ -641,7 +642,7 @@ impl TypeChecker{
                             self.error(format!("Expected '{}' generic args got '{}'.",params.len(),args.len()), location.start_line);
                             return Err(TypeCheckFailed);
                         }
-                        for (value,ty) in params.values_mut().zip(args.iter().cloned()){
+                        for (value,ty) in params.iter_mut().zip(args.iter().cloned()){
                             *value = ty;
                         }
                         let ty = substitute(ty, &params);
@@ -872,7 +873,7 @@ impl TypeChecker{
 
             let generic_args = args.types.iter().map(|ty| this.check_type(ty)).collect::<Result<Vec<_>,_>>()?;
             let expected_args = match &ty { 
-                Type::Struct { generic_args, .. }|Type::Enum { generic_args, .. } if generic_args.values().all(|ty| !ty.is_closed()) => {
+                Type::Struct { generic_args, .. }|Type::Enum { generic_args, .. } if generic_args.iter().all(|ty| !ty.is_closed()) => {
                     generic_args
                 },
                 ty => {
@@ -884,14 +885,16 @@ impl TypeChecker{
                 this.error(format!("Expected '{}' generic args, but got '{}'.",expected_args.len(),generic_args.len()),args.location.start_line);
                 return Err(TypeCheckFailed);
             }
-            let subbed_generic_args = expected_args.keys().zip(generic_args).map(|(name,ty)|{
-                (*name,ty)
-            }).collect();
+            let subbed_generic_args = generic_args;
             Ok(substitute(ty, &subbed_generic_args))
         }
         fn get_type_at_path(this:&mut TypeChecker,path:&ParsedPath)->Result<Type,TypeCheckFailed>{
             
             let ty = get_named_type(this, &path.head.name)?;
+            if path.head.name.content == "Self" && path.generic_args.is_some(){
+                this.error(format!("Cannot use \"Self\" type with generic args."), path.head.location.start_line);
+                return Err(TypeCheckFailed);
+            }
             let ty = match path.generic_args.as_ref(){
                 Some(args) if path.segments.is_empty() => {
                     get_substituted(this, ty, args)?
@@ -956,8 +959,15 @@ impl TypeChecker{
                 "string" => Type::String,
                 "bool" => Type::Bool,
                 "never" => Type::Never,
+                "Self" => if let Some(ty) = this.self_type.clone() {
+                    ty
+                }
+                else{
+                    this.error("Cannot use \"Self\" in this context.".to_string(),name.location.start_line);
+                    return Err(TypeCheckFailed);
+                },
                 type_name => {
-                    if let Some(&(_,index)) = this.generic_param_names.iter().rev().find(|(name,_)| name == type_name){
+                    if let Some(index) = this.generic_param_names.iter().rev().position(|name| name == type_name){
                         Type::new_param_type(type_name.to_string(), index)
                     }
                     else if let Some(ty) = this.environment.get_type(type_name){
@@ -1000,7 +1010,7 @@ impl TypeChecker{
             Ok(ty)
         }
     }
-    fn check_generic_params(&mut self,generic_params : Option<&ParsedGenericParams>)->Result<Option<Vec<(String,GenericTypeId)>>,TypeCheckFailed>{
+    fn check_generic_params(&mut self,generic_params : Option<&ParsedGenericParams>)->Result<Option<Vec<(String,usize)>>,TypeCheckFailed>{
         let mut had_error = false;
         let generic_param_count = self.generic_param_names.len();
         let generic_params = if let Some(ParsedGenericParams(generic_params)) = generic_params.as_ref(){
@@ -1016,12 +1026,11 @@ impl TypeChecker{
                 }
             }
             self.generic_param_names.extend(generic_param_names.iter().enumerate().map(|(i,name)|{
-                (name.clone(),GenericTypeId(self.next_generic_type + i))
+               name.clone()
             }));
             let generic_params = generic_param_names.into_iter().enumerate().map(|(i,name)|{
-                (name,GenericTypeId(self.next_generic_type + i))
+                (name,generic_param_count+i)
             }).collect::<Vec<(String,_)>>();
-            self.next_generic_type += generic_params.len();
             Some(generic_params)
         }
         else{
@@ -1043,7 +1052,7 @@ impl TypeChecker{
 
         Ok(())
     }
-    fn check_generic_params_def(&mut self,generic_params : Option<&ParsedGenericParams>)->Result<Option<Vec<(String,GenericTypeId)>>,TypeCheckFailed>{
+    fn check_generic_params_def(&mut self,generic_params : Option<&ParsedGenericParams>)->Result<Option<Vec<(String,usize)>>,TypeCheckFailed>{
         let Ok(checked_generic_params) = self.check_generic_params(generic_params) else {
             self.generic_param_names.truncate(self.generic_param_names.len() - generic_params.as_slice().len());
             return Err(TypeCheckFailed);
@@ -1051,10 +1060,10 @@ impl TypeChecker{
         Ok(checked_generic_params)
 
     }
-    fn convert_to_generic_params(&self,generic_params : &Option<Vec<(String,GenericTypeId)>>)->Option<GenericArgs>{
+    fn convert_to_generic_params(&self,generic_params : &Option<Vec<(String,usize)>>)->Option<GenericArgs>{
         if let Some(generic_params) = generic_params.clone(){
-            let generic_params : IndexMap<_,_> = generic_params.into_iter().map(|(name,index)|{
-                (index,Type::new_param_type(name, index))
+            let generic_params : Vec<Type> = generic_params.into_iter().map(|(name,index)|{
+               Type::Param { name, index }
             }).collect();
             Some(generic_params)
         }
@@ -1195,7 +1204,10 @@ impl TypeChecker{
                 });
 
                 Ok(TypedStmtNode::Struct { name:name.clone(), 
-                    generic_params: generic_params.map_or_else(Vec::new,|params| params.into_iter().map(|(name,_)| name).collect()),
+                    generic_params: generic_params.map_or_else(Vec::new,|params| params.into_iter().map(|param|{
+                        let Type::Param { name, index } = param else {unreachable!()};
+                        index
+                    }).collect()),
                     fields: fields.into_iter().map(|(name,ty)| (name.content,ty)).collect() })
             },
             StmtNode::Enum {name,generic_params,variants} => {
@@ -1249,7 +1261,22 @@ impl TypeChecker{
                 Ok(TypedStmtNode::Enum { name:name.clone(), variants })
             },
             StmtNode::Impl { ty, methods } => {
-                todo!("Implement impl")
+                let self_type = self.check_type(ty)?;
+                let old_type = self.self_type.take();
+                self.self_type = Some(self_type);
+                let Ok(methods) = methods.iter().map(|method|{
+                    let signature = self.check_signature(&method.function)?;
+                    //self.environment.add_method(name, param_types, return_type, id);
+                    let method_function = self.check_function(&method.function, signature.clone())?;
+                    
+                    Ok((signature,method_function))
+                }).collect::<Result<Vec<_>,TypeCheckFailed>>() else{
+                    self.self_type = old_type;
+                    return Err(TypeCheckFailed);
+                };
+                
+                self.self_type = old_type;
+                todo!("Implement Impl")
             }
         }
     }
@@ -1269,9 +1296,8 @@ impl TypeChecker{
 
     }
     pub fn check(mut self,stmts:Vec<StmtNode>)->Result<(TypeContext,Vec<TypedStmtNode>),TypeCheckFailed>{
-        let (option_type,option_generic_param) = {
-            let (generic_name,index) = self.declare_generic_type("T".to_string());
-            let generic_parameter_type = TypeChecker::make_param_type(generic_name, index);
+        let option_type = {
+            let generic_parameter_type = Type::Param { name: "T".to_string(), index: 0 };
             let option_id = self.type_context.enums.define_enum("Option".to_string(),vec![
                 EnumVariant{
                     discrim:0,
@@ -1286,9 +1312,9 @@ impl TypeChecker{
                     fields: Vec::new()
                 }
             ]);
-            let option_type = Type::Enum { generic_args: vec![(GenericTypeId(index),generic_parameter_type)].into_iter().collect(), id: option_id, name: "Option".to_string() };
+            let option_type = Type::Enum { generic_args: vec![generic_parameter_type], id: option_id, name: "Option".to_string() };
             self.environment.add_type("Option".to_string(),option_type.clone() );
-            (option_type,GenericTypeId(index))
+            option_type
         };
         let id = self.declare_new_function();
         self.environment.add_function("input".to_string(), Vec::new(), Type::String, id);
@@ -1296,22 +1322,20 @@ impl TypeChecker{
         self.environment.add_function("panic".to_string(), vec![Type::String], Type::Never, id);
         {
             let id = self.declare_new_function();
-            let (generic_name,index) = self.declare_generic_type("T".to_string());
-            let param_type = Type::Param { name:generic_name, index:GenericTypeId(index) };
+            let param_type = Type::Param { name:"T".to_string(), index:0 };
             self.environment.add_generic_function("push".to_string(), vec![Type::Array(Box::new(param_type.clone())),param_type.clone()], Type::Unit, id,
-                [(GenericTypeId(index),param_type)].into_iter());
+                [param_type].into_iter());
         }
         {
             let id = self.declare_new_function();
-            let (generic_name,index) = self.declare_generic_type("T".to_string());
-            let param_type = Type::Param { name:generic_name, index:GenericTypeId(index) };
+            let param_type = Type::Param { name:"T".to_string(), index:0 };
             self.environment.add_generic_function("pop".to_string(), vec![Type::Array(Box::new(param_type.clone()))], param_type.clone(), id,
-                [(GenericTypeId(index),param_type)].into_iter());
+                [param_type].into_iter());
         }
         {
             let id = self.declare_new_function();
             self.environment.add_function("parse_int".to_string(), vec![Type::String], 
-                substitute(option_type.clone(),&vec![(option_generic_param,Type::Int)].into_iter().collect()), id);
+                substitute(option_type.clone(),&vec![Type::Int]), id);
         }
         self.check_stmts(&stmts).map (|stmts| (self.type_context,stmts))
     }
