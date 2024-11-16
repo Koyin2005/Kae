@@ -39,8 +39,11 @@ fn sub_stmt(stmt:&mut TypedStmtNode,generic_args : &GenericArgs){
                 });
             });
         },
-        TypedStmtNode::Impl { .. } => {
-
+        TypedStmtNode::Impl { ty,methods } => {
+            *ty = substitute(ty.clone(), generic_args);
+            for method in methods{
+                sub_function(&mut method.function, generic_args);
+            }
         }
     }
 }
