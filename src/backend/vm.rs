@@ -14,6 +14,7 @@ pub struct RuntimeError;
 #[derive(Default)]
 pub struct CallFrame{
     function : Rc<Function>,
+    closure : Option<Object>,
     ip : usize,
     bp : usize
 }
@@ -38,6 +39,7 @@ impl VM{
                     name : "<main>".to_string(),
                     chunk : program.chunk
                 }),
+                closure:None,
                 ip : 0,
                 bp : 0
             }],
@@ -83,6 +85,7 @@ impl VM{
     pub fn reset(&mut self,program:Program){
         self.frames = vec![CallFrame{
             function : Rc::new(Function { name: "<main>".to_string(), chunk:program.chunk }),
+            closure : None,
             ip : 0,
             bp : 0,
         }];
@@ -501,7 +504,6 @@ impl VM{
                         Value::Function(function) => function,
                         Value::NativeFunction(function) => function,
                         value => {
-
                             panic!("Expect function got {}.",value.format(&self.heap, &mut Vec::new()))
                         }
                     };
@@ -513,6 +515,7 @@ impl VM{
     
                         self.stack.extend(std::iter::repeat(Value::Int(0)).take(function.chunk.locals - arg_count));
                         self.frames.push(CallFrame{
+                            closure:None,
                             function,
                             ip : 0,
                             bp
