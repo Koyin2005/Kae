@@ -867,45 +867,55 @@ impl TypeChecker{
         Ok(TypedExprNode { location: expr.location, ty, kind })
     }
     fn get_expr_path(&mut self,path:&ParsedPath,ty:Type)->Result<(Type, TypedExprNodeKind), TypeCheckFailed>{ 
-        if matches!(ty,Type::Enum { ..}){
-            let mut ty = ty;
-            for segment in &path.segments{
-                let segment_name = segment.name.content.clone();
-                let mut result_ty = None;
-                if let Type::Enum { id, generic_args,.. } = &ty{
-                    if let Some(variant) = self.type_context.enums.get_enum(*id).variants.iter().find(|variant| variant.name == segment_name){
-                        result_ty = Some(Type::EnumVariant { id:*id, name: variant.name.clone(), variant_index: variant.discrim,generic_args:generic_args.clone() })
-                    }
-                }
-                ty = if let Some(result_ty) = result_ty{
-                    result_ty
-                }
-                else{
-                    self.error(format!("\"{}\" does not have variant '{}'.",ty,segment.name.content), segment.location.start_line);
-                    return Err(TypeCheckFailed);
-                }
 
-            }
-            if let Type::EnumVariant { id, variant_index,generic_args,.. } = ty.clone(){
-                let variant = &self.type_context.enums.get_enum(id).variants[variant_index]; 
-                if !variant.fields.is_empty(){
-                    self.error(format!("\"{}\" require fields.",ty), path.location.start_line);
-                    return Err(TypeCheckFailed);
-                }
-                
-                Ok((
-                    Type::Enum { id, name: variant.name.clone() ,generic_args},
-                    TypedExprNodeKind::StructInit { kind:InitKind::Variant(id, variant_index),fields:Vec::new() })
-                )
-            }
-            else{
-                self.error(format!("Expected an expression got type \"{}\".",ty), path.head.location.start_line);
+        enum Item{
+            Type(Type),
+            Method(Type,TypedExprNodeKind),
+            Variant(Type,TypedExprNodeKind),
+        }
+        let mut current = Item::Type(ty.clone());
+        let mut last_type = ty;
+        for segment in &path.segments{
+            let segment_name = segment.name.content.clone();
+            let next = match current{
+                Item::Type(ty) => {
+                    let variant = if let Type::Enum {  id,generic_args,.. } = ty.clone(){
+                        self.type_context.enums.get_enum(id).variants.iter().find(|variant| variant.name == segment_name ).map(|variant|{
+                            last_type = Type::EnumVariant { generic_args, id, name: variant.name.clone(), variant_index: variant.discrim };
+                            Item::Variant(ty.clone(),TypedExprNodeKind::StructInit { kind: InitKind::Variant(id, variant.discrim), fields:Vec::new() })
+                        })
+                    }
+                    else{
+                        None
+                    };
+                    let method = if variant.is_none(){
+                        self.environment.get_method(&ty, &segment_name).map(|method|{
+                            Item::Method(ty.clone(),todo!("Add method disambiguation"))
+                        })
+                    }
+                    else{
+                        None
+                    };
+                    variant.or(method)
+                },
+                _ => None
+            };
+            let Some(next) = next else {
+                self.error(format!("\"{}\" has no variant or method '{}'.",last_type,segment_name), segment.location.start_line);
+                return Err(TypeCheckFailed);
+            };
+            current = next;
+
+        }
+
+        match current{
+            Item::Method(ty, expr) | Item::Variant(ty, expr) => {
+                Ok((ty,expr))
+            },
+            Item::Type(ty) => {
+                self.error(format!("Expected an expression got type \"{}\".",ty),path.location.start_line);
                 Err(TypeCheckFailed)
             }
-        }
-        else{
-            self.error(format!("Expected an expression got type \"{}\".",ty), path.head.location.start_line);
-            Err(TypeCheckFailed)
         }
     }
     fn check_type(&mut self,ty:&ParsedType)->Result<Type,TypeCheckFailed>{
