@@ -98,6 +98,7 @@ impl Compiler{
                 upvalue
             }
             else{
+                function.upvalues.push(next_upvalue);
                 function.upvalues.len()-1
             }
         }).last();
