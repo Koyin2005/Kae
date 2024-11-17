@@ -226,10 +226,10 @@ impl Compiler{
         }
         disassemble(&function_name, &self.current_chunk,&self.constants);
         let compiled_function = self.functions.pop().expect("Function should still be around");
-        for upvalue in compiled_function.upvalues{
+        for upvalue in &compiled_function.upvalues{
             match upvalue{
                 Upvalue::Local(local) => {
-                    println!("Captured local {}",self.functions.last().unwrap().locals[local].name);
+                    println!("Captured local {}",self.functions.last().unwrap().locals[*local].name);
                 },
                 Upvalue::Upvalue(upvalue) => {
                     println!("Captured Upvalue {}",upvalue);
@@ -248,7 +248,13 @@ impl Compiler{
         else{
             self.add_constant(func_constant)
         };
-        self.load_constant_at_index(func_constant,function.body.location.end_line);
+
+        if !compiled_function.upvalues.is_empty(){
+            self.load_constant_at_index(func_constant,function.body.location.end_line);
+        }
+        else{
+            self.emit_instruction(Instruction::Closure(func_constant as u16), function.body.location.end_line);
+        }
     }
     fn compile_pattern_check(&mut self,pattern:&PatternNode){
         match &pattern.kind{
