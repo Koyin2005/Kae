@@ -15,6 +15,7 @@ struct GenericFunction{
     template : TypedFunction,
     monos : Vec<(String,usize)>
 }
+#[derive(Default)]
 struct CompiledFunction{
     pub locals : Vec<Local>,
     pub upvalues : Vec<String>
