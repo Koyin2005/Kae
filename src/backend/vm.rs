@@ -156,29 +156,6 @@ impl VM{
                     let constant = self.load_constant(constant as usize);
                     self.push(constant)?;
                 },
-                Instruction::Closure(constant) => {
-                    let Constant::Function(function) = self.constants[constant as usize].clone() else{
-                        panic!("Can't use constant as function")
-                    };
-                    let environment = function.upvalues.iter().copied().map(|(index,is_local)|{
-                        if is_local{
-                            self.current_frame().bp + index
-                        }
-                        else{
-                            let Some(closure) = self.current_frame().closure else {
-                                panic!("Cant capture non-existent upvalues")
-                            };
-                            todo!()
-                        }
-                    }).collect();
-
-                    let closure = Closure{
-                        environment,
-                        function
-                    };
-                    let closure = Value::Closure(Object::new_closure(&mut self.heap,closure));
-                    self.push(closure)?;
-                }
                 Instruction::AddInt => {
                     let Value::Int(b) = self.pop() else {
                         panic!("Expected an int.")
@@ -441,14 +418,6 @@ impl VM{
                     let value = self.pop();
                     self.globals.insert(global as usize, value);
                 },
-                Instruction::LoadUpvalue(upvalue) => {
-                    let location = self.current_frame().closure.expect("Can only use upvalue instructions with closures").as_closure(&self.heap).environment[upvalue as usize];
-                    self.push(self.stack[location])?;
-                },
-                Instruction::StoreUpvalue(upvalue) => {
-                    let location = self.current_frame().closure.expect("Can only use upvalue instructions with closures").as_closure(&self.heap).environment[upvalue as usize];
-                    self.stack[location] = self.pop();
-                }
                 Instruction::LoadIndex => {
                     let Value::Int(index) = self.pop() else {
                         panic!("Expected an int.")

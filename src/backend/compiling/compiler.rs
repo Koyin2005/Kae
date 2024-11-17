@@ -112,8 +112,7 @@ impl Compiler{
             self.emit_instruction(Instruction::LoadGlobal(index as u16),line);
         }
         else{
-            let upvalue = self.resolve_upvalue(name).unwrap() ;
-            self.emit_instruction(Instruction::LoadUpvalue(upvalue as u16), line);
+            
         }
     }
     fn store_name(&mut self,name:&str,line:u32){
@@ -124,8 +123,6 @@ impl Compiler{
             self.emit_instruction(Instruction::StoreGlobal(index as u16),line);
         }
         else{
-            let upvalue = self.resolve_upvalue(name).unwrap() ;
-            self.emit_instruction(Instruction::StoreUpvalue(upvalue as u16), line);
         }
     }
     fn declare_global(&mut self,name:String)->usize{
@@ -261,7 +258,7 @@ impl Compiler{
             self.load_constant_at_index(func_constant,function.body.location.end_line);
         }
         else{
-            self.emit_instruction(Instruction::Closure(func_constant as u16), function.body.location.end_line);
+            
         }
     }
     fn compile_pattern_check(&mut self,pattern:&PatternNode){
