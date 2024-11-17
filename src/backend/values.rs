@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use super::{instructions::Chunk, objects::{Heap, Object}, vm::{RuntimeError, VM}};
 #[derive(Clone,Debug,PartialEq,Default)]
 pub struct Function{
@@ -16,7 +18,7 @@ pub struct NativeFunction{
 #[derive(Clone,Debug,PartialEq,Default)]
 pub struct Closure{
     pub environment : Box<[Value]>,
-    pub function : Function
+    pub function : Rc<Function>
 }
 #[derive(Debug,Clone)]
 pub struct Record{
@@ -41,6 +43,7 @@ pub enum Value{
     String(Object),
     List(Object),
     Function(Object),
+    Closure(Object),
     NativeFunction(Object)
 }
 impl Value{
@@ -78,6 +81,7 @@ impl Value{
             (Self::Function(object),Self::Function(other)) => object == other,
             (Self::String(object),Self::String(other)) => object.as_string(heap) == other.as_string(heap),
             (Self::NativeFunction(object),Self::NativeFunction(other)) => object == other,
+            (Self::Closure(object),Self::Closure(other)) => object == other,
             _ => false
         }
     }
@@ -99,6 +103,9 @@ impl Value{
             },
             Value::Float(float) => {
                 format!("{}",*float)
+            },
+            Value::Closure(closure) => {
+                format!("fn<{}>",closure.as_closure(heap).function.name)
             },
             Value::CaseRecord(record_object) => {
                 let record = record_object.as_record(heap);

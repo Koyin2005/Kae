@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use super::values::{Function, NativeFunction, Record, Value};
+use super::values::{Closure, Function, NativeFunction, Record, Value};
 
 #[derive(Clone,Copy,Debug,Hash,PartialEq)]
 pub struct Object(usize);
@@ -12,6 +12,12 @@ impl Object{
             panic!("Can't use object as function.")
         };
         function
+    }
+    pub fn as_closure(self,heap:& Heap)->&Closure{
+        let ObjectType::Closure(closure) = heap.get_object(self) else {
+            panic!("Can't use object as closure.")
+        };
+        closure
     }
     pub fn as_native_function(self,heap:&Heap)->&NativeFunction{
         let ObjectType::NativeFunction(function) = heap.get_object(self) else {
@@ -102,7 +108,8 @@ pub enum ObjectType{
     Tuple(Box<[Value]>),
     List(Vec<Value>),
     Function(Rc<Function>),
-    NativeFunction(Rc<NativeFunction>)
+    NativeFunction(Rc<NativeFunction>),
+    Closure(Closure),
 }
 
 
