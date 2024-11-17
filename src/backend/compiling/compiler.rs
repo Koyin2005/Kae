@@ -79,9 +79,11 @@ impl Compiler{
         if let Some(index) = self.get_local(name){
             self.emit_instruction(Instruction::LoadLocal(index as u16),line);
         }
-        else{
-            let index = self.get_global(name).unwrap_or_else(|| panic!("Already checked for variable named \'{}\'.",name));
+        else if let Some(index) =  self.get_global(name){
             self.emit_instruction(Instruction::LoadGlobal(index as u16),line);
+        }
+        else{
+            println!("Its closure time for '{}'!",name);
         }
     }
     fn store_name(&mut self,name:&str,line:u32){
@@ -90,6 +92,9 @@ impl Compiler{
         }
         else if let Some(index) = self.get_global(name){
             self.emit_instruction(Instruction::StoreGlobal(index as u16),line);
+        }
+        else{
+            println!("Its closure time for '{}'!",name);
         }
     }
     fn declare_global(&mut self,name:String)->usize{
