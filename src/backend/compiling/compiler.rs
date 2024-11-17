@@ -15,6 +15,7 @@ struct GenericFunction{
     template : TypedFunction,
     monos : Vec<(String,usize)>
 }
+
 pub struct CompileFailed;
 #[derive(Default)]
 pub struct Compiler{
@@ -83,7 +84,10 @@ impl Compiler{
             self.emit_instruction(Instruction::LoadGlobal(index as u16),line);
         }
         else{
-            println!("Its closure time for '{}'!",name);
+            let (function_depth,local_index) = self.locals.iter().enumerate().rev().filter_map(|(i,locals)|{
+                locals.iter().rev().find(|local| local.name == name).map(|local| (i,local.index))
+            }).next().expect("All variables should be checked.");
+            println!("{} {} {}",function_depth,local_index,name);
         }
     }
     fn store_name(&mut self,name:&str,line:u32){
