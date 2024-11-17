@@ -442,10 +442,12 @@ impl VM{
                     self.globals.insert(global as usize, value);
                 },
                 Instruction::LoadUpvalue(upvalue) => {
-
+                    let location = self.current_frame().closure.expect("Can only use upvalue instructions with closures").as_closure(&self.heap).environment[upvalue as usize];
+                    self.push(self.stack[location])?;
                 },
                 Instruction::StoreUpvalue(upvalue) => {
-                    
+                    let location = self.current_frame().closure.expect("Can only use upvalue instructions with closures").as_closure(&self.heap).environment[upvalue as usize];
+                    self.stack[location] = self.pop();
                 }
                 Instruction::LoadIndex => {
                     let Value::Int(index) = self.pop() else {
