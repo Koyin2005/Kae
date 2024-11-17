@@ -107,8 +107,11 @@ impl VM{
         let index =self.stack.len() - 1;
         self.stack[index] = value;
     }
-    fn push_frame(&mut self,function:Rc<Function>,bp:usize,arg_count:usize,closure:Option<Object>)->Result<(), RuntimeError>{
-        
+    fn push_frame(&mut self,function:Rc<Function>,arg_count:usize,closure:Option<Object>)->Result<(), RuntimeError>{
+        let bp = self.stack.len() - arg_count - 1;
+        let stack_size = self.stack.len();
+        self.stack.copy_within(bp+1..stack_size, bp);
+        self.pop();
         self.stack.extend(std::iter::repeat(Value::Int(0)).take(function.chunk.locals - arg_count));
         self.frames.push(CallFrame{
             closure,
@@ -538,26 +541,23 @@ impl VM{
                 Instruction::Call(args) => {
                     let arg_count = args as usize;
                     let function = self.peek(arg_count);
-                    let function = match function{
-                        Value::Function(function) => function,
-                        Value::NativeFunction(function) => function,
+                    match function{
+                        Value::NativeFunction(function) => {
+                            let args = self.pop_values(arg_count);
+                            self.pop();
+                            let function = function.as_native_function(&self.heap);
+                            let result = (function.function)(self,&args)?;
+                            self.push(result)?;
+                        },
+                        Value::Closure(closure) => {
+                            self.push_frame(closure.as_closure(&self.heap).function.clone(), arg_count, Some(closure))?;
+                        },
+                        Value::Function(function) => {
+                            self.push_frame(function.as_function(&self.heap), arg_count, None)?;
+                        },
                         value => {
                             panic!("Expect function got {}.",value.format(&self.heap, &mut Vec::new()))
                         }
-                    };
-                    if let Some(function) = function.try_as_function(&self.heap){
-                        let bp = self.stack.len() - arg_count - 1;
-                        let stack_size = self.stack.len();
-                        self.stack.copy_within(bp+1..stack_size, bp);
-                        self.pop();
-                        self.push_frame(function, bp, arg_count, None)?;
-                    }
-                    else{
-                        let args = self.pop_values(arg_count);
-                        self.pop();
-                        let function = function.as_native_function(&self.heap);
-                        let result = (function.function)(self,&args)?;
-                        self.push(result)?;
                     }
 
                 },
