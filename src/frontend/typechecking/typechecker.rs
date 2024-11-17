@@ -585,6 +585,9 @@ impl TypeChecker{
                                 return Err(TypeCheckFailed);
                             }
                         }
+                        else if let Some((function,ValueKind::Function)) = self.get_type_of_value(&head_name){
+                            function
+                        }
                         else {
                             self.error(format!("Cannot find type '{}' in scope.",head_name), expr.location.start_line);
                             return Err(TypeCheckFailed);
