@@ -9,6 +9,10 @@ struct Local{
     depth : usize
 }
 
+enum Upvalue{
+    Local(usize),
+    Upvalue(usize)
+}
 struct GenericFunction{
     name : String,
     depth : usize,
@@ -18,7 +22,7 @@ struct GenericFunction{
 #[derive(Default)]
 struct CompiledFunction{
     pub locals : Vec<Local>,
-    pub upvalues : Vec<String>
+    pub upvalues : Vec<Upvalue>
 }
 pub struct CompileFailed;
 #[derive(Default)]
