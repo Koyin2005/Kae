@@ -107,6 +107,21 @@ impl VM{
         let index =self.stack.len() - 1;
         self.stack[index] = value;
     }
+    fn push_frame(&mut self,function:Rc<Function>,bp:usize,arg_count:usize,closure:Option<Object>)->Result<(), RuntimeError>{
+        
+        self.stack.extend(std::iter::repeat(Value::Int(0)).take(function.chunk.locals - arg_count));
+        self.frames.push(CallFrame{
+            closure,
+            function,
+            ip : 0,
+            bp
+        });
+        if self.frames.len() > MAX_FRAMES{
+            self.runtime_error("Exceeded max call frames.");
+            return Err(RuntimeError);
+        }
+        Ok(())
+    }
     pub fn runtime_error(&self,message:&str){
         eprintln!("Error : {}",message);
         for frame in self.frames.iter().rev(){
@@ -535,18 +550,7 @@ impl VM{
                         let stack_size = self.stack.len();
                         self.stack.copy_within(bp+1..stack_size, bp);
                         self.pop();
-    
-                        self.stack.extend(std::iter::repeat(Value::Int(0)).take(function.chunk.locals - arg_count));
-                        self.frames.push(CallFrame{
-                            closure:None,
-                            function,
-                            ip : 0,
-                            bp
-                        });
-                        if self.frames.len() > MAX_FRAMES{
-                            self.runtime_error("Exceeded max call frames.");
-                            return Err(RuntimeError);
-                        }
+                        self.push_frame(function, bp, arg_count, None)?;
                     }
                     else{
                         let args = self.pop_values(arg_count);
