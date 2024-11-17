@@ -15,6 +15,8 @@ pub enum Instruction {
     LoadGlobal(u16),
     LoadField(u16),
     StoreField(u16),
+    LoadUpvalue(u16),
+    StoreUpvalue(u16),
     UnpackTuple,
 
     AddInt,
