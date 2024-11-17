@@ -30,7 +30,7 @@ pub struct Compiler{
 }
 impl Compiler{
     pub fn new(type_context:TypeContext)->Self{
-        Self { type_context,..Default::default() }
+        Self { type_context,locals:vec![Vec::new()],..Default::default() }
     }
     fn begin_scope(&mut self){
         self.scope_depth += 1;
