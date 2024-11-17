@@ -27,6 +27,7 @@ pub struct Compiler{
     names : Vec<String>,
     globals : Vec<String>,
     generic_functions : Vec<GenericFunction>,
+    functions : Vec<CompiledFunction>,
     locals : Vec<Vec<Local>>,
     scope_depth : usize,
     type_context : TypeContext,
