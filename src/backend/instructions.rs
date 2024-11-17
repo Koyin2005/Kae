@@ -64,6 +64,8 @@ pub enum Instruction {
     Return,
     Pop,
     Copy(u16),
+
+    Closure(u16),
 }
 #[derive(Clone,Debug,PartialEq)]
 pub enum Constant{

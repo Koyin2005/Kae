@@ -137,7 +137,9 @@ impl VM{
                     let constant = self.load_constant(constant as usize);
                     self.push(constant)?;
                 },
-
+                Instruction::Closure(constant) => {
+                    todo!("Add support for closures")
+                }
                 Instruction::AddInt => {
                     let Value::Int(b) = self.pop() else {
                         panic!("Expected an int.")
