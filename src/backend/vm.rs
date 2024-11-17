@@ -4,7 +4,7 @@ use fxhash::FxHashMap;
 
 use crate::backend::disassembly::disassemble_instruction;
 
-use super::{instructions::{Chunk, Constant, Instruction, Program}, objects::{Heap, Object}, values::{Function, Record, Value}};
+use super::{instructions::{Chunk, Constant, Instruction, Program}, objects::{Heap, Object}, values::{Closure, Function, Record, Value}};
 
 pub const DEBUG_TRACE_EXEC : bool = false;
 pub const MAX_STACK_SIZE : usize = 255;
@@ -139,20 +139,27 @@ impl VM{
                     self.push(constant)?;
                 },
                 Instruction::Closure(constant) => {
-                    let function = self.load_constant(constant as usize);
-                    let Value::Function(function) = function else {
-                        panic!("Expected a function.")
+                    let Constant::Function(function) = self.constants[constant as usize].clone() else{
+                        panic!("Can't use constant as function")
                     };
-                    for (index,is_local) in function.as_function(&self.heap).upvalues.iter().copied(){
+                    let environment = function.upvalues.iter().copied().map(|(index,is_local)|{
                         if is_local{
-
+                            self.current_frame().bp + index
                         }
                         else{
                             let Some(closure) = self.current_frame().closure else {
                                 panic!("Cant capture non-existent upvalues")
                             };
+                            todo!()
                         }
-                    }
+                    }).collect();
+
+                    let closure = Closure{
+                        environment,
+                        function
+                    };
+                    let closure = Value::Closure(Object::new_closure(&mut self.heap,closure));
+                    self.push(closure)?;
                 }
                 Instruction::AddInt => {
                     let Value::Int(b) = self.pop() else {

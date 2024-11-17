@@ -100,6 +100,9 @@ impl Object{
     pub fn new_list(heap:&mut Heap,values:Vec<Value>) -> Self{
         heap.alloc(ObjectType::List(values))
     }
+    pub fn new_closure(heap:&mut Heap,closure:Closure)->Self{
+        heap.alloc(ObjectType::Closure(closure))
+    }
 }
 pub enum ObjectType{
     Record(Record),

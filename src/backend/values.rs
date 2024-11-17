@@ -17,7 +17,7 @@ pub struct NativeFunction{
 
 #[derive(Clone,Debug,PartialEq,Default)]
 pub struct Closure{
-    pub environment : Box<[Value]>,
+    pub environment : Box<[usize]>,
     pub function : Rc<Function>
 }
 #[derive(Debug,Clone)]
