@@ -8,11 +8,6 @@ struct Local{
     index : usize,
     depth : usize
 }
-#[derive(PartialEq,Eq,Clone, Copy)]
-enum Upvalue{
-    Local(usize),
-    Upvalue(usize)
-}
 struct GenericFunction{
     name : String,
     depth : usize,
@@ -22,7 +17,6 @@ struct GenericFunction{
 #[derive(Default)]
 struct CompiledFunction{
     pub locals : Vec<Local>,
-    pub upvalues : Vec<Upvalue>
 }
 pub struct CompileFailed;
 #[derive(Default)]
@@ -83,26 +77,6 @@ impl Compiler{
     fn define_name(&mut self,name:String,line:u32){
         let index = self.declare_name(name);
         self.emit_define_instruction(index, line);
-    }
-    fn resolve_upvalue(&mut self,name:&str)->Option<usize>{
-        
-        let (function_depth,local_index) = self.functions.iter().enumerate().rev().filter_map(|(i,function)|{
-            function.locals.iter().rev().find(|local| local.name == name).map(|local| (i,local.index))
-        }).next().expect("All variables should be checked.");
-        let upvalue = self.functions[function_depth+1..].iter_mut().enumerate().map(|(i,function)|{
-            let next_upvalue = if i == 0 { Upvalue::Local(local_index) } else {
-                let upvalue_count = function.upvalues.len();
-                Upvalue::Upvalue(upvalue_count)
-            };
-            if let Some(upvalue) = function.upvalues.iter().position(|upvalue| upvalue == &next_upvalue){
-                upvalue
-            }
-            else{
-                function.upvalues.push(next_upvalue);
-                function.upvalues.len()-1
-            }
-        }).last();
-        upvalue
     }
     fn load_name(&mut self,name:&str,line:u32){
         if let Some(index) = self.get_local(name){
@@ -225,26 +199,11 @@ impl Compiler{
         }
         disassemble(&function_name, &self.current_chunk,&self.constants);
         let compiled_function = self.functions.pop().expect("Function should still be around");
-        for upvalue in &compiled_function.upvalues{
-            match upvalue{
-                Upvalue::Local(local) => {
-                    println!("Captured local {}",self.functions.last().unwrap().locals[*local].name);
-                },
-                Upvalue::Upvalue(upvalue) => {
-                    println!("Captured Upvalue {}",upvalue);
-                }
-            }
-        }
         let func_code = std::mem::replace(&mut self.current_chunk, old_chunk);
         let func_constant = Constant::Function(Rc::new(Function{
             name : function_name,
             chunk : func_code,
-            upvalues : compiled_function.upvalues.iter().copied().map(|upvalue|{
-                match upvalue{
-                    Upvalue::Local(local) => (local,true),
-                    Upvalue::Upvalue(upvalue) => (upvalue,false)
-                }
-            }).collect()
+            upvalues : Vec::new()
         }));
         let func_constant = if let Some(constant_index) = constant_index{
             self.constants[constant_index] = func_constant;
@@ -254,12 +213,7 @@ impl Compiler{
             self.add_constant(func_constant)
         };
 
-        if !compiled_function.upvalues.is_empty(){
-            self.load_constant_at_index(func_constant,function.body.location.end_line);
-        }
-        else{
-            
-        }
+        self.load_constant_at_index(func_constant,function.body.location.end_line);
     }
     fn compile_pattern_check(&mut self,pattern:&PatternNode){
         match &pattern.kind{
