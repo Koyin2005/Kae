@@ -709,7 +709,7 @@ impl TypeChecker{
                         params.remove(0);
                     }
                     else{
-                        self.error(format!("Cannot call method '{}' on type \"{}\", with no self parameter.",method_info.name,receiver.ty), method.location.start_line);
+                        self.error(format!("Cannot call method '{}' with no self parameter on type \"{}\".",method_info.name,receiver.ty), method.location.start_line);
                         return Err(TypeCheckFailed);
                     }
                     (params,method_info.return_type.clone(),None)
