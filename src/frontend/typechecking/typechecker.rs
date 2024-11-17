@@ -708,6 +708,10 @@ impl TypeChecker{
                     if method_info.has_self_param{
                         params.remove(0);
                     }
+                    else{
+                        self.error(format!("Cannot call method '{}' on type \"{}\", with no self parameter.",method_info.name,receiver.ty), method.location.start_line);
+                        return Err(TypeCheckFailed);
+                    }
                     (params,method_info.return_type.clone(),None)
                 }
                 else if let Some(field) = receiver.ty.get_field(&method.content, &self.type_context){
