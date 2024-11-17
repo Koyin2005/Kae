@@ -152,6 +152,9 @@ fn sub_expr(expr:&mut TypedExprNode,generic_args : &GenericArgs){
             args.iter_mut().for_each(|arg|{
                 sub_expr(arg, generic_args);
             });
+        },
+        TypedExprNodeKind::GetMethod { ty, .. } => {
+            *ty = substitute(ty.clone(), generic_args);
         }
     };
 }

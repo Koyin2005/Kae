@@ -172,6 +172,10 @@ pub enum TypedExprNodeKind{
         lhs : Box<TypedExprNode>,
         method : Symbol,
         args : Vec<TypedExprNode>
+    },
+    GetMethod{
+       ty : Type,
+       method : Symbol 
     }
 }
 #[derive(Clone,Debug)]

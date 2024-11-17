@@ -890,7 +890,7 @@ impl TypeChecker{
                     };
                     let method = if variant.is_none(){
                         self.environment.get_method(&ty, &segment_name).map(|method|{
-                            Item::Method(ty.clone(),todo!("Add method disambiguation"))
+                            Item::Method(ty.clone(),TypedExprNodeKind::GetMethod { ty:ty.clone(), method:segment.name.clone() })
                         })
                     }
                     else{

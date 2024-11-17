@@ -583,6 +583,9 @@ impl Compiler{
                     self.compile_expr(arg);
                 }
                 self.emit_instruction(Instruction::Call((args.len()+1) as u16), expr.location.end_line);
+            },
+            TypedExprNodeKind::GetMethod { ty, method } => {
+                self.load_name(&format!("{}::{}",ty,method.content),method.location.end_line);
             }
         }
     }
