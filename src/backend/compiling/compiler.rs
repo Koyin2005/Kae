@@ -29,21 +29,20 @@ pub struct Compiler{
     globals : Vec<String>,
     generic_functions : Vec<GenericFunction>,
     functions : Vec<CompiledFunction>,
-    locals : Vec<Vec<Local>>,
     scope_depth : usize,
     type_context : TypeContext,
     mono_counter : usize
 }
 impl Compiler{
     pub fn new(type_context:TypeContext)->Self{
-        Self { type_context,locals:vec![Vec::new()],..Default::default() }
+        Self { type_context,functions:vec![CompiledFunction::default()],..Default::default() }
     }
     fn begin_scope(&mut self){
         self.scope_depth += 1;
     }
     fn end_scope(&mut self){
         self.scope_depth -= 1;
-        self.locals.last_mut().unwrap().retain(|local| {
+        self.functions.last_mut().unwrap().locals.retain(|local| {
             local.depth <= self.scope_depth
         });
 
@@ -53,7 +52,7 @@ impl Compiler{
        self.globals.iter().rev().position(|global| global == name).map(|index|  self.globals.len() - index - 1)
     }
     fn get_local(&self,name:&str)->Option<usize>{
-        self.locals.last().unwrap().iter().rev().find(|local| local.name == name).map(|local| local.index)
+        self.functions.last().unwrap().locals.iter().rev().find(|local| local.name == name).map(|local| local.index)
     }
     fn emit_define_instruction(&mut self,index:usize,line:u32){
         if self.scope_depth == 0{
@@ -89,8 +88,8 @@ impl Compiler{
             self.emit_instruction(Instruction::LoadGlobal(index as u16),line);
         }
         else{
-            let (function_depth,local_index) = self.locals.iter().enumerate().rev().filter_map(|(i,locals)|{
-                locals.iter().rev().find(|local| local.name == name).map(|local| (i,local.index))
+            let (function_depth,local_index) = self.functions.iter().enumerate().rev().filter_map(|(i,function)|{
+                function.locals.iter().rev().find(|local| local.name == name).map(|local| (i,local.index))
             }).next().expect("All variables should be checked.");
             println!("{} {} {}",function_depth,local_index,name);
         }
@@ -114,9 +113,9 @@ impl Compiler{
         if self.scope_depth == 0{
             self.declare_global(name)
         }else{
-            let local_index = self.locals.last().unwrap().len();
-            self.locals.last_mut().unwrap().push(Local { name,index: local_index, depth: self.scope_depth });
-            self.current_chunk.locals = self.current_chunk.locals.max(self.locals.last().unwrap().len());
+            let local_index = self.functions.last().unwrap().locals.len();
+            self.functions.last_mut().unwrap().locals.push(Local { name,index: local_index, depth: self.scope_depth });
+            self.current_chunk.locals = self.current_chunk.locals.max(self.functions.last().unwrap().locals.len());
             local_index
         }
     }
@@ -173,7 +172,7 @@ impl Compiler{
 
     }
     fn compile_function(&mut self,function:&TypedFunction,function_name:String,constant_index : Option<usize>){
-        self.locals.push(Vec::new());
+        self.functions.push(CompiledFunction::default());
         let old_chunk = std::mem::take(&mut self.current_chunk);
         
         self.begin_scope();
@@ -205,7 +204,7 @@ impl Compiler{
             self.emit_instruction(Instruction::Return, function.body.location.end_line);
         }
         disassemble(&function_name, &self.current_chunk,&self.constants);
-        self.locals.pop();
+        self.functions.pop();
         let func_code = std::mem::replace(&mut self.current_chunk, old_chunk);
         let func_constant = Constant::Function(Rc::new(Function{
             name : function_name,
