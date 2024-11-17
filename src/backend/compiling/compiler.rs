@@ -112,7 +112,8 @@ impl Compiler{
             self.emit_instruction(Instruction::LoadGlobal(index as u16),line);
         }
         else{
-            println!("Upvalue {}",self.resolve_upvalue(name).unwrap());
+            let upvalue = self.resolve_upvalue(name).unwrap() ;
+            self.emit_instruction(Instruction::LoadUpvalue(upvalue as u16), line);
         }
     }
     fn store_name(&mut self,name:&str,line:u32){
@@ -123,7 +124,8 @@ impl Compiler{
             self.emit_instruction(Instruction::StoreGlobal(index as u16),line);
         }
         else{
-            println!("Upvalue {}",self.resolve_upvalue(name).unwrap());
+            let upvalue = self.resolve_upvalue(name).unwrap() ;
+            self.emit_instruction(Instruction::StoreUpvalue(upvalue as u16), line);
         }
     }
     fn declare_global(&mut self,name:String)->usize{
