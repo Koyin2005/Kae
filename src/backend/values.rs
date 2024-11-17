@@ -2,7 +2,8 @@ use super::{instructions::Chunk, objects::{Heap, Object}, vm::{RuntimeError, VM}
 #[derive(Clone,Debug,PartialEq,Default)]
 pub struct Function{
     pub name : String,
-    pub chunk : Chunk
+    pub chunk : Chunk,
+    pub upvalues : Vec<(usize,bool)>
 }
 
 pub type NativeFn = fn(&mut VM,args:&[Value])->Result<Value,RuntimeError>;

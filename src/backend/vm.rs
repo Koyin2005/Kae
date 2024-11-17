@@ -37,7 +37,8 @@ impl VM{
             frames : vec![CallFrame{
                 function : Rc::new(Function{
                     name : "<main>".to_string(),
-                    chunk : program.chunk
+                    chunk : program.chunk,
+                    upvalues : Vec::new()
                 }),
                 closure:None,
                 ip : 0,
@@ -84,7 +85,7 @@ impl VM{
     }
     pub fn reset(&mut self,program:Program){
         self.frames = vec![CallFrame{
-            function : Rc::new(Function { name: "<main>".to_string(), chunk:program.chunk }),
+            function : Rc::new(Function { name: "<main>".to_string(), chunk:program.chunk,upvalues:Vec::new() }),
             closure : None,
             ip : 0,
             bp : 0,
@@ -138,7 +139,13 @@ impl VM{
                     self.push(constant)?;
                 },
                 Instruction::Closure(constant) => {
-                    todo!("Add support for closures")
+                    let function = self.load_constant(constant as usize);
+                    let Value::Function(function) = function else {
+                        panic!("Expected a function.")
+                    };
+                    for (index,is_local) in &function.as_function(&self.heap).upvalues{
+                        
+                    }
                 }
                 Instruction::AddInt => {
                     let Value::Int(b) = self.pop() else {
