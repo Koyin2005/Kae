@@ -572,39 +572,6 @@ impl TypeChecker{
                 let head = &path.head;
                 let head_name = path.head.name.content.clone();
                 match path.generic_args.as_ref() {
-                    Some(args) if path.segments.is_empty() => {
-                        let ParsedGenericArgs{
-                            location,
-                            types
-                        } = args;
-                        let ty = if let Some(ty) = self.environment.get_function_type(&head_name){
-                            if !ty.is_unknown(){
-                                ty.clone()
-                            }
-                            else{
-                                return Err(TypeCheckFailed);
-                            }
-                        }
-                        else {
-                            self.error(format!("Cannot find generic function '{}' in scope.",head_name), expr.location.start_line);
-                            return Err(TypeCheckFailed);
-                        };
-                        let args = types.iter().map(|ty| self.check_type(ty)).collect::<Result<Vec<Type>,_>>()?;
-                        let Some(mut params) = ty.get_generic_args() else{
-                            self.error(format!("Cannot apply generic args to non-generic type \"{}\".",ty),location.start_line);
-                            return Err(TypeCheckFailed);
-                        };
-                        if args.len() != params.len(){
-                            self.error(format!("Expected '{}' generic args got '{}'.",params.len(),args.len()), location.start_line);
-                            return Err(TypeCheckFailed);
-                        }
-                        for (value,ty) in params.iter_mut().zip(args.iter().cloned()){
-                            *value = ty;
-                        }
-        
-                        (substitute(ty,&params),TypedExprNodeKind::GetGeneric{name:head.name.content.clone(), args })
-                    },
-                    
                     Some(args) => {
                         let ParsedGenericArgs{
                             location,
@@ -635,7 +602,12 @@ impl TypeChecker{
                             *value = ty;
                         }
                         let ty = substitute(ty, &params);
-                        self.get_expr_path(path, ty)?
+                        if path.segments.is_empty(){
+                            (substitute(ty,&params),TypedExprNodeKind::GetGeneric{name:head.name.content.clone(), args })
+                        }
+                        else{
+                            self.get_expr_path(path, ty)?
+                        }
                     },
                     None if path.segments.is_empty() => {
                         self.infer_variable_expr_type(head.location, &head.name.content)?
@@ -890,7 +862,8 @@ impl TypeChecker{
                     };
                     let method = if variant.is_none(){
                         self.environment.get_method(&ty, &segment_name).map(|method|{
-                            Item::Method(ty.clone(),TypedExprNodeKind::GetMethod { ty:ty.clone(), method:segment.name.clone() })
+                            let method_type = Type::Function { generic_args: method.generic_types.clone(), params: method.param_types.clone(), return_type:Box::new(method.return_type.clone()) };
+                            Item::Method(method_type,TypedExprNodeKind::GetMethod { ty:ty.clone(), method:segment.name.clone() })
                         })
                     }
                     else{
