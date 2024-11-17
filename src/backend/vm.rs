@@ -143,8 +143,15 @@ impl VM{
                     let Value::Function(function) = function else {
                         panic!("Expected a function.")
                     };
-                    for (index,is_local) in &function.as_function(&self.heap).upvalues{
-                        
+                    for (index,is_local) in function.as_function(&self.heap).upvalues.iter().copied(){
+                        if is_local{
+
+                        }
+                        else{
+                            let Some(closure) = self.current_frame().closure else {
+                                panic!("Cant capture non-existent upvalues")
+                            };
+                        }
                     }
                 }
                 Instruction::AddInt => {
