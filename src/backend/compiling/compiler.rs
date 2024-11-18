@@ -85,8 +85,14 @@ impl Compiler{
         self.emit_define_instruction(index, line);
     }
     fn resolve_upvalue(&mut self,name:&str)->usize{
-        fn add_upvalue(function :&mut CompiledFunction,upvalue:Upvalue){
-
+        fn add_upvalue(function :&mut CompiledFunction,new_upvalue:Upvalue)->usize{
+            if let Some(upvalue) =  function.upvalues.iter().position(|upvalue| upvalue == &new_upvalue){
+                upvalue
+            }
+            else{
+                function.upvalues.push(new_upvalue);
+                function.upvalues.len()-1
+            }
         }
         todo!()
     }
