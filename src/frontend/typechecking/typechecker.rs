@@ -4,7 +4,7 @@ use indexmap::{IndexMap, IndexSet};
 
 use crate::frontend::{parsing::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedFunction, ParsedGenericArgs, ParsedGenericParam, ParsedGenericParams, ParsedLogicalOp, ParsedPath, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PatternMatchArmNode, StmtNode, Symbol}, tokenizing::SourceLocation, typechecking::typed_ast::{TypedEnumVariant, TypedPatternMatchArm}};
 
-use super::{generics:: substitute, names::{ Environment, ScopeKind, ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedMethod, TypedStmtNode, UnaryOp}, types::{EnumVariant, FunctionId, GenericArgs, Type, TypeContext}};
+use super::{generics:: substitute, names::{ Environment, ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedMethod, TypedStmtNode, UnaryOp}, types::{EnumVariant, FunctionId, GenericArgs, Type, TypeContext}};
 #[derive(Clone)]
 struct EnclosingFunction{
     return_type : Type
@@ -20,9 +20,9 @@ pub struct TypeChecker{
     next_function_id : FunctionId
 }
 impl TypeChecker{
-    fn begin_scope(&mut self,scope_kind:ScopeKind)->Environment{
+    fn begin_scope(&mut self)->Environment{
         let mut new_env = self.environment.clone();
-        new_env.begin_scope(scope_kind);
+        new_env.begin_scope();
         std::mem::replace(&mut self.environment, new_env)
     }
     fn end_scope(&mut self,old_env:Environment){
@@ -174,12 +174,12 @@ impl TypeChecker{
         Ok(TypedFunctionSignature { params, return_type })
 
     }
-    fn check_function(&mut self,function:&ParsedFunction,signature : TypedFunctionSignature,name:Option<String>)->Result<TypedFunction, TypeCheckFailed>{
+    fn check_function(&mut self,function:&ParsedFunction,signature : TypedFunctionSignature)->Result<TypedFunction, TypeCheckFailed>{
         fn finish_function(this:&mut TypeChecker,old_env: Environment){
             this.end_scope(old_env);
             this.enclosing_functions.pop();
         }
-        let old_env = self.begin_scope(ScopeKind::Function(name));
+        let old_env = self.begin_scope();
         self.enclosing_functions.push(EnclosingFunction { return_type:  signature.return_type.clone()});
 
         let mut variable_names =  IndexSet::new();
@@ -343,7 +343,7 @@ impl TypeChecker{
     }
 
     fn infer_or_check_block_expr_type(&mut self,stmts:&[StmtNode],expr:Option<&ExprNode>,expected_type : Option<&Type>)->Result<(Type, TypedExprNodeKind), TypeCheckFailed>{
-        let old_env = self.begin_scope(ScopeKind::Block);
+        let old_env = self.begin_scope();
         let stmts = match self.check_stmts(stmts){
             Ok(stmts) => stmts,
             Err(_) => {
@@ -407,7 +407,7 @@ impl TypeChecker{
                     }
                 };
                 
-                let old_env = self.begin_scope(ScopeKind::Block);
+                let old_env = self.begin_scope();
                 let mut variables = Vec::new();
                 PatternChecker::collect_variables_in_pattern(&pattern,&pattern_type, &mut variables,&self.type_context);
                 self.environment.add_variables(variables.into_iter().map(|(name_symbol,ty)| (name_symbol.content,ty)));
@@ -565,7 +565,7 @@ impl TypeChecker{
             },
             ExprNodeKind::Function(function) => {
                 let signature = self.check_signature(function)?;
-                let function = self.check_function(function,signature,None)?;
+                let function = self.check_function(function,signature)?;
                 (Type::Function { generic_args:GenericArgs::default(), params: function.signature.params.iter().map(|(_,ty)| ty.clone()).collect(), return_type:Box::new(function.signature.return_type.clone()) },TypedExprNodeKind::Function(function))
             },
             ExprNodeKind::GetPath(path) => {
@@ -1182,7 +1182,7 @@ impl TypeChecker{
                     self.environment.add_function(function_name,params, return_type, id);
                 }
                 
-                let function =  self.check_function(function, signature,Some(name.content.clone()));
+                let function =  self.check_function(function, signature);
                 self.generic_param_names.truncate(generic_param_count);
                 let function = function?;
                 Ok(if let Some(generic_params) = generic_params {
@@ -1295,7 +1295,7 @@ impl TypeChecker{
                         self.error(format!("There is already a method with name '{}' for type \"{}\".",method.name.content,self_type), method.name.location.start_line);
                         return Err(TypeCheckFailed);
                     }
-                    let method_function = self.check_function(&method.function, signature.clone(),Some(method.name.content.clone()))?;
+                    let method_function = self.check_function(&method.function, signature.clone())?;
                     Ok(TypedMethod{name:method.name.clone(),function:method_function})
                 }).collect::<Result<Vec<_>,TypeCheckFailed>>() else{
                     self.self_type = old_type;

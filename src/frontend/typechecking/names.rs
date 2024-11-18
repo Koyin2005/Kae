@@ -28,18 +28,11 @@ pub struct Method{
     pub return_type : Type
 }
 #[derive(Clone)]
-pub enum ScopeKind{
-    Function(Option<String>),
-    Block,
-    Main
-}
-#[derive(Clone)]
 pub struct Environment{
     current_variables : Vec<IndexMap<String,Variable>>,
     current_types : Vec<IndexMap<String,Type>>,
     current_functions : Vec<IndexMap<String,Function>>,
     current_associations : Vec<IndexMap<Type,HashMap<String,Method>>>,
-    scope_kinds : Vec<ScopeKind>
 }
 impl Default for Environment{
     fn default() -> Self {
@@ -47,18 +40,16 @@ impl Default for Environment{
             current_variables: vec![IndexMap::new()], 
             current_types:vec![IndexMap::new()], 
             current_functions: vec![IndexMap::new()],
-            current_associations:vec![IndexMap::new()],
-            scope_kinds:vec![ScopeKind::Main] 
+            current_associations:vec![IndexMap::new()]
         }
     }
 }
 impl Environment{
-    pub fn begin_scope(&mut self,scope_kind:ScopeKind){
+    pub fn begin_scope(&mut self){
         self.current_functions.push(IndexMap::new());
         self.current_types.push(IndexMap::new());
         self.current_functions.push(IndexMap::new());
         self.current_associations.push(IndexMap::new());
-        self.scope_kinds.push(scope_kind);
     }
     pub fn add_variable(&mut self,name:String,ty:Type){
          self.current_variables.last_mut().unwrap().insert(name, Variable{ty});
@@ -78,7 +69,12 @@ impl Environment{
         self.current_functions.last_mut().unwrap().insert(name, Function { id, param_types, return_type ,generic_types:generic_params.collect()});
     }
     pub fn get_variable(&self,name:&str)->Option<&Type>{
-        self.current_variables.iter().rev().filter_map(|vars| vars.get(name).map(|Variable { ty,.. }| ty)).next()
+        self.current_variables.iter()
+        .rev().filter_map(|vars| 
+            vars.get(name).map(|Variable { ty,.. }|{ 
+                ty
+            }))
+        .next()
     }
     pub fn get_function_id(&self,name:&str)->Option<FunctionId>{
         self.current_functions.last().unwrap().get(name).map(|Function { id,..}|{
