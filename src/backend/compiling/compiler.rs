@@ -8,7 +8,7 @@ struct Local{
     index : usize,
     depth : usize
 }
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy,PartialEq)]
 enum Upvalue{
     Local(usize),
     Upvalue(usize)
@@ -85,6 +85,9 @@ impl Compiler{
         self.emit_define_instruction(index, line);
     }
     fn resolve_upvalue(&mut self,name:&str)->usize{
+        fn add_upvalue(this:&mut Compiler,upvalue:Upvalue){
+
+        }
         todo!()
     }
     fn load_name(&mut self,name:&str,line:u32){
