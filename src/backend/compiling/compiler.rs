@@ -84,6 +84,9 @@ impl Compiler{
         let index = self.declare_name(name);
         self.emit_define_instruction(index, line);
     }
+    fn resolve_upvalue(&mut self,name:&str)->usize{
+        todo!()
+    }
     fn load_name(&mut self,name:&str,line:u32){
         if let Some(index) = self.get_local(name){
             self.emit_instruction(Instruction::LoadLocal(index as u16),line);
@@ -92,7 +95,7 @@ impl Compiler{
             self.emit_instruction(Instruction::LoadGlobal(index as u16),line);
         }
         else{
-            
+            println!("Load upvalue '{}'",self.resolve_upvalue(name));
         }
     }
     fn store_name(&mut self,name:&str,line:u32){
@@ -103,6 +106,7 @@ impl Compiler{
             self.emit_instruction(Instruction::StoreGlobal(index as u16),line);
         }
         else{
+            println!("Store upvalue '{}'",self.resolve_upvalue(name));
         }
     }
     fn declare_global(&mut self,name:String)->usize{
