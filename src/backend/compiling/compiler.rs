@@ -85,7 +85,7 @@ impl Compiler{
         self.emit_define_instruction(index, line);
     }
     fn resolve_upvalue(&mut self,name:&str)->usize{
-        fn add_upvalue(this:&mut Compiler,upvalue:Upvalue){
+        fn add_upvalue(function :&mut CompiledFunction,upvalue:Upvalue){
 
         }
         todo!()
