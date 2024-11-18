@@ -8,6 +8,11 @@ struct Local{
     index : usize,
     depth : usize
 }
+#[derive(Clone, Copy)]
+enum Upvalue{
+    Local(usize),
+    Upvalue(usize)
+}
 struct GenericFunction{
     name : String,
     depth : usize,
@@ -17,6 +22,7 @@ struct GenericFunction{
 #[derive(Default)]
 struct CompiledFunction{
     pub locals : Vec<Local>,
+    pub upvalues : Vec<Upvalue>,
 }
 pub struct CompileFailed;
 #[derive(Default)]
@@ -199,6 +205,12 @@ impl Compiler{
         }
         disassemble(&function_name, &self.current_chunk,&self.constants);
         let compiled_function = self.functions.pop().expect("Function should still be around");
+        for upvalue in compiled_function.upvalues{
+            match upvalue{
+                Upvalue::Local(local) => println!("Local {}",local),
+                Upvalue::Upvalue(upvalue) => println!("Upvalue {}",upvalue)
+            }
+        }
         let func_code = std::mem::replace(&mut self.current_chunk, old_chunk);
         let func_constant = Constant::Function(Rc::new(Function{
             name : function_name,
