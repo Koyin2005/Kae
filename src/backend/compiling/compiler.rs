@@ -94,6 +94,11 @@ impl Compiler{
                 function.upvalues.len()-1
             }
         }
+        for function in self.functions.iter_mut().rev(){
+            if let Some(local) = function.locals.iter().rev().find(|local| local.name == name){
+
+            }   
+        }
         todo!()
     }
     fn load_name(&mut self,name:&str,line:u32){
