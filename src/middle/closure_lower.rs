@@ -39,7 +39,7 @@ impl ClosureLowerer{
         }
     }
     fn lower_pattern(&mut self,pattern:&mut PatternNode){
-        
+
     }
     fn lower_expr(&mut self,expr:&mut TypedExprNode){
         match &mut expr.kind{
@@ -129,6 +129,7 @@ impl ClosureLowerer{
             },
             TypedStmtNode::Let { pattern, expr } => {
                 self.lower_expr(expr);
+                self.lower_pattern(pattern);
             },
             TypedStmtNode::Enum { .. }|TypedStmtNode::Struct {..} => ()
         }
