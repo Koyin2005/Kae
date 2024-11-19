@@ -146,10 +146,10 @@ impl ClosureLowerer{
                 self.lower_expr(expr);
             },
             TypedStmtNode::GenericFunction { name, generic_params, function } => {
-
+                self.declare_name();
             },
             TypedStmtNode::Fun { name, function } => {
-
+                self.declare_name();
             },
             TypedStmtNode::Impl { ty, methods } => {
                 todo!()
