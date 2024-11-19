@@ -1,7 +1,8 @@
 use crate::frontend::typechecking::typed_ast::{TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedStmtNode};
 
 pub struct Local{
-    pub name : String
+    pub name : String,
+    pub depth : usize
 }
 pub struct Function{
     pub locals : Vec<Local>
