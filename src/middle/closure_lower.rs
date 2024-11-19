@@ -83,8 +83,11 @@ impl ClosureLowerer{
             TypedExprNodeKind::Match { matchee, arms } => {
                 self.lower_expr(matchee);
                 arms.iter_mut().for_each(|arm|{
-                    
+                    self.begin_scope();
+                    self.lower_pattern(&mut arm.pattern);
                     self.lower_expr(&mut arm.expr);
+                    self.end_scope();
+                    
                 });
             },
             TypedExprNodeKind::Block { stmts, expr } => {
