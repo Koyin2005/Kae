@@ -56,10 +56,11 @@ impl ClosureLowerer{
                 });
             },
             PatternNodeKind::Name(name) => {
-                
+                self.declare_name();
             },
             PatternNodeKind::Is(name,pattern ) => {
-                
+                self.declare_name();
+                self.lower_pattern(pattern);
             }
             PatternNodeKind::Bool(_) | PatternNodeKind::Float(_) | PatternNodeKind::Int(_) | PatternNodeKind::Wildcard | PatternNodeKind::String(_) => ()
         }
