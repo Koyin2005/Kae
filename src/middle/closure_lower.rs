@@ -1,4 +1,4 @@
-use crate::frontend::typechecking::typed_ast::{TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode};
+use crate::frontend::typechecking::typed_ast::{PatternNode, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode};
 
 pub struct Local{
     pub name : String,
@@ -37,6 +37,9 @@ impl ClosureLowerer{
                 self.lower_expr(rhs);
             }
         }
+    }
+    fn lower_pattern(&mut self,pattern:&mut PatternNode){
+        
     }
     fn lower_expr(&mut self,expr:&mut TypedExprNode){
         match &mut expr.kind{
@@ -80,6 +83,7 @@ impl ClosureLowerer{
             TypedExprNodeKind::Match { matchee, arms } => {
                 self.lower_expr(matchee);
                 arms.iter_mut().for_each(|arm|{
+                    
                     self.lower_expr(&mut arm.expr);
                 });
             },
