@@ -1,4 +1,4 @@
-use crate::frontend::typechecking::typed_ast::{TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedStmtNode};
+use crate::frontend::typechecking::typed_ast::{TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode};
 
 pub struct Local{
     pub name : String,
@@ -20,6 +20,10 @@ impl ClosureLowerer{
 
     fn begin_scope(&mut self){}
     fn end_scope(&mut self){}
+
+    fn visit_function(&mut self,function:&mut TypedFunction){
+        
+    }
     fn lower_assignment_target(&mut self,target:&mut TypedAssignmentTarget){
         match &mut target.kind{
             TypedAssignmentTargetKind::Name(name) => {
