@@ -15,6 +15,9 @@ pub struct ClosureLowerer{
 }
 
 impl ClosureLowerer{
+    fn declare_name(&mut self){}
+    fn store_name(&mut self){}
+    fn load_name(&mut self){}
     fn lower_assignment_target(&mut self,target:&mut TypedAssignmentTarget){
         match &mut target.kind{
             TypedAssignmentTargetKind::Name(name) => {
