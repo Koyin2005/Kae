@@ -9,7 +9,6 @@ pub struct Function{
 }
 #[derive(Default)]
 pub struct ClosureLowerer{
-    pub in_global_scope : bool,
     pub scope_depth : usize,
     pub locals : Vec<Vec<Local>>
 }
@@ -116,7 +115,6 @@ impl ClosureLowerer{
         }
     }
     pub fn lower(mut self,stmts:&mut Vec<TypedStmtNode>){
-        self.in_global_scope = true;
         for stmt in stmts{
             self.lower_stmt(stmt);
         }
