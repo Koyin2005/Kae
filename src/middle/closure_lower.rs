@@ -84,6 +84,14 @@ impl ClosureLowerer{
                 });
             },
             TypedExprNodeKind::Block { stmts, expr } => {
+                self.begin_scope();
+                for stmt in stmts{
+                    self.lower_stmt(stmt);
+                }
+                if let Some(expr) = expr.as_mut(){
+                    self.lower_expr(expr);
+                }
+                self.end_scope();
 
             },
             TypedExprNodeKind::Print(args) => {
