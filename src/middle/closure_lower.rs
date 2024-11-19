@@ -1,4 +1,4 @@
-use crate::frontend::typechecking::typed_ast::{PatternNode, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode};
+use crate::frontend::typechecking::typed_ast::{PatternNode, PatternNodeKind, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode};
 
 pub struct Local{
     pub name : String,
@@ -39,7 +39,30 @@ impl ClosureLowerer{
         }
     }
     fn lower_pattern(&mut self,pattern:&mut PatternNode){
-
+        match &mut pattern.kind{
+            PatternNodeKind::Array(before,mid ,rest ) => {
+                before.iter_mut().for_each(|before| self.lower_pattern(before));
+                if let Some(mid) = mid.as_mut(){
+                    self.lower_pattern(mid);
+                }
+                rest.iter_mut().for_each(|rest| self.lower_pattern(rest));
+            },
+            PatternNodeKind::Tuple(elements) => {
+                elements.iter_mut().for_each(|element| self.lower_pattern(element));
+            },
+            PatternNodeKind::Struct { fields,.. } => {
+                fields.iter_mut().for_each(|(_,pattern)|{
+                    self.lower_pattern(pattern);
+                });
+            },
+            PatternNodeKind::Name(name) => {
+                
+            },
+            PatternNodeKind::Is(name,pattern ) => {
+                
+            }
+            PatternNodeKind::Bool(_) | PatternNodeKind::Float(_) | PatternNodeKind::Int(_) | PatternNodeKind::Wildcard | PatternNodeKind::String(_) => ()
+        }
     }
     fn lower_expr(&mut self,expr:&mut TypedExprNode){
         match &mut expr.kind{
@@ -87,7 +110,7 @@ impl ClosureLowerer{
                     self.lower_pattern(&mut arm.pattern);
                     self.lower_expr(&mut arm.expr);
                     self.end_scope();
-                    
+
                 });
             },
             TypedExprNodeKind::Block { stmts, expr } => {
