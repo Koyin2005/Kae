@@ -10,6 +10,7 @@ pub struct Function{
 #[derive(Default)]
 pub struct ClosureLowerer{
     pub in_global_scope : bool,
+    pub scope_depth : usize,
     pub locals : Vec<Vec<Local>>
 }
 
