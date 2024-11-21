@@ -761,7 +761,6 @@ impl Compiler{
             function : native_parse_int
         })), 1);
         self.define_name("parse_int".to_string(), 1);
-        let mut stmts = stmts; 
         self.compile_stmts(&stmts);
         let last_line = self.current_chunk.lines.last().copied().unwrap_or(1);
         self.emit_instruction(Instruction::LoadUnit,last_line);
