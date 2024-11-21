@@ -240,7 +240,12 @@ impl Compiler{
         let func_constant = Constant::Function(Rc::new(Function{
             name : function_name,
             chunk : func_code,
-            upvalues : Vec::new()
+            upvalues : compiled_function.upvalues.iter().copied().map(|upvalue|{
+                match upvalue{
+                    Upvalue::Local(local) => (local,true),
+                    Upvalue::Upvalue(upvalue) => (upvalue,false)
+                }
+            }).collect()
         }));
         let func_constant = if let Some(constant_index) = constant_index{
             self.constants[constant_index] = func_constant;
