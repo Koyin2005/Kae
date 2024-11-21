@@ -137,6 +137,9 @@ impl VM{
         self.open_upvalues.push(new_upvalue);
         new_upvalue
     }
+    fn close_upvalues(&mut self,location:usize){
+        
+    }
     pub fn runtime_error(&self,message:&str){
         eprintln!("Error : {}",message);
         for frame in self.frames.iter().rev(){
