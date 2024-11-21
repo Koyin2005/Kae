@@ -45,15 +45,21 @@ impl Compiler{
     fn begin_scope(&mut self){
         self.scope_depth += 1;
     }
-    fn end_scope(&mut self){
+    fn end_scope(&mut self,line:u32){
         self.scope_depth -= 1;
+        let mut captured_locals = Vec::new();
         self.functions.last_mut().unwrap().locals.retain(|local| {
-            if local.is_captured{
-                todo!("Add close upvalue instruction")
+            if local.depth <= self.scope_depth{
+                if local.is_captured{
+                    captured_locals.push(local.index);
+                }
+                true
             }
-            local.depth <= self.scope_depth
+            else { false}
         });
-
+        for local in captured_locals{
+            self.emit_instruction(Instruction::CloseUpvalue(local as u16), line);
+        }
         self.generic_functions.retain(|function| function.depth <= self.scope_depth);
     }
     fn get_global(&self,name:&str)->Option<usize>{
@@ -236,7 +242,7 @@ impl Compiler{
         }
 
         self.compile_expr(&function.body);
-        self.end_scope();
+        self.end_scope(function.body.location.end_line);
 
         if function.body.ty != Type::Never{
             self.emit_instruction(Instruction::Return, function.body.location.end_line);
@@ -412,7 +418,7 @@ impl Compiler{
                 else if expr.ty != Type::Never{
                     self.emit_instruction(Instruction::LoadUnit,expr.location.end_line);
                 }
-                self.end_scope();
+                self.end_scope(expr.location.end_line);
             },
             TypedExprNodeKind::Array(elements) => {
                 for element in elements{
@@ -492,7 +498,7 @@ impl Compiler{
                     let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), arm.pattern.location.end_line);
                     self.emit_instruction(Instruction::Pop, arm.pattern.location.end_line);
                     self.compile_expr(&arm.expr);
-                    self.end_scope();
+                    self.end_scope(arm.expr.location.end_line);
                     let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), arm.expr.location.end_line);
                     self.patch_jump(false_jump);
                     end_jump
