@@ -49,13 +49,15 @@ impl Compiler{
         self.scope_depth -= 1;
         let mut captured_locals = Vec::new();
         self.functions.last_mut().unwrap().locals.retain(|local| {
-            if local.depth <= self.scope_depth{
+            if local.depth > self.scope_depth{
                 if local.is_captured{
                     captured_locals.push(local.index);
                 }
+                false
+            }
+            else { 
                 true
             }
-            else { false}
         });
         for local in captured_locals{
             self.emit_instruction(Instruction::CloseUpvalue(local as u16), line);
