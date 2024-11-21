@@ -94,12 +94,23 @@ impl Compiler{
                 function.upvalues.len()-1
             }
         }
-        for function in self.functions.iter_mut().rev(){
-            if let Some(local) = function.locals.iter().rev().find(|local| local.name == name){
-
-            }   
+        let (Some(function_index),Some(local_index)) =  self.functions.iter().enumerate().rev()
+        .filter_map(|(i,function)|{
+            function.locals.iter().rev().find(|local| local.name == name).map(|local| (i,local.index))
+        }).next().map_or((None,None),|(i,local_index)| (Some(i),Some(local_index))) else {
+            panic!("Variable '{}' should definitely be in a function's scope.",name);
+        };
+        let mut upvalue = None;
+        for i in function_index+1..self.functions.len(){
+            let next_upvalue = if i == function_index+1{
+                add_upvalue(&mut self.functions[i],Upvalue::Local(local_index))
+            }
+            else{
+                add_upvalue(&mut self.functions[i], Upvalue::Upvalue(upvalue.unwrap()))
+            };
+            upvalue = Some(next_upvalue);
         }
-        todo!()
+        upvalue.unwrap()
     }
     fn load_name(&mut self,name:&str,line:u32){
         if let Some(index) = self.get_local(name){
