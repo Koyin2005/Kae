@@ -127,8 +127,15 @@ impl VM{
         }
         Ok(())
     }
-    fn capture_upvalue(&mut self,local:usize)->Object{
-        Object::new_upvalue(&mut self.heap, Upvalue{index:local})
+    fn capture_upvalue(&mut self,location:usize)->Object{
+        for upvalue in &self.open_upvalues{
+            if upvalue.as_upvalue(&self.heap).index == location{
+                return *upvalue;
+            }
+        }
+        let new_upvalue = Object::new_upvalue(&mut self.heap, Upvalue{index:location});
+        self.open_upvalues.push(new_upvalue);
+        new_upvalue
     }
     pub fn runtime_error(&self,message:&str){
         eprintln!("Error : {}",message);
