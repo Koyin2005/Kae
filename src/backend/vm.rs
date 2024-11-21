@@ -418,6 +418,12 @@ impl VM{
                     let value = self.pop();
                     self.globals.insert(global as usize, value);
                 },
+                Instruction::LoadUpvalue(upvalue) => {
+
+                },
+                Instruction::StoreUpvalue(upvalue) => {
+
+                },
                 Instruction::LoadIndex => {
                     let Value::Int(index) = self.pop() else {
                         panic!("Expected an int.")
