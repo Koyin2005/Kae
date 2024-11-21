@@ -138,7 +138,7 @@ impl VM{
         new_upvalue
     }
     fn close_upvalues(&mut self,location:usize){
-        
+
     }
     pub fn runtime_error(&self,message:&str){
         eprintln!("Error : {}",message);
@@ -188,7 +188,7 @@ impl VM{
                     self.push(closure)?;
                 },
                 Instruction::CloseUpvalue(local) => {
-                    
+                    self.close_upvalues(self.current_frame().bp + local as usize);
                 }
                 Instruction::AddInt => {
                     let Value::Int(b) = self.pop() else {
@@ -583,6 +583,7 @@ impl VM{
                 Instruction::Return => {
                     let value = self.pop();
                     if let Some(frame) = self.frames.pop(){
+                        self.close_upvalues(frame.bp);
                         self.stack.truncate(frame.bp);
                         self.push(value)?;
                     }
