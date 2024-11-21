@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use super::values::{Closure, Function, NativeFunction, Record, Value};
+use super::values::{Closure, Function, NativeFunction, Record, Upvalue, Value};
 
 #[derive(Clone,Copy,Debug,Hash,PartialEq)]
 pub struct Object(usize);
@@ -113,6 +113,7 @@ pub enum ObjectType{
     Function(Rc<Function>),
     NativeFunction(Rc<NativeFunction>),
     Closure(Closure),
+    Upvalue(Upvalue)
 }
 
 
