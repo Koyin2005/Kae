@@ -79,6 +79,12 @@ impl Object{
         };
         list
     }
+    pub fn as_upvalue(self,heap:& Heap)->Upvalue{
+        let ObjectType::Upvalue(upvalue) = heap.get_object(self) else {
+            panic!("Can't use object as upvalue")
+        };
+        *upvalue
+    }
     pub fn new_native_function(heap:&mut Heap,function:Rc< NativeFunction>)->Self{
         heap.alloc(ObjectType::NativeFunction(function))
     }

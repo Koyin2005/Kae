@@ -4,7 +4,7 @@ use fxhash::FxHashMap;
 
 use crate::backend::disassembly::disassemble_instruction;
 
-use super::{instructions::{Chunk, Constant, Instruction, Program}, objects::{Heap, Object}, values::{Closure, Function, Record, Value}};
+use super::{instructions::{Chunk, Constant, Instruction, Program}, objects::{Heap, Object}, values::{Closure, Function, Record, Upvalue, Value}};
 
 pub const DEBUG_TRACE_EXEC : bool = false;
 pub const MAX_STACK_SIZE : usize = 255;
@@ -126,7 +126,7 @@ impl VM{
         Ok(())
     }
     fn capture_upvalue(&mut self,local:usize)->Object{
-        todo!()
+        Object::new_upvalue(&mut self.heap, Upvalue{index:local})
     }
     pub fn runtime_error(&self,message:&str){
         eprintln!("Error : {}",message);
@@ -165,7 +165,7 @@ impl VM{
                     };
                     let upvalues = function.upvalues.iter().copied().map(|(index,is_local)|{
                         if is_local{
-                            self.capture_upvalue(index)
+                            self.capture_upvalue(self.current_frame().bp + index)
                         }
                         else{
                             let closure = self.current_frame().closure.expect("Can only capture a closure.");
@@ -438,10 +438,12 @@ impl VM{
                     self.globals.insert(global as usize, value);
                 },
                 Instruction::LoadUpvalue(upvalue) => {
-
+                    let upvalue = self.current_frame().closure.expect("Can only use upvalues with closure").as_closure(&self.heap).upvalues[upvalue as usize].as_upvalue(&self.heap);
+                    self.push(self.stack[upvalue.index])?;
                 },
                 Instruction::StoreUpvalue(upvalue) => {
-
+                    let upvalue = self.current_frame().closure.expect("Can only use upvalues with closure").as_closure(&self.heap).upvalues[upvalue as usize].as_upvalue(&self.heap);
+                    self.stack[upvalue.index] = self.pop();
                 },
                 Instruction::LoadIndex => {
                     let Value::Int(index) = self.pop() else {
