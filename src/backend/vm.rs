@@ -125,6 +125,9 @@ impl VM{
         }
         Ok(())
     }
+    fn capture_upvalue(&mut self,local:usize)->Object{
+        todo!()
+    }
     pub fn runtime_error(&self,message:&str){
         eprintln!("Error : {}",message);
         for frame in self.frames.iter().rev(){
@@ -160,7 +163,16 @@ impl VM{
                     let Constant::Function(function) = self.constants[constant as usize].clone() else {
                         panic!("Expected a function")
                     };
-                    let closure = Value::Closure(Object::new_closure(&mut self.heap, Closure { environment: Box::new([]), function }));
+                    let upvalues = function.upvalues.iter().copied().map(|(index,is_local)|{
+                        if is_local{
+                            self.capture_upvalue(index)
+                        }
+                        else{
+                            let closure = self.current_frame().closure.expect("Can only capture a closure.");
+                            closure.as_closure(&self.heap).upvalues[index]
+                        }
+                    }).collect();
+                    let closure = Value::Closure(Object::new_closure(&mut self.heap, Closure { upvalues, function }));
                     self.push(closure)?;
                 },
                 Instruction::AddInt => {
