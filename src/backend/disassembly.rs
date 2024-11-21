@@ -32,6 +32,15 @@ pub fn disassemble_instruction(chunk:&Chunk,ip:usize,instruction:Instruction,con
         Instruction::LoadLocal(local) => {
             arg_instruction("LoadLocal", local);
         },
+        Instruction::LoadClosure(closure_constant) => {
+            println!("LoadClosure {} ({})",closure_constant,&constants[closure_constant as usize]);
+            let Constant::Function(function) = &constants[closure_constant as usize] else {
+                unreachable!()
+            };
+            for &(index,is_local) in &function.upvalues{
+                println!("|   {} {}",if is_local { "local" } else {"upvalue"}, index);
+            }
+        },
         _ => {
             
             println!("{:?}",instruction)
