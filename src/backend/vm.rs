@@ -129,16 +129,32 @@ impl VM{
     }
     fn capture_upvalue(&mut self,location:usize)->Object{
         for upvalue in &self.open_upvalues{
-            if upvalue.as_upvalue(&self.heap).index == location{
-                return *upvalue;
+            if let Upvalue::Open { location:upvalue_location } = upvalue.as_upvalue(&self.heap){
+                if upvalue_location == location{
+                    return *upvalue;
+                }
             }
         }
-        let new_upvalue = Object::new_upvalue(&mut self.heap, Upvalue{index:location});
+        let new_upvalue = Object::new_upvalue(&mut self.heap, Upvalue::Open { location });
         self.open_upvalues.push(new_upvalue);
         new_upvalue
     }
     fn close_upvalues(&mut self,location:usize){
+        let mut i = 0;
+        while i != self.open_upvalues.len() {
+            let upvalue = self.open_upvalues[i];
+            let upvalue = upvalue.as_upvalue_mut(&mut self.heap);
+            if let Upvalue::Open { location:upvalue_location } = upvalue{
+                if *upvalue_location >= location{
+                    self.open_upvalues.remove(i);
+                    *upvalue = Upvalue::Closed(self.stack[*upvalue_location]);
 
+                }
+                else{
+                    i+=1;
+                }
+            }
+        }
     }
     pub fn runtime_error(&self,message:&str){
         eprintln!("Error : {}",message);
@@ -454,11 +470,19 @@ impl VM{
                 },
                 Instruction::LoadUpvalue(upvalue) => {
                     let upvalue = self.current_frame().closure.expect("Can only use upvalues with closure").as_closure(&self.heap).upvalues[upvalue as usize].as_upvalue(&self.heap);
-                    self.push(self.stack[upvalue.index])?;
+                   
+                    self.push(match upvalue {
+                        Upvalue::Closed(value) => value,
+                        Upvalue::Open { location } => self.stack[location]
+                    })?;
                 },
                 Instruction::StoreUpvalue(upvalue) => {
-                    let upvalue = self.current_frame().closure.expect("Can only use upvalues with closure").as_closure(&self.heap).upvalues[upvalue as usize].as_upvalue(&self.heap);
-                    self.stack[upvalue.index] = self.pop();
+                    let value = self.pop();
+                    let upvalue = self.current_frame().closure.expect("Can only use upvalues with closure").as_closure(&self.heap).upvalues[upvalue as usize].as_upvalue_mut(&mut self.heap);
+                    match upvalue{
+                        Upvalue::Closed(closed) => *closed = value,
+                        Upvalue::Open { location } => self.stack[*location] = value
+                    }
                 },
                 Instruction::LoadIndex => {
                     let Value::Int(index) = self.pop() else {

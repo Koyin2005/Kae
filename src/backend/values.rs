@@ -27,8 +27,11 @@ pub struct Record{
 }
 
 #[derive(Debug,Clone,Copy)]
-pub struct Upvalue{
-    pub index : usize
+pub enum Upvalue{
+    Open{
+        location:usize
+    },
+    Closed(Value)
 }
 
 
