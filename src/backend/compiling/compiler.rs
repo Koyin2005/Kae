@@ -236,12 +236,6 @@ impl Compiler{
         }
         disassemble(&function_name, &self.current_chunk,&self.constants);
         let compiled_function = self.functions.pop().expect("Function should still be around");
-        for upvalue in compiled_function.upvalues{
-            match upvalue{
-                Upvalue::Local(local) => println!("Local {}",local),
-                Upvalue::Upvalue(upvalue) => println!("Upvalue {}",upvalue)
-            }
-        }
         let func_code = std::mem::replace(&mut self.current_chunk, old_chunk);
         let func_constant = Constant::Function(Rc::new(Function{
             name : function_name,
@@ -255,8 +249,12 @@ impl Compiler{
         else{
             self.add_constant(func_constant)
         };
-
-        self.load_constant_at_index(func_constant,function.body.location.end_line);
+        if compiled_function.upvalues.is_empty(){
+            self.load_constant_at_index(func_constant,function.body.location.end_line);
+        }
+        else{
+            self.emit_instruction(Instruction::LoadClosure(func_constant as u16), function.body.location.end_line);
+        }
     }
     fn compile_pattern_check(&mut self,pattern:&PatternNode){
         match &pattern.kind{
