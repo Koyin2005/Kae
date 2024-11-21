@@ -95,9 +95,12 @@ impl Compiler{
                 function.upvalues.len()-1
             }
         }
-        let (Some(function_index),Some(local_index)) =  self.functions.iter().enumerate().rev()
+        let (Some(function_index),Some(local_index)) =  self.functions.iter_mut().enumerate().rev()
         .filter_map(|(i,function)|{
-            function.locals.iter().rev().find(|local| local.name == name).map(|local| (i,local.index))
+            function.locals.iter_mut().rev().find(|local| local.name == name).map(|local|{
+                local.is_captured = true;
+                (i,local.index)
+            })
         }).next().map_or((None,None),|(i,local_index)| (Some(i),Some(local_index))) else {
             panic!("Variable '{}' should definitely be in a function's scope.",name);
         };
