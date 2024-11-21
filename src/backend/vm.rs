@@ -156,6 +156,13 @@ impl VM{
                     let constant = self.load_constant(constant as usize);
                     self.push(constant)?;
                 },
+                Instruction::LoadClosure(constant) => {
+                    let Constant::Function(function) = self.constants[constant as usize].clone() else {
+                        panic!("Expected a function")
+                    };
+                    let closure = Value::Closure(Object::new_closure(&mut self.heap, Closure { environment: Box::new([]), function }));
+                    self.push(closure)?;
+                },
                 Instruction::AddInt => {
                     let Value::Int(b) = self.pop() else {
                         panic!("Expected an int.")

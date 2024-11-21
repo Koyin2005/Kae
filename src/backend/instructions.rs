@@ -8,6 +8,7 @@ pub enum Instruction {
     LoadBool(bool),
     LoadInt(i16),
     LoadConstant(u16),
+    LoadClosure(u16),
 
     LoadLocal(u16),
     StoreLocal(u16),
