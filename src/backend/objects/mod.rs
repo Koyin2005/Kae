@@ -103,6 +103,9 @@ impl Object{
     pub fn new_closure(heap:&mut Heap,closure:Closure)->Self{
         heap.alloc(ObjectType::Closure(closure))
     }
+    pub fn new_upvalue(heap:&mut Heap,upvalue:Upvalue)->Self{
+        heap.alloc(ObjectType::Upvalue(upvalue))
+    }
 }
 pub enum ObjectType{
     Record(Record),
