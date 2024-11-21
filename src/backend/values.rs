@@ -26,8 +26,10 @@ pub struct Record{
     pub fields : Box<[Value]>
 }
 
-
-
+#[derive(Debug,Clone,Copy)]
+pub struct Upvalue{
+    pub index : usize
+}
 
 
 
