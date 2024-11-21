@@ -6,7 +6,8 @@ use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, 
 struct Local{
     name : String,
     index : usize,
-    depth : usize
+    depth : usize,
+    is_captured : bool
 }
 #[derive(Clone, Copy,PartialEq)]
 enum Upvalue{
@@ -145,7 +146,7 @@ impl Compiler{
             self.declare_global(name)
         }else{
             let local_index = self.functions.last().unwrap().locals.len();
-            self.functions.last_mut().unwrap().locals.push(Local { name,index: local_index, depth: self.scope_depth });
+            self.functions.last_mut().unwrap().locals.push(Local { name,index: local_index, depth: self.scope_depth ,is_captured:false});
             self.current_chunk.locals = self.current_chunk.locals.max(self.functions.last().unwrap().locals.len());
             local_index
         }
