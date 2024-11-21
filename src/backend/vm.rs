@@ -24,6 +24,7 @@ pub struct VM{
     constants : Box<[Constant]>,
     frames : Vec<CallFrame>,
     globals : FxHashMap<usize,Value>,
+    open_upvalues : Vec<Object>,
     pub heap : Heap,
 }
 impl VM{
@@ -31,6 +32,7 @@ impl VM{
     pub fn new(program : Program)->Self{
         Self{
             names : program.names,
+            open_upvalues : Vec::new(),
             stack:Vec::from_iter(std::iter::repeat(Value::Int(0)).take(program.chunk.locals)),
             constants:program.constants.into_boxed_slice(),
             heap:Heap::default(),
