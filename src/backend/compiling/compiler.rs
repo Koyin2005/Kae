@@ -48,6 +48,9 @@ impl Compiler{
     fn end_scope(&mut self){
         self.scope_depth -= 1;
         self.functions.last_mut().unwrap().locals.retain(|local| {
+            if local.is_captured{
+                todo!("Add close upvalue instruction")
+            }
             local.depth <= self.scope_depth
         });
 

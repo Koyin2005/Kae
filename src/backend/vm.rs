@@ -175,6 +175,9 @@ impl VM{
                     let closure = Value::Closure(Object::new_closure(&mut self.heap, Closure { upvalues, function }));
                     self.push(closure)?;
                 },
+                Instruction::CloseUpvalue(local) => {
+                    
+                }
                 Instruction::AddInt => {
                     let Value::Int(b) = self.pop() else {
                         panic!("Expected an int.")
