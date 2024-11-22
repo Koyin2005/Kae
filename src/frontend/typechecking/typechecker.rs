@@ -150,8 +150,8 @@ impl TypeChecker{
         let params = match function.params.iter().map(|param|{
             let pattern = self.get_pattern(&param.pattern)?;
             let ty = self.check_type(&param.ty)?;
-            if let Err(refutable_pattern) = PatternChecker::check_irrefutable(&pattern){
-                self.error("Can't use non-irrefutable pattern in function parameter.".to_string(), refutable_pattern.location.start_line);
+            if PatternChecker.is_exhaustive(&[&pattern], &ty, &self.type_context){
+                self.error("Can't use non-irrefutable pattern in function parameter.".to_string(), pattern.location.start_line);
                 return Err(TypeCheckFailed);
             }
             if let Err(pattern_type) = PatternChecker::check_pattern_type(&pattern, &ty,&self.type_context){
