@@ -326,14 +326,7 @@ impl Compiler{
                     self.push_top_of_stack(element.location.start_line);
                     self.emit_instruction(Instruction::GetTupleElement(i as u16), element.location.start_line);
                     self.compile_pattern_check(element);
-                    let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), element.location.end_line);
-                    self.emit_instruction(Instruction::Pop,element.location.end_line);
-                    let true_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), element.location.end_line);
-                    self.patch_jump(false_jump);
-                    self.emit_instruction(Instruction::Pop,element.location.end_line);
-                    let skip_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), element.location.end_line);
-                    self.patch_jump(true_jump);
-                    jumps.push(skip_jump);
+                    jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalseAndPop(0xFF), element.location.end_line));
                 }
                 self.load_bool(true,pattern.location.end_line);
                 let jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
@@ -357,14 +350,7 @@ impl Compiler{
                     self.push_top_of_stack(field_pattern.location.start_line);
                     self.emit_instruction(Instruction::LoadField(ty.get_field_index(field_name, &self.type_context).unwrap() as u16),field_pattern.location.start_line);
                     self.compile_pattern_check(field_pattern);
-                    let false_jump  = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), field_pattern.location.end_line);
-                    self.emit_instruction(Instruction::Pop, field_pattern.location.end_line);
-                    let skip_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), field_pattern.location.end_line);
-                    self.patch_jump(false_jump);
-                    self.emit_instruction(Instruction::Pop, field_pattern.location.end_line);
-                    let false_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), field_pattern.location.end_line);
-                    self.patch_jump(skip_jump);
-                    jumps.push(false_jump);
+                    jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalseAndPop(0xFF), field_pattern.location.end_line));
                 }
                 self.load_bool(true, pattern.location.end_line);
                 let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
@@ -394,14 +380,7 @@ impl Compiler{
                     self.load_int(i as i64, pattern.location.start_line);
                     self.emit_instruction(Instruction::LoadIndex, pattern.location.start_line);
                     self.compile_pattern_check(pattern);
-                    let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line);
-                    self.emit_instruction(Instruction::Pop, pattern.location.end_line);
-                    let true_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
-                    self.patch_jump(false_jump);
-                    self.emit_instruction(Instruction::Pop, pattern.location.end_line);
-                    let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
-                    jumps.push(end_jump);
-                    self.patch_jump(true_jump);
+                    jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalseAndPop(0xFF), pattern.location.end_line));
                 }
 
                 if let Some(ignore) = ignore.as_ref(){
@@ -420,14 +399,8 @@ impl Compiler{
                             }
                             self.emit_instruction(Instruction::LoadIndex, pattern.location.start_line);
                             self.compile_pattern_check(pattern);
-                            let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line);
-                            self.emit_instruction(Instruction::Pop, pattern.location.end_line);
-                            let true_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
-                            self.patch_jump(false_jump);
-                            self.emit_instruction(Instruction::Pop, pattern.location.end_line);
-                            let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
-                            after_jumps.push(end_jump);
-                            self.patch_jump(true_jump);
+                            let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalseAndPop(0xFF), pattern.location.end_line);
+                            after_jumps.push(false_jump);
 
                         }
                         self.emit_instruction(Instruction::Pop,pattern.location.end_line);
