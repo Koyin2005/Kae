@@ -176,7 +176,9 @@ impl Compiler{
     fn patch_jump(&mut self,index:usize){
         let next_instr = self.current_chunk.code.len();
         match &mut self.current_chunk.code[index]{
-            Instruction::Jump(offset) | Instruction::JumpIfFalse(offset) | Instruction::JumpIfTrue(offset) | Instruction::JumpIfFalsePeek(offset) => {
+            Instruction::Jump(offset) | Instruction::JumpIfFalse(offset) | Instruction::JumpIfTrue(offset) |
+             Instruction::JumpIfFalsePeek(offset)|
+             Instruction::JumpIfFalseAndPop(offset) => {
                 *offset = (next_instr - index - 1) as u16;
             },
             _ => unreachable!()
