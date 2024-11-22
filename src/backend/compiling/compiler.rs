@@ -403,39 +403,41 @@ impl Compiler{
                 }
 
                 if let Some(ignore) = ignore.as_ref(){
-                    self.push_top_of_stack(ignore.location.start_line);
-                    self.emit_instruction(Instruction::GetArrayLength, ignore.location.start_line);
-                    self.load_int(after.len() as i64, ignore.location.start_line);
-                    self.emit_instruction(Instruction::SubtractInt, ignore.location.start_line);
-                    let mut after_jumps = Vec::new();
-                    for (i,pattern) in after.iter().enumerate(){
-                        self.push_slots_below_to_top(2, pattern.location.start_line);
-                        self.push_slots_below_to_top(2, pattern.location.start_line);
-                        if i > 0{
-                            self.load_int(i as i64, pattern.location.start_line);
-                            self.emit_instruction(Instruction::AddInt, pattern.location.start_line);
-                        }
-                        self.emit_instruction(Instruction::LoadIndex, pattern.location.start_line);
-                        self.compile_pattern_check(pattern);
-                        let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line);
-                        self.emit_instruction(Instruction::Pop, pattern.location.end_line);
-                        let true_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
-                        self.patch_jump(false_jump);
-                        self.emit_instruction(Instruction::Pop, pattern.location.end_line);
-                        let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
-                        after_jumps.push(end_jump);
-                        self.patch_jump(true_jump);
+                    if !after.is_empty(){
+                        self.push_top_of_stack(ignore.location.start_line);
+                        self.emit_instruction(Instruction::GetArrayLength, ignore.location.start_line);
+                        self.load_int(after.len() as i64, ignore.location.start_line);
+                        self.emit_instruction(Instruction::SubtractInt, ignore.location.start_line);
+                        let mut after_jumps = Vec::new();
+                        for (i,pattern) in after.iter().enumerate(){
+                            self.push_slots_below_to_top(2, pattern.location.start_line);
+                            self.push_slots_below_to_top(2, pattern.location.start_line);
+                            if i > 0{
+                                self.load_int(i as i64, pattern.location.start_line);
+                                self.emit_instruction(Instruction::AddInt, pattern.location.start_line);
+                            }
+                            self.emit_instruction(Instruction::LoadIndex, pattern.location.start_line);
+                            self.compile_pattern_check(pattern);
+                            let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line);
+                            self.emit_instruction(Instruction::Pop, pattern.location.end_line);
+                            let true_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
+                            self.patch_jump(false_jump);
+                            self.emit_instruction(Instruction::Pop, pattern.location.end_line);
+                            let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
+                            after_jumps.push(end_jump);
+                            self.patch_jump(true_jump);
 
+                        }
+                        self.emit_instruction(Instruction::Pop,pattern.location.end_line);
+                        let skip_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
+                        for jump in after_jumps{
+                            self.patch_jump(jump);
+                        }
+                        self.emit_instruction(Instruction::Pop,pattern.location.end_line);
+                        let end_jump  = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
+                        jumps.push(end_jump);
+                        self.patch_jump(skip_jump);
                     }
-                    self.emit_instruction(Instruction::Pop,pattern.location.end_line);
-                    let skip_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
-                    for jump in after_jumps{
-                        self.patch_jump(jump);
-                    }
-                    self.emit_instruction(Instruction::Pop,pattern.location.end_line);
-                    let end_jump  = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
-                    jumps.push(end_jump);
-                    self.patch_jump(skip_jump);
                 }
                 else{
                     for (i,pattern) in after.iter().enumerate(){
