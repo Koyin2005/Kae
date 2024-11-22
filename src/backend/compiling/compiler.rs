@@ -293,6 +293,11 @@ impl Compiler{
                 self.load_string(string.clone(), pattern.location.end_line);
                 self.emit_instruction(Instruction::Equals, pattern.location.end_line);
             },
+            PatternNodeKind::Bool(bool) => {
+                self.push_top_of_stack(pattern.location.end_line);
+                self.load_bool(*bool, pattern.location.end_line);
+                self.emit_instruction(Instruction::Equals, pattern.location.end_line);
+            },
             PatternNodeKind::Wildcard => {
                 self.load_bool(true, pattern.location.end_line);
             },
@@ -367,8 +372,21 @@ impl Compiler{
                 self.load_bool(false, pattern.location.end_line);
                 self.patch_jump(end_jump);
             },
+            PatternNodeKind::Array(before,ignore ,after) => {
+                let total_length = before.len() + after.len();
+                self.push_top_of_stack(pattern.location.start_line);
+                self.emit_instruction(Instruction::GetArrayLength, pattern.location.start_line);
+                self.load_int(total_length as i64, pattern.location.start_line);
+                match ignore{
+                    Some(_) => {
+                        self.emit_instruction(Instruction::GreaterEqualsInt,pattern.location.start_line);
+                    },
+                    None => {
+                        self.emit_instruction(Instruction::Equals,pattern.location.start_line);
+                    }
+                }
+            },
             
-            _ => todo!("{:?}",pattern.kind)
         }
     }
     fn compile_expr(&mut self,expr:&TypedExprNode){
