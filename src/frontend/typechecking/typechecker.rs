@@ -1138,8 +1138,8 @@ impl TypeChecker{
                 };
 
                 let ty = ty.unwrap_or_else(|| expr.ty.clone());
-                if let Err(refutable_pattern) = PatternChecker::check_irrefutable(&pattern){
-                    self.error("Can't use non-irrefutable pattern in 'let' statement.".to_string(), refutable_pattern.location.start_line);
+                if !PatternChecker.is_exhaustive(&[&pattern],&ty,&self.type_context){
+                    self.error("Can't use non-irrefutable pattern in 'let' statement.".to_string(), pattern.location.start_line);
                     self.add_variables_in_pattern(&pattern, &ty);
                     return Err(TypeCheckFailed);
                 }
