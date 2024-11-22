@@ -564,6 +564,15 @@ impl VM{
                         self.current_frame_mut().ip += offset as usize;
                     }
                 },
+                Instruction::JumpIfFalseAndPop(offset) => {
+                    let Value::Bool(condition) = self.pop() else {
+                        panic!("Expected bool.")
+                    };
+                    if condition{
+                        self.current_frame_mut().ip += offset as usize;
+                    }
+                    self.pop();
+                }
                 Instruction::Pop => {
                     self.pop();
                 },

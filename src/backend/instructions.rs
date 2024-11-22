@@ -64,6 +64,9 @@ pub enum Instruction {
     JumpIfFalse(u16),
     JumpIfTrue(u16),
 
+    
+    JumpIfFalseAndPop(u16),
+
     Print(u16),
     Call(u16),
     Return,
