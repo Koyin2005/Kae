@@ -49,18 +49,30 @@ impl PatternChecker{
         if patterns.iter().any(|pattern| is_irrefutable(&pattern.kind)){
             return true;
         }
-        if let Type::Enum { id, .. }  = pattern_ty{
-            let mut seen_variants =Vec::new();
-            for pattern in patterns{
-                if let PatternNodeKind::Struct { ty:Type::EnumVariant{variant_index,id:variant_id,..}, fields } = &pattern.kind{
-                    if variant_id == id && fields.iter().all(|(_,pattern)| is_irrefutable(&pattern.kind)){
-                        seen_variants.push(*variant_index);
+        match pattern_ty{
+            Type::Enum { id,.. } => {
+                let mut seen_variants =Vec::new();
+                for pattern in patterns{
+                    if let PatternNodeKind::Struct { ty:Type::EnumVariant{variant_index,id:variant_id,..}, fields } = &pattern.kind{
+                        if variant_id == id && fields.iter().all(|(_,pattern)| is_irrefutable(&pattern.kind)){
+                            seen_variants.push(*variant_index);
+                        }
                     }
                 }
-            }
-            return seen_variants.len() == type_context.enums.get_enum(*id).variants.len();
+                return seen_variants.len() == type_context.enums.get_enum(*id).variants.len();
+            },
+            Type::EnumVariant { id, variant_index,.. } => {
+                patterns.iter().any(|pattern|{
+                    if let PatternNodeKind::Struct { ty:Type::EnumVariant{variant_index:found_variant,id:variant_id,..}, fields } = &pattern.kind{
+                        if variant_id == id && fields.iter().all(|(_,pattern)| is_irrefutable(&pattern.kind)) && found_variant == variant_index{
+                            return true;
+                        }
+                    }
+                    false
+                })
+            },
+            _ => false
         }
-        false
     }
     
     pub fn check_irrefutable(pattern:&PatternNode) -> Result<(),&PatternNode>{
