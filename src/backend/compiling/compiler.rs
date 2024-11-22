@@ -445,7 +445,14 @@ impl Compiler{
                         self.load_int((i+before.len()) as i64, pattern.location.start_line);
                         self.emit_instruction(Instruction::LoadIndex, pattern.location.start_line);
                         self.compile_pattern_check(pattern);
-                        jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line));
+                        let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line);
+                        self.emit_instruction(Instruction::Pop, pattern.location.end_line);
+                        let true_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
+                        self.patch_jump(false_jump);
+                        self.emit_instruction(Instruction::Pop, pattern.location.end_line);
+                        let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
+                        jumps.push(end_jump);
+                        self.patch_jump(true_jump);
                     }
                 }
                 self.load_bool(true, pattern.location.end_line);
