@@ -75,15 +75,6 @@ impl PatternChecker{
         }
     }
     
-    pub fn check_irrefutable(pattern:&PatternNode) -> Result<(),&PatternNode>{
-        if is_irrefutable(&pattern.kind){
-            Ok(())
-        }
-        else{
-            Err(pattern)
-        }
-
-    }
     pub fn check_pattern_type(pattern:&PatternNode,expected_type:&Type,type_context:&TypeContext)->Result<Type,Type>{
         fn unwrap<T>(result:Result<T,T>) -> T{
             match result {
