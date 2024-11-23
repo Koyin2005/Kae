@@ -479,7 +479,7 @@ impl VM{
                    
                     self.push(match upvalue {
                         Upvalue::Closed(value) => value,
-                        Upvalue::Open { location } => self.stack[location]
+                        Upvalue::Open { location } => self.locals[location]
                     })?;
                 },
                 Instruction::StoreUpvalue(upvalue) => {
@@ -487,7 +487,7 @@ impl VM{
                     let upvalue = self.current_frame().closure.expect("Can only use upvalues with closure").as_closure(&self.heap).upvalues[upvalue as usize].as_upvalue_mut(&mut self.heap);
                     match upvalue{
                         Upvalue::Closed(closed) => *closed = value,
-                        Upvalue::Open { location } => self.stack[*location] = value
+                        Upvalue::Open { location } => self.locals[*location] = value
                     }
                 },
                 Instruction::LoadIndex => {
