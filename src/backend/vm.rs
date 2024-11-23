@@ -461,11 +461,11 @@ impl VM{
                 Instruction::StoreLocal(local) => {
                     let value = self.pop();
                     let location = local as usize + self.current_frame().bp;
-                    self.stack[location] = value;
+                    self.locals[location] = value;
                 },
                 Instruction::LoadLocal(local) => {
                     let location = local as usize + self.current_frame().bp;
-                    self.push(self.stack[location])?;
+                    self.push(self.locals[location])?;
                 },
                 Instruction::LoadGlobal(global) => {
                     self.push(self.globals[&(global as usize)])?;
