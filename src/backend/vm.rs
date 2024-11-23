@@ -20,6 +20,7 @@ pub struct CallFrame{
 }
 pub struct VM{
     names : Vec<Rc<str>>,
+    locals : Vec<Value>,
     stack : Vec<Value>,
     constants : Box<[Constant]>,
     frames : Vec<CallFrame>,
@@ -33,7 +34,8 @@ impl VM{
         Self{
             names : program.names,
             open_upvalues : Vec::new(),
-            stack:Vec::from_iter(std::iter::repeat(Value::Int(0)).take(program.chunk.locals)),
+            locals:Vec::from_iter(std::iter::repeat(Value::Int(0)).take(program.chunk.locals)),
+            stack:Vec::new(),
             constants:program.constants.into_boxed_slice(),
             heap:Heap::default(),
             frames : vec![CallFrame{
