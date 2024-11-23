@@ -149,7 +149,7 @@ impl VM{
             if let Upvalue::Open { location:upvalue_location } = upvalue{
                 if *upvalue_location >= location{
                     self.open_upvalues.remove(i);
-                    *upvalue = Upvalue::Closed(self.stack[*upvalue_location]);
+                    *upvalue = Upvalue::Closed(self.locals[*upvalue_location]);
 
                 }
                 else{
