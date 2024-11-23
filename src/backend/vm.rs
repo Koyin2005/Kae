@@ -112,11 +112,11 @@ impl VM{
         self.stack[index] = value;
     }
     fn push_frame(&mut self,function:Rc<Function>,arg_count:usize,closure:Option<Object>)->Result<(), RuntimeError>{
-        let bp = self.stack.len() - arg_count - 1;
-        let stack_size = self.stack.len();
-        self.stack.copy_within(bp+1..stack_size, bp);
+        let bp = self.locals.len();
+        let args = self.stack.drain(self.stack.len()-arg_count..);
+        self.locals.extend(args);
+        self.locals.extend(std::iter::repeat(Value::Int(0)).take(function.chunk.locals - arg_count));
         self.pop();
-        self.stack.extend(std::iter::repeat(Value::Int(0)).take(function.chunk.locals - arg_count));
         self.frames.push(CallFrame{
             closure,
             function,
@@ -623,7 +623,7 @@ impl VM{
                     let value = self.pop();
                     if let Some(frame) = self.frames.pop(){
                         self.close_upvalues(frame.bp);
-                        self.stack.truncate(frame.bp);
+                        self.locals.truncate(frame.bp);
                         self.push(value)?;
                     }
                     if self.frames.is_empty(){
