@@ -167,6 +167,10 @@ impl VM{
     pub fn run(&mut self)->Result<(),RuntimeError>{
         while self.current_frame().ip < self.current_chunk().code.len(){
             if DEBUG_TRACE_EXEC{
+                for value in self.locals.iter(){
+                    print!("[{}] ",value.format(&self.heap,&mut Vec::new()));
+                }
+                println!();
                 for value in self.stack.iter(){
                     print!("[{}] ",value.format(&self.heap,&mut Vec::new()));
                 }
