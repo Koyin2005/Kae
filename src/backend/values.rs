@@ -206,29 +206,77 @@ impl Value{
     }
 
     pub fn deep_copy(&self,heap:&mut Heap,copies : &mut FxHashMap<Object,Value>)->Self{
-
         match self{
             Self::Int(_)|Self::Bool(_)|Self::Float(_)|Self::Function(_)|Self::NativeFunction(_)|Self::Unit|Self::String(_)|Self::Closure(_) => *self,
-            Self::Tuple(tuple) => {
-                let tuple = tuple.as_tuple(&heap).to_vec();
-                let values = tuple.into_iter().map(|value| value.deep_copy(heap,copies)).collect::<Box<[_]>>();
-                Self::Tuple(Object::new_tuple(heap, &values))
+            Self::Tuple(tuple_object) => {
+                if let Some(value) = copies.get(tuple_object){
+                    *value
+                }
+                else {
+                    let tuple = tuple_object.as_tuple(&heap);
+
+                    let mut new_tuple = tuple.to_vec().into_boxed_slice();
+                    let new_object = Object::new_tuple(heap, &new_tuple);
+                    let value = Self::Tuple(new_object);
+                    copies.insert(*tuple_object, value);
+
+                    new_tuple.iter_mut().for_each(|value|{
+                        *value = (*value).deep_copy(heap, copies);
+                    });
+                    value
+                }
             },
-            Self::List(list) => {
-                let list = list.as_list(&heap).to_vec();
-                let values = list.into_iter().map(|value| value.deep_copy(heap,copies)).collect::<Vec<_>>();
-                Self::List(Object::new_list(heap, values))
+            Self::List(list_object) => {
+                if let Some(value) = copies.get(list_object){
+                    *value
+                }
+                else{
+                    let list = list_object.as_list(&heap);
+                    let length = list.len();
+                    let new_object = Object::new_list(heap, list.to_vec());
+                    let value = Self::List(new_object);
+                    copies.insert(*list_object, value);
+
+                    for i in 0..length{
+                        let value = new_object.as_list(&heap)[i];
+                        new_object.as_list_mut(heap)[i] = value.deep_copy(heap, copies);
+                    }
+                    value
+                }
             },
-            Self::Record(record) => {
-                let record = record.as_record(&heap).clone();
-                let elements = record.fields.iter().map(|field| field.deep_copy(heap,copies)).collect::<Vec<_>>();
-                Self::Record(Object::new_record(heap, Record{name:record.name,fields:elements.into_boxed_slice()}))
+            Self::Record(record_object) => {
+                if let Some(value) = copies.get(record_object){
+                    *value
+                }
+                else{
+                    let record = record_object.as_record(&heap).clone();
+                    let field_count = record.fields.len();
+                    let new_record_object = Object::new_record(heap,record);
+                    let value = Self::Record(new_record_object);
+                    copies.insert(*record_object, value);
+                    for i in 0..field_count{
+                        let new_value = new_record_object.as_record(&heap).fields[i];
+                        new_record_object.get_record_fields_mut(heap)[i] = new_value.deep_copy(heap, copies);
+                    }
+                    value
+                }
             },
             Self::CaseRecord(record_object) => {
-                let record = record_object.as_record(&heap).clone();
-                let elements = record.fields.iter().map(|field| field.deep_copy(heap,copies)).collect::<Vec<_>>();
-                let field_count = record_object.get_record_field_count(&heap);
-                Self::Record(Object::new_case_record(heap, Record{name:record.name,fields:elements.into_boxed_slice()},field_count))
+                if let Some(value) = copies.get(record_object){
+                    *value
+                }
+                else{
+                    let record = record_object.as_record(&heap).clone();
+                    let field_count = record_object.get_record_field_count(&heap);
+                    let new_record_object = Object::new_case_record(heap,record,field_count);
+                    let value = Self::CaseRecord(new_record_object); 
+                    copies.insert(*record_object, value);
+                    for i in 0..field_count{
+                        let new_value = new_record_object.as_record(&heap).fields[i];
+                        new_record_object.get_record_fields_mut(heap)[i] = new_value.deep_copy(heap, copies);
+                    }
+                    value
+                }
             }
         }
     }
