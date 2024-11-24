@@ -204,6 +204,29 @@ impl Value{
     }
 
     pub fn deep_copy(&self,heap:&mut Heap)->Self{
-        todo!()
+        match self{
+            Self::Int(_)|Self::Bool(_)|Self::Float(_)|Self::Function(_)|Self::NativeFunction(_)|Self::Unit|Self::String(_)|Self::Closure(_) => *self,
+            Self::Tuple(tuple) => {
+                let tuple = tuple.as_tuple(&heap).to_vec();
+                let values = tuple.into_iter().map(|value| value.deep_copy(heap)).collect::<Box<[_]>>();
+                Self::Tuple(Object::new_tuple(heap, &values))
+            },
+            Self::List(list) => {
+                let list = list.as_list(&heap).to_vec();
+                let values = list.into_iter().map(|value| value.deep_copy(heap)).collect::<Vec<_>>();
+                Self::List(Object::new_list(heap, values))
+            },
+            Self::Record(record) => {
+                let record = record.as_record(&heap).clone();
+                let elements = record.fields.iter().map(|field| field.deep_copy(heap)).collect::<Vec<_>>();
+                Self::Record(Object::new_record(heap, Record{name:record.name,fields:elements.into_boxed_slice()}))
+            },
+            Self::CaseRecord(record_object) => {
+                let record = record_object.as_record(&heap).clone();
+                let elements = record.fields.iter().map(|field| field.deep_copy(heap)).collect::<Vec<_>>();
+                let field_count = record_object.get_record_field_count(&heap);
+                Self::Record(Object::new_case_record(heap, Record{name:record.name,fields:elements.into_boxed_slice()},field_count))
+            }
+        }
     }
 }
