@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use super::values::{Closure, Function, NativeFunction, Record, Upvalue, Value};
 
-#[derive(Clone,Copy,Debug,Hash,PartialEq)]
+#[derive(Clone,Copy,Debug,Hash,PartialEq,Eq)]
 pub struct Object(usize);
 
 
