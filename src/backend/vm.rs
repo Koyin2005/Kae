@@ -598,8 +598,8 @@ impl VM{
                 },
                 Instruction::Clone => {
                     let value = self.pop();
-                    let new_value = value.deep_copy(&mut self.heap);
-                    self.push(new_value);
+                    let new_value = value.deep_copy(&mut self.heap,&mut FxHashMap::default());
+                    self.push(new_value)?;
                 },
                 Instruction::Call(args) => {
                     let arg_count = args as usize;
