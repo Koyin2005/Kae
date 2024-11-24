@@ -593,6 +593,7 @@ impl Compiler{
                 match &lhs.kind{
                     TypedAssignmentTargetKind::Name(name) => {
                         self.compile_expr(rhs);
+                        self.emit_instruction(Instruction::Clone, rhs.location.end_line);
                         self.push_top_of_stack(rhs.location.end_line);
                         self.store_name(name, rhs.location.end_line);
 
@@ -601,12 +602,14 @@ impl Compiler{
                         self.compile_expr(lhs);
                         self.compile_expr(index);
                         self.compile_expr(rhs);
+                        self.emit_instruction(Instruction::Clone, rhs.location.end_line);
                         self.emit_instruction(Instruction::StoreIndex, rhs.location.end_line);
                         self.emit_instruction(Instruction::LoadIndex, rhs.location.end_line);
                     },
                     TypedAssignmentTargetKind::Field { lhs, name } => {
                         self.compile_expr(lhs);
                         self.compile_expr(rhs);
+                        self.emit_instruction(Instruction::Clone, rhs.location.end_line);
                         let field_index= lhs.ty.get_field_index(&name.content, &self.type_context).expect("Already checked fields");
                         self.emit_instruction(Instruction::StoreField(field_index as u16), rhs.location.end_line);
                         self.emit_instruction(Instruction::LoadField(field_index as u16), rhs.location.end_line);
