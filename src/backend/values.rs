@@ -202,4 +202,8 @@ impl Value{
     pub fn println(&self,heap:&Heap){
         println!("{}",self.format(heap,&mut Vec::new()))
     }
+
+    pub fn deep_copy(&self,heap:&mut Heap)->Self{
+        todo!()
+    }
 }
