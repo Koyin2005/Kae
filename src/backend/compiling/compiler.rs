@@ -624,6 +624,7 @@ impl Compiler{
                 self.compile_expr(callee);
                 for arg in args{
                     self.compile_expr(arg);
+                    self.emit_instruction(Instruction::Clone, arg.location.end_line);
                 }
                 self.emit_instruction(Instruction::Call(args.len() as u16),expr.location.end_line);
             },
@@ -724,6 +725,7 @@ impl Compiler{
                 self.compile_expr(lhs);
                 for arg in args{
                     self.compile_expr(arg);
+                    self.emit_instruction(Instruction::Clone, arg.location.end_line);
                 }
                 self.emit_instruction(Instruction::Call((args.len()+1) as u16), expr.location.end_line);
             },
@@ -790,6 +792,7 @@ impl Compiler{
             },
             TypedStmtNode::Let { pattern, expr } => {
                 self.compile_expr(expr);
+                self.emit_instruction(Instruction::Clone, expr.location.end_line);
                 self.compile_pattern_assignment(pattern, &expr.ty,expr.location.end_line);
             },
             TypedStmtNode::Fun { name, function} => {
