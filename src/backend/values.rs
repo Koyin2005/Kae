@@ -36,6 +36,9 @@ pub enum Upvalue{
     Closed(Value)
 }
 
+#[derive(Clone, Copy,Debug,PartialEq)]
+pub struct StackAddress(usize);
+
 
 
 #[derive(Clone,Copy,Debug,PartialEq)]
