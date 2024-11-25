@@ -596,11 +596,6 @@ impl VM{
                     self.stack.truncate(self.stack.len() - args as usize);
                     println!();
                 },
-                Instruction::Clone => {
-                    let value = self.pop();
-                    let new_value = value.deep_copy(&mut self.heap,&mut FxHashMap::default());
-                    self.push(new_value)?;
-                },
                 Instruction::Call(args) => {
                     let arg_count = args as usize;
                     let function = self.peek(arg_count);

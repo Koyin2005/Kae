@@ -71,8 +71,7 @@ pub enum Instruction {
     Call(u16),
     Return,
     Pop,
-    Copy(u16),
-    Clone
+    Copy(u16)
 }
 #[derive(Clone,Debug,PartialEq)]
 pub enum Constant{
