@@ -552,9 +552,12 @@ impl Compiler{
                 self.load_name(name,expr.location.end_line);
             },
             TypedExprNodeKind::Print(args) => {
-                for arg in args{
+                for (i,arg) in args.iter().enumerate(){
                     self.compile_expr(arg);
-                    self.compile_print(&arg.ty,arg.location.start_line);
+                    self.compile_print(&arg.ty,arg.location.end_line);
+                    if i<args.len()-1{
+                        self.print_string(" ".to_string(), arg.location.end_line);
+                    }
                 }
                 self.emit_instruction(Instruction::Print(0), expr.location.end_line);
                 self.emit_instruction(Instruction::LoadUnit,expr.location.end_line);
