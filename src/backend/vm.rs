@@ -110,9 +110,9 @@ impl VM{
         self.stack[index] = value;
     }
     fn push_frame(&mut self,function:Rc<Function>,arg_count:usize,closure:Option<Object>)->Result<(), RuntimeError>{
-        let bp = self.stack.len();
+        let bp = self.stack.len()-arg_count -1;
+        self.stack.copy_within(bp+1..bp+1+arg_count, bp);
         self.stack.extend(std::iter::repeat(Value::Int(0)).take(function.chunk.locals - arg_count));
-        self.pop();
         self.frames.push(CallFrame{
             closure,
             function,
