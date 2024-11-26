@@ -184,9 +184,10 @@ impl Compiler{
         if self.scope_depth == 0{
             self.declare_global(name)
         }else{
-            let local_index = self.functions.last().unwrap().locals.len();
+            let local_index = self.functions.last().unwrap().next_local_slot;
             self.functions.last_mut().unwrap().locals.push(Local { name,index: local_index, depth: self.scope_depth ,is_captured:false,size});
-            self.current_chunk.locals = self.current_chunk.locals.max(self.functions.last().unwrap().locals.len());
+            self.current_chunk.locals = self.current_chunk.locals.max(local_index + size);
+            self.functions.last_mut().unwrap().next_local_slot += size;
             local_index
         }
     }
