@@ -18,10 +18,12 @@ pub enum Instruction {
     LoadStackRef(u16),
     StoreGlobal(u16),
     LoadGlobal(u16),
+    LoadGlobalRef(u16),
+    
     LoadField(u16),
     StoreField(u16),
     StoreFieldByRef(u16),
-    
+
     LoadUpvalue(u16),
     StoreUpvalue(u16),
     StoreIndirect,

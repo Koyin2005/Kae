@@ -143,6 +143,19 @@ impl Compiler{
         }
         upvalue.unwrap()
     }
+    fn load_name_ref(&mut self,name:&str,line: u32){
+        if let Some(index) = self.get_local(name){
+            //Todo LoadLocalRef
+            todo!("Load Local Ref")
+        }
+        else if let Some(global) =  self.get_global(name){
+            self.emit_instruction(Instruction::LoadGlobalRef(global as u16),line);
+        }
+        else{
+            //Todo LoadLocalRef
+            todo!("Load Upvalue Ref")
+        }
+    }
     fn load_name(&mut self,name:&str,line:u32){
         if let Some(index) = self.get_local(name){
             self.emit_instruction(Instruction::LoadLocal(index as u16),line);
@@ -466,10 +479,11 @@ impl Compiler{
     fn compile_lvalue(&mut self,expr:&TypedExprNode){
         match &expr.kind{
             TypedExprNodeKind::Get(name) => {
-                
+                self.load_name_ref(name,expr.location.start_line);
             },
             TypedExprNodeKind::Field(lhs, field) => {
-
+                self.compile_lvalue(&lhs);
+                todo!("ADD LOAD FIELD REF INSTRUCTION")
             },
             _ => {
                 todo!()
@@ -643,12 +657,14 @@ impl Compiler{
                         self.compile_lvalue(lhs);
                         self.compile_expr(rhs);
                         match &lhs.ty{
-                            Type::Struct { id, name,.. } => {
-                                todo!()
+                            Type::Struct { name:_,.. } => {
+                                let field_index= lhs.ty.get_field_index(&name.content, &self.type_context).expect("Already checked fields");
+                                self.emit_instruction(Instruction::StoreFieldByRef(field_index as u16), rhs.location.end_line);
+                                self.emit_instruction(Instruction::LoadField(field_index as u16), rhs.location.end_line);
                             },
                             _ => {
                                 let field_index= lhs.ty.get_field_index(&name.content, &self.type_context).expect("Already checked fields");
-                                self.emit_instruction(Instruction::StoreField(field_index as u16), rhs.location.end_line);
+                                self.emit_instruction(Instruction::StoreFieldByRef(field_index as u16), rhs.location.end_line);
                                 self.emit_instruction(Instruction::LoadField(field_index as u16), rhs.location.end_line);
                             }
                         }

@@ -459,7 +459,11 @@ impl VM{
                     let Value::Address(address) = self.pop() else {
                         panic!("Can't use address of non-record.")
                     };
-                    let Value::Record(record) = &mut self.stack[address.0] else {
+                    let record_value = match address{
+                        Address::Global(global) => self.globals.get_mut(&global).unwrap(),
+                        Address::Local(local) => &mut  self.stack[local]
+                    };
+                    let Value::Record(record) = record_value else {
                         panic!("Can't use field of non-record")
                     };
                     record.fields[field as usize] = value;
@@ -477,6 +481,9 @@ impl VM{
                 Instruction::LoadGlobal(global) => {
                     self.push(self.globals[&(global as usize)].clone())?;
                 },
+                Instruction::LoadGlobalRef(global) => {
+                    self.push(Value::Address(Address::Global(global as usize)));
+                }
                 Instruction::StoreGlobal(global) => {
                     let value = self.pop();
                     self.globals.insert(global as usize, value);
@@ -600,15 +607,17 @@ impl VM{
                     self.push(self.peek(offset))?;
                 },
                 Instruction::LoadStackRef(offset) => {
-                    let offset = offset as usize;
-                    self.push(Value::Address(Address(self.stack.len() - offset)))?;
+                    unreachable!("Remove LoadStackRef instruction")
                 },
                 Instruction::StoreIndirect => {
                     let value = self.pop();
                     match self.pop(){
-                        Value::Address(address) => {
-                            self.stack[address.0] = value;
+                        Value::Address(Address::Local(local)) => {
+                            self.stack[local] = value;
                         },
+                        Value::Address(Address::Global(global)) => {
+                            self.globals.insert(global, value);
+                        }
                         value => {
                             panic!("Can't use '{}' as address.",value.format(&self.heap, &mut Vec::new()))
                         }

@@ -34,7 +34,10 @@ pub enum Upvalue{
     Closed(Value)
 }
 #[derive(Clone, Copy,Debug,PartialEq)]
-pub struct Address(pub usize);
+pub enum Address{
+    Global(usize),
+    Local(usize)
+}
 
 #[derive(Clone,Debug,PartialEq)]
 pub enum Value{
@@ -106,7 +109,10 @@ impl Value{
         }
         match self{
             Value::Address(address) => {
-                format!("*{}",address.0)
+                format!("*{}",match address{
+                    Address::Global(global) => global,
+                    Address::Local(local) => local
+                })
             },
             Value::Bool(bool) => {
                 format!("{}",*bool)
