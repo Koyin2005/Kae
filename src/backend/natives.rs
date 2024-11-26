@@ -29,7 +29,7 @@ pub fn native_push(vm:&mut VM,args:&[Value])->Result<Value,RuntimeError>{
     let Value::List(list) = args[0] else {
         panic!("Expected a list.")
     };
-    list.as_list_mut(&mut vm.heap).push(args[1]);
+    list.as_list_mut(&mut vm.heap).push(args[1].clone());
     Ok(Value::Unit)
 }
 

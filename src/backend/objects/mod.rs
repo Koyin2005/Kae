@@ -83,7 +83,7 @@ impl Object{
         let ObjectType::Upvalue(upvalue) = heap.get_object(self) else {
             panic!("Can't use object as upvalue")
         };
-        *upvalue
+        upvalue.clone()
     }
     pub fn as_upvalue_mut(self,heap:&mut Heap)->&mut Upvalue{
         let ObjectType::Upvalue(upvalue) = heap.get_object_mut(self) else {

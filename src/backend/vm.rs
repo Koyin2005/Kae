@@ -65,8 +65,12 @@ impl VM{
         values.reverse();
         values
     }
+    fn peek_mut(&mut self,offset:usize)->&mut Value{
+        let slot = self.stack.len() - offset - 1;
+        &mut self.stack[slot]
+    }
     fn peek(&self,offset:usize)->Value{
-        self.stack[self.stack.len() - offset - 1]
+        self.stack[self.stack.len() - offset - 1].clone()
     }
     fn current_chunk(&self)->&Chunk{
         let index = self.frames.len()-1;
@@ -111,7 +115,7 @@ impl VM{
     }
     fn push_frame(&mut self,function:Rc<Function>,arg_count:usize,closure:Option<Object>)->Result<(), RuntimeError>{
         let bp = self.stack.len()-arg_count -1;
-        self.stack.copy_within(bp+1..bp+1+arg_count, bp);
+        self.stack.remove(bp);
         self.stack.extend(std::iter::repeat(Value::Int(0)).take(function.chunk.locals - arg_count));
         self.frames.push(CallFrame{
             closure,
@@ -145,7 +149,7 @@ impl VM{
             if let Upvalue::Open { location:upvalue_location } = upvalue{
                 if *upvalue_location >= location{
                     self.open_upvalues.remove(i);
-                    *upvalue = Upvalue::Closed(self.stack[*upvalue_location]);
+                    *upvalue = Upvalue::Closed(self.stack[*upvalue_location].clone());
 
                 }
                 else{
@@ -426,18 +430,14 @@ impl VM{
                     let Value::String(name) = self.pop() else {
                         panic!("Expectd a string")
                     };
-                    let record_object = Object::new_record(&mut self.heap, Record{
+                    let record = Record{
                         fields:(0..fields).map(|_| Value::Int(0)).collect(),
                         name
-                    });
-                    self.push(Value::Record(record_object))?;
+                    };
+                    self.push(Value::Record(record))?;
                 },
                 Instruction::LoadField(field) => {
-                    let (Value::Record(record) | Value::CaseRecord(record)) = self.pop() else {
-                        panic!("Can't get field of non-record")
-                    };
-                    let field_value = record.get_record_fields_mut(&mut self.heap)[field as usize];
-                    self.push(field_value)?;
+                    todo!("REIMPLEMENT RECORDS FIELD LOADING");
 
                 },
                 Instruction::GetArrayLength => {
@@ -449,10 +449,10 @@ impl VM{
                 },
                 Instruction::StoreField(field) => {
                     let value = self.pop();
-                    let (Value::Record(record) | Value::CaseRecord(record)) = self.peek(0) else {
+                    let Value::Record(record) = self.peek_mut(0) else {
                         panic!("Can't get field of non-record")
                     };
-                    record.get_record_fields_mut(&mut self.heap)[field as usize] = value;
+                    record.fields[field as usize] = value;
                 },
                 Instruction::StoreLocal(local) => {
                     let value = self.pop();
@@ -461,10 +461,10 @@ impl VM{
                 },
                 Instruction::LoadLocal(local) => {
                     let location = local as usize + self.current_frame().bp;
-                    self.push(self.stack[location])?;
+                    self.push(self.stack[location].clone())?;
                 },
                 Instruction::LoadGlobal(global) => {
-                    self.push(self.globals[&(global as usize)])?;
+                    self.push(self.globals[&(global as usize)].clone())?;
                 },
                 Instruction::StoreGlobal(global) => {
                     let value = self.pop();
@@ -475,7 +475,7 @@ impl VM{
                    
                     self.push(match upvalue {
                         Upvalue::Closed(value) => value,
-                        Upvalue::Open { location } => self.stack[location]
+                        Upvalue::Open { location } => self.stack[location].clone()
                     })?;
                 },
                 Instruction::StoreUpvalue(upvalue) => {
@@ -495,7 +495,7 @@ impl VM{
                     };
                     let list = list.as_list(&self.heap);
                     if 0 <= index && (index as usize)< list.len(){
-                        self.push(list[index as usize])?;
+                        self.push(list[index as usize].clone())?;
                     }
                     else{
                         self.runtime_error(&format!("Index out of bounds, index was '{}' but length was '{}'.",index,list.len()));
@@ -507,7 +507,7 @@ impl VM{
                         panic!("Expected a tuple.")
                     };
                     let tuple = tuple.as_tuple(&self.heap);
-                    self.push(tuple[index as usize])?;
+                    self.push(tuple[index as usize].clone())?;
                 }
                 Instruction::StoreIndex => {
                     let value = self.pop();
@@ -532,7 +532,7 @@ impl VM{
                         panic!("Expected a tuple.")
                     };
                     let tuple = tuple.as_tuple(&self.heap);
-                    for element in tuple.iter().rev().copied().collect::<Vec<Value>>(){
+                    for element in tuple.iter().rev().cloned().collect::<Vec<Value>>(){
                         self.push(element)?;
                     }
                 },

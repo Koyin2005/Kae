@@ -20,13 +20,13 @@ pub struct Closure{
     pub upvalues : Box<[Object]>,
     pub function : Rc<Function>
 }
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone,PartialEq)]
 pub struct Record{
     pub name : Object,
     pub fields : Box<[Value]>
 }
 
-#[derive(Debug,Clone,Copy)]
+#[derive(Debug,Clone)]
 pub enum Upvalue{
     Open{
         location:usize
@@ -36,13 +36,13 @@ pub enum Upvalue{
 #[derive(Clone, Copy,Debug,PartialEq)]
 pub struct Address(pub usize);
 
-#[derive(Clone,Copy,Debug,PartialEq)]
+#[derive(Clone,Debug,PartialEq)]
 pub enum Value{
     Int(i64),
     Float(f64),
     Bool(bool),
     Unit,
-    Record(Object),
+    Record(Record),
     CaseRecord(Object),
     Tuple(Object),
     String(Object),
@@ -69,7 +69,10 @@ impl Value{
             (Self::Bool(bool),Self::Bool(other)) => bool == other,
             (Self::Unit,Self::Unit) => true,
             (Self::Address(address),Self::Address(other)) => address == other,
-            (Self::Record(record),Self::Record(other))|(Self::CaseRecord(record),Self::CaseRecord(other)) => 
+            (Self::Record(record),Self::Record(other)) => {
+                record == other
+            },
+            (Self::CaseRecord(record),Self::CaseRecord(other)) => 
                 record == other ||
                 record.as_record(heap).fields.iter().zip(other.as_record(heap).fields.iter()).all(|(field,other)|{
                     field.is_equal(other, heap)
@@ -92,10 +95,10 @@ impl Value{
             _ => false
         }
     }
-    pub fn format(&self,heap:&Heap,seen_values : &mut Vec<Value>)->String{
-        fn is_value_recursive(value:&Value,seen_values : &[Value],heap: &Heap)->bool{
+    pub fn format<'a:'b,'b>(&'a self,heap:&Heap,seen_values : &mut Vec<&'b Value>)->String{
+        fn is_value_recursive(value:&Value,seen_values : &[&Value],heap: &Heap)->bool{
             match value{
-                Value::CaseRecord(record) | Value::Record(record) if seen_values.contains(value) => {
+                Value::CaseRecord(record)  if seen_values.contains(&value) => {
                     record.as_record(heap).fields.iter().any(|value| is_value_recursive(value, seen_values, heap))
                 },
                 _ => false
@@ -119,53 +122,15 @@ impl Value{
             },
             Value::CaseRecord(record_object) => {
                 let record = record_object.as_record(heap);
-                let mut result = Value::String(record.name).format(heap, seen_values);
                 let record_field_count = record_object.get_record_field_count(heap);
-                if record_field_count>0{
-                    result.push('{');
-                    seen_values.push(*self);
-                    for (i,field) in record.fields.iter().skip(1).enumerate().take(record_field_count){
-                        if i > 0{
-                            result.push(',');
-                        }
-                        if seen_values.contains(field) && is_value_recursive(field, seen_values, heap) {
-                            result.push_str("...");
-                        }
-                        else{
-                            result.push_str(&field.format(heap,seen_values));
-                        }
-                    }
-                    result.push('}');
-                }
-                result
+                
+                String::from("{}")
             }
             Value::Record(record) => {
-                let record = record.as_record(heap);
-                let mut result = format!("{}{{",Value::String(record.name).format(heap, seen_values));
-                seen_values.push(*self);
-                for (i,field) in record.fields.iter().enumerate(){
-                    if i > 0{
-                        result.push(',');
-                    }
-                    if seen_values.contains(field)&& is_value_recursive(field, seen_values, heap) {
-                        result.push_str("...");
-                    }
-                    else{
-                        result.push_str(&field.format(heap,seen_values));
-                    }
-                }
-                result.push('}');
-                result
+                format!("")
             },
             Value::Tuple(tuple) => {
                 let mut result = String::from("(");
-                let tuple = tuple.as_tuple(heap);
-                for (i,value) in tuple.iter().enumerate(){
-                    if i>0{
-                        result.push(',');
-                    }
-                    result.push_str(&value.format(heap,seen_values));
-                }
                 result.push(')');
                 result
             },
@@ -177,19 +142,6 @@ impl Value{
             },
             Value::List(list) => {
                 let mut result = String::from("[");
-                let list = list.as_list(heap);
-                if seen_values.is_empty()||!seen_values.contains(self){
-                    seen_values.push(*self);
-                    for (i,value) in list.iter().enumerate(){
-                        if i>0{
-                            result.push(',');
-                        }
-                        result.push_str(&value.format(heap,seen_values));
-                    }
-                }
-                else{
-                    result.push_str("...");
-                }
                 result.push(']');
                 result
             },
