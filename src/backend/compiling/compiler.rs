@@ -40,7 +40,8 @@ pub struct Compiler{
     functions : Vec<CompiledFunction>,
     scope_depth : usize,
     type_context : TypeContext,
-    mono_counter : usize
+    mono_counter : usize,
+    anonymous_var_counter:usize
 }
 impl Compiler{
     fn calculate_size(&self,ty:&Type)->usize{
@@ -466,7 +467,11 @@ impl Compiler{
                 todo!("ADD LOAD FIELD REF INSTRUCTION")
             },
             _ => {
-                todo!()
+                self.compile_expr(expr);
+                let name = format!("*{}",self.anonymous_var_counter);
+                self.define_name(name.clone(),expr.location.end_line);
+                self.load_name_ref(&name, expr.location.end_line);
+                self.anonymous_var_counter += 1;
             }
         }
     }

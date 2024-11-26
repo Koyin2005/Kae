@@ -36,7 +36,7 @@ pub enum Upvalue{
 #[derive(Clone, Copy,Debug,PartialEq)]
 pub enum Address{
     Global(usize),
-    Local(usize)
+    Stack(usize),
 }
 
 #[derive(Clone,Debug,PartialEq)]
@@ -103,7 +103,7 @@ impl Value{
             Value::Address(address) => {
                 format!("*{}",match address{
                     Address::Global(global) => global,
-                    Address::Local(local) => local
+                    Address::Stack(local) => local
                 })
             },
             Value::Bool(bool) => {

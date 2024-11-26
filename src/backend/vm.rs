@@ -442,7 +442,7 @@ impl VM{
                     };
                     let record_value = match address{
                         Address::Global(global) => &self.globals[&global],
-                        Address::Local(local) => &self.stack[local]
+                        Address::Stack(local) => &self.stack[local]
                     };
                     let Value::Record(record) = record_value else {
                         panic!("Can't use as record")
@@ -472,7 +472,7 @@ impl VM{
                     };
                     let record_value = match address{
                         Address::Global(global) => self.globals.get_mut(&global).unwrap(),
-                        Address::Local(local) => &mut  self.stack[local]
+                        Address::Stack(local) => &mut  self.stack[local]
                     };
                     let Value::Record(record) = record_value else {
                         panic!("Can't use field of non-record")
@@ -618,13 +618,10 @@ impl VM{
                     let offset = (offset - 1) as usize;
                     self.push(self.peek(offset))?;
                 },
-                Instruction::LoadStackRef(offset) => {
-                    unreachable!("Remove LoadStackRef instruction")
-                },
                 Instruction::StoreIndirect => {
                     let value = self.pop();
                     match self.pop(){
-                        Value::Address(Address::Local(local)) => {
+                        Value::Address(Address::Stack(local)) => {
                             self.stack[local] = value;
                         },
                         Value::Address(Address::Global(global)) => {

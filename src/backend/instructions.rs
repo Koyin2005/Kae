@@ -15,7 +15,6 @@ pub enum Instruction {
     LoadLocal(u16),
     StoreLocal(u16),
     
-    LoadStackRef(u16),
     StoreGlobal(u16),
     LoadGlobal(u16),
     LoadGlobalRef(u16),
