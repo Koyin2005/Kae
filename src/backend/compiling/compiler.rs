@@ -27,13 +27,19 @@ struct CompiledFunction{
     pub upvalues : Vec<Upvalue>,
     pub next_local_slot:usize
 }
+
+struct Global{
+    pub name : String,
+    pub index : usize
+}
 pub struct CompileFailed;
 #[derive(Default)]
 pub struct Compiler{
     current_chunk : Chunk,
     constants : Vec<Constant>,
     names : Vec<String>,
-    globals : Vec<String>,
+    globals : Vec<Global>,
+    next_global_slot : usize,
     generic_functions : Vec<GenericFunction>,
     functions : Vec<CompiledFunction>,
     scope_depth : usize,
@@ -90,7 +96,7 @@ impl Compiler{
         self.generic_functions.retain(|function| function.depth <= self.scope_depth);
     }
     fn get_global(&self,name:&str)->Option<usize>{
-       self.globals.iter().rev().position(|global| global == name).map(|index|  self.globals.len() - index - 1)
+       self.globals.iter().rev().position(|global| global.name == name).map(|index|  self.globals.len() - index - 1)
     }
     fn get_local(&self,name:&str)->Option<usize>{
         self.functions.last().unwrap().locals.iter().rev().find(|local| local.name == name).map(|local| local.index)
@@ -176,13 +182,15 @@ impl Compiler{
             self.emit_instruction(Instruction::StoreUpvalue(upvalue as u16), line);
         }
     }
-    fn declare_global(&mut self,name:String)->usize{
-        self.globals.push(name);
-        self.globals.len()-1
+    fn declare_global(&mut self,name:String,size:usize)->usize{
+        let global_index = self.next_global_slot;
+        self.globals.push(Global { name, index:global_index });
+        self.next_global_slot += size;
+        global_index
     }
     fn declare_name(&mut self,name:String,size:usize)->usize{
         if self.scope_depth == 0{
-            self.declare_global(name)
+            self.declare_global(name,size)
         }else{
             let local_index = self.functions.last().unwrap().next_local_slot;
             self.functions.last_mut().unwrap().locals.push(Local { name,index: local_index, depth: self.scope_depth ,is_captured:false,size});
