@@ -99,14 +99,6 @@ impl Value{
         }
     }
     pub fn format(& self,heap:&Heap,seen_values : &mut Vec<&Value>)->String{
-        fn is_value_recursive(value:&Value,seen_values : &[&Value],heap: &Heap)->bool{
-            match value{
-                Value::CaseRecord(record)  if seen_values.contains(&value) => {
-                    record.as_record(heap).fields.iter().any(|value| is_value_recursive(value, seen_values, heap))
-                },
-                _ => false
-            }
-        }
         match self{
             Value::Address(address) => {
                 format!("*{}",match address{
