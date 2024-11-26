@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, natives::{native_input, native_panic, native_parse_int, native_pop, native_push}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{StructId, Type, TypeContext}}};
+use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, natives::{native_input, native_panic, native_parse_int, native_pop, native_push}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{Struct, StructId, Type, TypeContext}}};
 
 
 struct Local{
@@ -58,6 +58,9 @@ impl Compiler{
             offset += self.calculate_size(field_ty);
         }
         offset
+    }
+    fn get_struct_info(&self,struct_id:&StructId)->&Struct{
+        self.type_context.structs.get_struct_info(struct_id).expect("All structs should be checked")
     }
     pub fn new(type_context:TypeContext)->Self{
         Self { type_context,functions:vec![CompiledFunction::default()],..Default::default() }
@@ -461,6 +464,24 @@ impl Compiler{
             
         }
     }
+    fn compile_print(&mut self,ty:&Type,line:u32){
+        fn print_string(this: &mut Compiler,string:String,line: u32){
+            this.load_string(string, line);
+            this.emit_instruction(Instruction::PrintValue,line);
+        }
+        match ty{
+            Type::Struct { id, name,.. } => {
+                print_string(self, name.clone(), line);
+                for (_,field) in &self.get_struct_info(id).fields{
+                    
+                }
+
+            },
+            _ => {
+                self.emit_instruction(Instruction::PrintValue,line);
+            }
+        }
+    }
     fn compile_expr(&mut self,expr:&TypedExprNode){
         match &expr.kind{
             TypedExprNodeKind::Unit => {
@@ -497,8 +518,8 @@ impl Compiler{
             TypedExprNodeKind::Print(args) => {
                 for arg in args{
                     self.compile_expr(arg);
+                    self.compile_print(&arg.ty);
                 }
-                self.emit_instruction(Instruction::Print(args.len() as u16),expr.location.end_line);
                 self.emit_instruction(Instruction::LoadUnit,expr.location.end_line);
             },
             TypedExprNodeKind::Block { stmts, expr:result_expr } => {

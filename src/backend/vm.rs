@@ -20,7 +20,6 @@ pub struct CallFrame{
 }
 pub struct VM{
     names : Vec<Rc<str>>,
-    locals : Vec<Value>,
     stack : Vec<Value>,
     constants : Box<[Constant]>,
     frames : Vec<CallFrame>,
@@ -34,8 +33,7 @@ impl VM{
         Self{
             names : program.names,
             open_upvalues : Vec::new(),
-            locals:Vec::from_iter(std::iter::repeat(Value::Int(0)).take(program.chunk.locals)),
-            stack:Vec::new(),
+            stack:Vec::from_iter(std::iter::repeat(Value::Int(0)).take(program.chunk.locals)),
             constants:program.constants.into_boxed_slice(),
             heap:Heap::default(),
             frames : vec![CallFrame{
@@ -112,10 +110,8 @@ impl VM{
         self.stack[index] = value;
     }
     fn push_frame(&mut self,function:Rc<Function>,arg_count:usize,closure:Option<Object>)->Result<(), RuntimeError>{
-        let bp = self.locals.len();
-        let args = self.stack.drain(self.stack.len()-arg_count..);
-        self.locals.extend(args);
-        self.locals.extend(std::iter::repeat(Value::Int(0)).take(function.chunk.locals - arg_count));
+        let bp = self.stack.len();
+        self.stack.extend(std::iter::repeat(Value::Int(0)).take(function.chunk.locals - arg_count));
         self.pop();
         self.frames.push(CallFrame{
             closure,
@@ -149,7 +145,7 @@ impl VM{
             if let Upvalue::Open { location:upvalue_location } = upvalue{
                 if *upvalue_location >= location{
                     self.open_upvalues.remove(i);
-                    *upvalue = Upvalue::Closed(self.locals[*upvalue_location]);
+                    *upvalue = Upvalue::Closed(self.stack[*upvalue_location]);
 
                 }
                 else{
@@ -167,7 +163,7 @@ impl VM{
     pub fn run(&mut self)->Result<(),RuntimeError>{
         while self.current_frame().ip < self.current_chunk().code.len(){
             if DEBUG_TRACE_EXEC{
-                for value in self.locals.iter(){
+                for value in self.stack.iter(){
                     print!("[{}] ",value.format(&self.heap,&mut Vec::new()));
                 }
                 println!();
@@ -461,11 +457,11 @@ impl VM{
                 Instruction::StoreLocal(local) => {
                     let value = self.pop();
                     let location = local as usize + self.current_frame().bp;
-                    self.locals[location] = value;
+                    self.stack[location] = value;
                 },
                 Instruction::LoadLocal(local) => {
                     let location = local as usize + self.current_frame().bp;
-                    self.push(self.locals[location])?;
+                    self.push(self.stack[location])?;
                 },
                 Instruction::LoadGlobal(global) => {
                     self.push(self.globals[&(global as usize)])?;
@@ -479,7 +475,7 @@ impl VM{
                    
                     self.push(match upvalue {
                         Upvalue::Closed(value) => value,
-                        Upvalue::Open { location } => self.locals[location]
+                        Upvalue::Open { location } => self.stack[location]
                     })?;
                 },
                 Instruction::StoreUpvalue(upvalue) => {
@@ -487,7 +483,7 @@ impl VM{
                     let upvalue = self.current_frame().closure.expect("Can only use upvalues with closure").as_closure(&self.heap).upvalues[upvalue as usize].as_upvalue_mut(&mut self.heap);
                     match upvalue{
                         Upvalue::Closed(closed) => *closed = value,
-                        Upvalue::Open { location } => self.locals[*location] = value
+                        Upvalue::Open { location } => self.stack[*location] = value
                     }
                 },
                 Instruction::LoadIndex => {
@@ -642,7 +638,7 @@ impl VM{
                     let value = self.pop();
                     if let Some(frame) = self.frames.pop(){
                         self.close_upvalues(frame.bp);
-                        self.locals.truncate(frame.bp);
+                        self.stack.truncate(frame.bp);
                         self.push(value)?;
                     }
                     if self.frames.is_empty(){
