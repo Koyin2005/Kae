@@ -53,16 +53,6 @@ impl Compiler{
             _ => 1
         }
     }
-    fn get_field_offset(&self,struct_id:&StructId,field:&str)->usize{
-        let mut offset = 0;
-        for (field_name,field_ty) in self.type_context.structs.get_struct_info(struct_id).expect("Can only use structs that can exist").fields.iter(){
-            if field_name == field{
-                break;
-            }
-            offset += self.calculate_size(field_ty);
-        }
-        offset
-    }
     fn get_struct_info(&self,struct_id:&StructId)->&Struct{
         self.type_context.structs.get_struct_info(struct_id).expect("All structs should be checked")
     }
@@ -473,32 +463,6 @@ impl Compiler{
             self.emit_instruction(Instruction::Rotate(size as u16), line);
         }
     }
-    fn print_string(&mut self,string:String,line: u32){
-        self.load_string(string, line);
-        self.emit_instruction(Instruction::PrintValue,line);
-    }
-    fn compile_print(&mut self,ty:&Type,line:u32){
-        let size = self.calculate_size(ty);
-        match ty{
-            Type::Struct { id, name,.. } => {
-                self.print_string(name.clone(), line);
-                self.print_string("{".to_string(), line);
-                self.emit_rotate(size, line);
-                for (i,(_,field)) in self.get_struct_info(id).fields.clone().into_iter().enumerate()   {
-                    if i>0{
-                        self.print_string(",".to_string(), line);
-                    }
-                    let size = self.calculate_size(&field);
-                    self.emit_rotate(size, line);
-                    self.compile_print(&field, line);
-                }
-                self.print_string("}".to_string(), line);
-            },
-            _ => {
-                self.emit_instruction(Instruction::PrintValue,line);
-            }
-        }
-    }
     fn compile_lvalue(&mut self,expr:&TypedExprNode){
         match &expr.kind{
             TypedExprNodeKind::Get(name) => {
@@ -546,14 +510,10 @@ impl Compiler{
                 self.load_name(name,expr.location.end_line);
             },
             TypedExprNodeKind::Print(args) => {
-                for (i,arg) in args.iter().enumerate(){
+                for arg in args{
                     self.compile_expr(arg);
-                    self.compile_print(&arg.ty,arg.location.end_line);
-                    if i<args.len()-1{
-                        self.print_string(" ".to_string(), arg.location.end_line);
-                    }
                 }
-                self.emit_instruction(Instruction::Print(0), expr.location.end_line);
+                self.emit_instruction(Instruction::Print(args.len() as u16), expr.location.end_line);
                 self.emit_instruction(Instruction::LoadUnit,expr.location.end_line);
             },
             TypedExprNodeKind::Block { stmts, expr:result_expr } => {
@@ -758,23 +718,12 @@ impl Compiler{
             TypedExprNodeKind::StructInit { kind,fields } => {
                 match kind{
                     InitKind::Struct(struct_id) => {
-                        let struct_info = self.type_context.structs.get_struct_info(struct_id).expect("All structs should be checked");
-                        let size = struct_info.fields.iter().map(|(_,ty)|self.calculate_size(ty)).sum::<usize>();
-                        if size <= 1{
-                            for (_,field_expr) in fields{
-                                self.compile_expr(field_expr);
-                            }
-                        }
-                        else{
-                            for _ in 0..size{
-                                self.emit_instruction(Instruction::LoadInt(0),expr.location.start_line);
-                            }
-                            for (field_name,field_expr) in fields{
-                                let field_offset = self.get_field_offset(struct_id, &field_name);
-                                self.emit_instruction(Instruction::LoadStackRef((size - field_offset) as u16),field_expr.location.start_line);
-                                self.compile_expr(&field_expr);
-                                self.emit_instruction(Instruction::StoreIndirect, field_expr.location.end_line);
-                            }
+                        self.load_string(format!("{}",expr.ty), expr.location.start_line);
+                        self.emit_instruction(Instruction::BuildRecord(self.get_struct_info(struct_id).fields.len() as u16), expr.location.start_line);
+                        for (field_name,field_expr) in fields{
+                            self.compile_expr(field_expr);
+                            let field_index = expr.ty.get_field_index(&field_name, &self.type_context).expect("All fields should be checked");
+                            self.emit_instruction(Instruction::StoreField(field_index as u16), field_expr.location.end_line);
                         }
                     },
                     InitKind::Variant(.. ) => {
@@ -795,8 +744,7 @@ impl Compiler{
             }
         }
     }
-    fn compile_pattern_assignment(&mut self,pattern:&PatternNode,ty:&Type,line:u32){ 
-        let size = self.calculate_size(ty);
+    fn compile_pattern_assignment(&mut self,pattern:&PatternNode,ty:&Type,line:u32){
         match &pattern.kind{
             PatternNodeKind::Name(name) => {
                 self.define_name(name.clone(),line);
@@ -843,17 +791,13 @@ impl Compiler{
             TypedStmtNode::Expr(expr) => {
                 self.compile_expr(expr);
                 if expr.ty == Type::Unit{
-                    for _ in 0..self.calculate_size(&expr.ty){
-                        self.emit_instruction(Instruction::Pop,expr.location.end_line);
-                    }
+                    self.emit_instruction(Instruction::Pop,expr.location.end_line);
                 }
             },
             TypedStmtNode::ExprWithSemi(expr) => {
                 self.compile_expr(expr);
                 if expr.ty != Type::Never{
-                    for _ in 0..self.calculate_size(&expr.ty){
-                        self.emit_instruction(Instruction::Pop,expr.location.end_line);
-                    }
+                    self.emit_instruction(Instruction::Pop,expr.location.end_line);
                 }
             },
             TypedStmtNode::Let { pattern, expr } => {
