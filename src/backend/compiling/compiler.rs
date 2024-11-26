@@ -486,7 +486,7 @@ impl Compiler{
                     }
                     let size = self.calculate_size(&field);
                     self.emit_rotate(size, line);
-                    self.compile_print(ty, line);
+                    self.compile_print(&field, line);
                 }
                 self.print_string("}".to_string(), line);
             },
