@@ -464,18 +464,31 @@ impl Compiler{
             
         }
     }
+    fn emit_rotate(&mut self,size:usize,line: u32){
+        if size > 1{
+            self.emit_instruction(Instruction::Rotate(size as u16), line);
+        }
+    }
     fn print_string(&mut self,string:String,line: u32){
         self.load_string(string, line);
         self.emit_instruction(Instruction::PrintValue,line);
     }
     fn compile_print(&mut self,ty:&Type,line:u32){
+        let size = self.calculate_size(ty);
         match ty{
             Type::Struct { id, name,.. } => {
                 self.print_string(name.clone(), line);
-                for (_,field) in &self.get_struct_info(id).fields{
-                    
+                self.print_string("{".to_string(), line);
+                self.emit_rotate(size, line);
+                for (i,(_,field)) in self.get_struct_info(id).fields.clone().into_iter().enumerate()   {
+                    if i>0{
+                        self.print_string(",".to_string(), line);
+                    }
+                    let size = self.calculate_size(&field);
+                    self.emit_rotate(size, line);
+                    self.compile_print(ty, line);
                 }
-
+                self.print_string("}".to_string(), line);
             },
             _ => {
                 self.emit_instruction(Instruction::PrintValue,line);
