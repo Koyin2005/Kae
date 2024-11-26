@@ -450,10 +450,21 @@ impl VM{
                 Instruction::StoreField(field) => {
                     let value = self.pop();
                     let Value::Record(record) = self.peek_mut(0) else {
-                        panic!("Can't get field of non-record")
+                        panic!("Can't get field of non-record.")
                     };
                     record.fields[field as usize] = value;
                 },
+                Instruction::StoreFieldByRef(field) => {
+                    let value = self.pop();
+                    let Value::Address(address) = self.pop() else {
+                        panic!("Can't use address of non-record.")
+                    };
+                    let Value::Record(record) = &mut self.stack[address.0] else {
+                        panic!("Can't use field of non-record")
+                    };
+                    record.fields[field as usize] = value;
+
+                }
                 Instruction::StoreLocal(local) => {
                     let value = self.pop();
                     let location = local as usize + self.current_frame().bp;

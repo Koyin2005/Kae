@@ -82,7 +82,7 @@ impl Compiler{
         self.generic_functions.retain(|function| function.depth <= self.scope_depth);
     }
     fn get_global(&self,name:&str)->Option<usize>{
-       self.globals.iter().rev().position(|global| global.name == name)
+       self.globals.iter().rev().position(|global| global.name == name).map(|index| self.globals.len() - index - 1)
     }
     fn get_local(&self,name:&str)->Option<usize>{
         self.functions.last().unwrap().locals.iter().rev().find(|local| local.name == name).map(|local| local.index)
