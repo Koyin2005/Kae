@@ -158,6 +158,12 @@ impl Value{
             },
             Value::List(list) => {
                 let mut result = String::from("[");
+                for (i,value) in list.as_list(heap).iter().enumerate(){
+                    if i>0{
+                        result.push(',');
+                    }
+                    result.push_str(&value.format(heap, seen_values));
+                }
                 result.push(']');
                 result
             },
