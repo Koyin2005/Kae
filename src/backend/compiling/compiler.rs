@@ -518,7 +518,7 @@ impl Compiler{
             TypedExprNodeKind::Print(args) => {
                 for arg in args{
                     self.compile_expr(arg);
-                    self.compile_print(&arg.ty);
+                    self.compile_print(&arg.ty,arg.location.start_line);
                 }
                 self.emit_instruction(Instruction::LoadUnit,expr.location.end_line);
             },
