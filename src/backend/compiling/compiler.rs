@@ -468,10 +468,12 @@ impl Compiler{
             },
             _ => {
                 self.compile_expr(expr);
-                let name = format!("*{}",self.anonymous_var_counter);
-                self.define_name(name.clone(),expr.location.end_line);
-                self.load_name_ref(&name, expr.location.end_line);
-                self.anonymous_var_counter += 1;
+                if !matches!(expr.ty,Type::Array(_)|Type::String|Type::Function { .. }) {
+                    let name = format!("*{}",self.anonymous_var_counter);
+                    self.define_name(name.clone(),expr.location.end_line);
+                    self.load_name_ref(&name, expr.location.end_line);
+                    self.anonymous_var_counter += 1;
+                }
             }
         }
     }
