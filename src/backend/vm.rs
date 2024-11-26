@@ -158,6 +158,30 @@ impl VM{
             }
         }
     }
+    fn read_address(&self,address:&Address)->&Value{
+        match address{
+            Address::Global(global) => &self.globals[global],
+            Address::Stack(stack) => &self.stack[*stack],
+            Address::Field(base_address, field) => {
+                let Value::Record(record) = self.read_address(base_address) else {
+                    unreachable!("Can't use as record")
+                };
+                &record.fields[*field]
+            },
+        }
+    }
+    fn read_address_mut(&mut self,address:&Address)->&mut Value{
+        match address{
+            Address::Global(global) => self.globals.get_mut(global).unwrap(),
+            Address::Stack(stack) => &mut self.stack[*stack],
+            Address::Field(base_address, field) => {
+                let Value::Record(record) = self.read_address_mut(base_address) else {
+                    unreachable!("Can't use as record")
+                };
+                &mut record.fields[*field]
+            },
+        }
+    }
     pub fn runtime_error(&self,message:&str){
         eprintln!("Error : {}",message);
         for frame in self.frames.iter().rev(){
@@ -440,10 +464,7 @@ impl VM{
                     let Value::Address(address) = self.pop() else {
                         panic!("Can't use as address")
                     };
-                    let record_value = match address{
-                        Address::Global(global) => &self.globals[&global],
-                        Address::Stack(local) => &self.stack[local]
-                    };
+                    let record_value = self.read_address(&address);
                     let Value::Record(record) = record_value else {
                         panic!("Can't use as record")
                     };
@@ -470,17 +491,20 @@ impl VM{
                     let Value::Address(address) = self.pop() else {
                         panic!("Can't use address of non-record.")
                     };
-                    let record_value = match address{
-                        Address::Global(global) => self.globals.get_mut(&global).unwrap(),
-                        Address::Stack(local) => &mut  self.stack[local]
-                    };
+                    let record_value = self.read_address_mut(&address);
                     let Value::Record(record) = record_value else {
                         panic!("Can't use field of non-record")
                     };
                     record.fields[field as usize] = value;
                     self.push(Value::Address(address))?;
 
-                }
+                },
+                Instruction::LoadFieldRef(field) => {
+                    let Value::Address(address) = self.pop() else {
+                        panic!("Can't use as address")
+                    };
+                    self.push(Value::Address(Address::Field(Box::new(address), field as usize)))?;
+                },
                 Instruction::StoreLocal(local) => {
                     let value = self.pop();
                     let location = local as usize + self.current_frame().bp;

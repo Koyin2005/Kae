@@ -464,7 +464,8 @@ impl Compiler{
             },
             TypedExprNodeKind::Field(lhs, field) => {
                 self.compile_lvalue(&lhs);
-                todo!("ADD LOAD FIELD REF INSTRUCTION")
+                let field_index = lhs.ty.get_field_index(&field.content, &self.type_context).unwrap();
+                self.emit_instruction(Instruction::LoadFieldRef(field_index as u16),field.location.end_line);
             },
             _ => {
                 self.compile_expr(expr);
