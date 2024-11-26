@@ -7,6 +7,7 @@ struct Local{
     name : String,
     index : usize,
     depth : usize,
+    size : usize,
     is_captured : bool
 }
 #[derive(Clone, Copy,PartialEq)]
@@ -183,7 +184,7 @@ impl Compiler{
             self.declare_global(name)
         }else{
             let local_index = self.functions.last().unwrap().locals.len();
-            self.functions.last_mut().unwrap().locals.push(Local { name,index: local_index, depth: self.scope_depth ,is_captured:false});
+            self.functions.last_mut().unwrap().locals.push(Local { name,index: local_index, depth: self.scope_depth ,is_captured:false,size});
             self.current_chunk.locals = self.current_chunk.locals.max(self.functions.last().unwrap().locals.len());
             local_index
         }
