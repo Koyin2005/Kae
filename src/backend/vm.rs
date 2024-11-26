@@ -574,6 +574,12 @@ impl VM{
                         self.current_frame_mut().ip += offset as usize;
                     }
                     self.pop();
+                },
+                Instruction::Rotate(items) => {
+                    let items = items as usize;
+                    let start = self.stack.len()-items;
+                    let end = self.stack.len();
+                    self.stack[start..end].reverse();
                 }
                 Instruction::Pop => {
                     self.pop();
