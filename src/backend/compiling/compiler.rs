@@ -688,13 +688,18 @@ impl Compiler{
                 self.load_constant(Constant::String(Rc::from(format!("{}",ty))),expr.location.end_line);
             },
             TypedExprNodeKind::Field(lhs, field_name) => {
-                self.compile_expr(lhs);
                 match (&lhs.ty,&field_name.content as &str){
                     (Type::Array(..),"length") => {
+                        self.compile_expr(lhs);
                         self.emit_instruction(Instruction::GetArrayLength, field_name.location.end_line);
                     },
                     (ty @ (Type::Struct {.. } | Type::EnumVariant {.. }),field) => {
-                        todo!("Field expression")
+                        if matches!(ty,Type::EnumVariant {.. }) {
+                            todo!("Re-implement Enum variants")
+                        }
+                        self.compile_lvalue(lhs);
+                        let field = ty.get_field_index(field, &self.type_context).expect("All fields should exist");
+                        self.emit_instruction(Instruction::LoadFieldByRef(field as u16),field_name.location.end_line);
                     }
                     _ => unreachable!("{:?}",lhs.ty)
                 }
