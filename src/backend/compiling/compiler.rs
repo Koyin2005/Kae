@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, natives::{native_input, native_panic, native_parse_int, native_pop, native_push}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{Type, TypeContext}}};
+use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, natives::{native_input, native_panic, native_parse_int, native_pop, native_push}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{StructId, Type, TypeContext}}};
 
 
 struct Local{
@@ -48,6 +48,16 @@ impl Compiler{
             },
             _ => 1
         }
+    }
+    fn get_field_offset(&self,struct_id:&StructId,field:&str)->usize{
+        let mut offset = 0;
+        for (field_name,field_ty) in self.type_context.structs.get_struct_info(struct_id).expect("Can only use structs that can exist").fields.iter(){
+            if field_name == field{
+                break;
+            }
+            offset += self.calculate_size(field_ty);
+        }
+        offset
     }
     pub fn new(type_context:TypeContext)->Self{
         Self { type_context,functions:vec![CompiledFunction::default()],..Default::default() }
@@ -688,8 +698,21 @@ impl Compiler{
                     InitKind::Struct(struct_id) => {
                         let struct_info = self.type_context.structs.get_struct_info(struct_id).expect("All structs should be checked");
                         let size = struct_info.fields.iter().map(|(_,ty)|self.calculate_size(ty)).sum::<usize>();
-                        for _ in 0..size{
-                            self.emit_instruction(Instruction::LoadInt(0),expr.location.start_line);
+                        if size <= 1{
+                            for (_,field_expr) in fields{
+                                self.compile_expr(field_expr);
+                            }
+                        }
+                        else{
+                            for _ in 0..size{
+                                self.emit_instruction(Instruction::LoadInt(0),expr.location.start_line);
+                            }
+                            for (field_name,field_expr) in fields{
+                                let field_offset = self.get_field_offset(struct_id, &field_name);
+                                self.emit_instruction(Instruction::LoadStackRef((size - field_offset) as u16),field_expr.location.start_line);
+                                self.compile_expr(&field_expr);
+                                self.emit_instruction(Instruction::StoreIndirect, field_expr.location.end_line);
+                            }
                         }
                     },
                     InitKind::Variant(.. ) => {
