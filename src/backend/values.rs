@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{fmt::Display, rc::Rc};
 
 use super::{instructions::Chunk, objects::{Heap, Object}, vm::{RuntimeError, VM}};
 #[derive(Clone,Debug,PartialEq,Default)]
@@ -33,12 +33,21 @@ pub enum Upvalue{
     },
     Closed(Value)
 }
-#[derive(Clone, Copy,Debug,PartialEq)]
+#[derive(Clone,Debug,PartialEq)]
 pub enum Address{
     Global(usize),
     Stack(usize),
+    Field(Box<Address>,usize),
 }
-
+impl Display for Address{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self{
+            Address::Stack(address) => write!(f,"*{}",address),
+            Address::Global(global) => write!(f,"*{}",global),
+            Address::Field(address,offset) => write!(f,"*{}[{}]",address,offset),
+        }
+    }
+}
 #[derive(Clone,Debug,PartialEq)]
 pub enum Value{
     Int(i64),
@@ -101,10 +110,7 @@ impl Value{
     pub fn format(& self,heap:&Heap,seen_values : &mut Vec<&Value>)->String{
         match self{
             Value::Address(address) => {
-                format!("*{}",match address{
-                    Address::Global(global) => global,
-                    Address::Stack(local) => local
-                })
+                format!("{}",address)
             },
             Value::Bool(bool) => {
                 format!("{}",*bool)
