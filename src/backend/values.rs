@@ -50,6 +50,7 @@ pub enum Value{
     Function(Object),
     Closure(Object),
     NativeFunction(Object),
+    Address(Address)
 }
 impl Value{
     pub fn make_case_record(heap:&mut Heap,variant_name:&str,variant_tag:usize,variant_fields : &[Self],total_field_count:usize)->Self{
@@ -100,6 +101,9 @@ impl Value{
             }
         }
         match self{
+            Value::Address(address) => {
+                format!("*{}",address.0)
+            },
             Value::Bool(bool) => {
                 format!("{}",*bool)
             },
