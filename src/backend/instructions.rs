@@ -14,12 +14,15 @@ pub enum Instruction {
 
     LoadLocal(u16),
     StoreLocal(u16),
+    
+    LoadStackRef(u16),
     StoreGlobal(u16),
     LoadGlobal(u16),
     LoadField(u16),
     StoreField(u16),
     LoadUpvalue(u16),
     StoreUpvalue(u16),
+    StoreIndirect,
     UnpackTuple,
 
     AddInt,

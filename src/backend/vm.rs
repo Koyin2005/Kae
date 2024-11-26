@@ -4,7 +4,7 @@ use fxhash::FxHashMap;
 
 use crate::backend::disassembly::disassemble_instruction;
 
-use super::{instructions::{Chunk, Constant, Instruction, Program}, objects::{Heap, Object}, values::{Closure, Function, Record, Upvalue, Value}};
+use super::{instructions::{Chunk, Constant, Instruction, Program}, objects::{Heap, Object}, values::{Address, Closure, Function, Record, Upvalue, Value}};
 
 pub const DEBUG_TRACE_EXEC : bool = false;
 pub const MAX_STACK_SIZE : usize = 255;
@@ -585,6 +585,21 @@ impl VM{
                 Instruction::Copy(offset) => {
                     let offset = (offset - 1) as usize;
                     self.push(self.peek(offset))?;
+                },
+                Instruction::LoadStackRef(offset) => {
+                    let offset = offset as usize;
+                    self.push(Value::Address(Address(self.stack.len() - offset)))?;
+                },
+                Instruction::StoreIndirect => {
+                    let value = self.pop();
+                    match self.pop(){
+                        Value::Address(address) => {
+                            self.stack[address.0] = value;
+                        },
+                        value => {
+                            panic!("Can't use '{}' as address.",value.format(&self.heap, &mut Vec::new()))
+                        }
+                    }
                 }
                 Instruction::Print(args) => {
                     for offset in (0..args).rev(){
