@@ -101,7 +101,7 @@ impl Compiler{
     fn get_local(&self,name:&str)->Option<usize>{
         self.functions.last().unwrap().locals.iter().rev().find(|local| local.name == name).map(|local| local.index)
     }
-    fn emit_define_instruction(&mut self,index:usize,line:u32){
+    fn emit_define_instruction(&mut self,index:usize,size:usize,line:u32){
         if self.scope_depth == 0{
             self.emit_instruction(Instruction::StoreGlobal(index as u16),line);
 
@@ -125,7 +125,7 @@ impl Compiler{
     }
     fn define_name(&mut self,name:String,size:usize,line:u32){
         let index = self.declare_name(name,size);
-        self.emit_define_instruction(index, line);
+        self.emit_define_instruction(index,size, line);
     }
     fn resolve_upvalue(&mut self,name:&str)->usize{
         fn add_upvalue(function :&mut CompiledFunction,new_upvalue:Upvalue)->usize{
@@ -849,7 +849,7 @@ impl Compiler{
                     let name= name.content.clone();
                     let index = self.declare_name(name.clone(),1);
                     self.compile_function(function,name.clone(),None);
-                    self.emit_define_instruction(index, function.body.location.end_line);
+                    self.emit_define_instruction(index, 1,function.body.location.end_line);
                 
             },
             TypedStmtNode::GenericFunction {function,name,.. } => {
