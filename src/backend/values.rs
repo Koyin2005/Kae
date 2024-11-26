@@ -1,7 +1,5 @@
 use std::rc::Rc;
 
-use fxhash::FxHashMap;
-
 use super::{instructions::Chunk, objects::{Heap, Object}, vm::{RuntimeError, VM}};
 #[derive(Clone,Debug,PartialEq,Default)]
 pub struct Function{
