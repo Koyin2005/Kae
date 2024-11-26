@@ -95,7 +95,7 @@ impl Value{
             _ => false
         }
     }
-    pub fn format<'a:'b,'b>(&'a self,heap:&Heap,seen_values : &mut Vec<&'b Value>)->String{
+    pub fn format(& self,heap:&Heap,seen_values : &mut Vec<&Value>)->String{
         fn is_value_recursive(value:&Value,seen_values : &[&Value],heap: &Heap)->bool{
             match value{
                 Value::CaseRecord(record)  if seen_values.contains(&value) => {
@@ -127,7 +127,19 @@ impl Value{
                 String::from("{}")
             }
             Value::Record(record) => {
-                format!("")
+                let name = Value::String(record.name);
+                let mut result = name.format(heap, seen_values);
+                if !record.fields.is_empty(){
+                    result.push('{');
+                    for (i,field) in record.fields.iter().enumerate(){
+                        if i>0{
+                            result.push(',');
+                        }
+                        result.push_str(&field.format(heap, seen_values));
+                    }
+                    result.push('}');
+                }
+                result
             },
             Value::Tuple(tuple) => {
                 let mut result = String::from("(");
