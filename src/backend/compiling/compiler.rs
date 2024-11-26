@@ -452,11 +452,6 @@ impl Compiler{
             
         }
     }
-    fn emit_rotate(&mut self,size:usize,line: u32){
-        if size > 1{
-            self.emit_instruction(Instruction::Rotate(size as u16), line);
-        }
-    }
     fn compile_lvalue(&mut self,expr:&TypedExprNode){
         match &expr.kind{
             TypedExprNodeKind::Get(name) => {
