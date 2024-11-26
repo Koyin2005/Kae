@@ -69,7 +69,7 @@ pub enum Instruction {
 
     
     JumpIfFalseAndPop(u16),
-
+    PrintValue,
     Print(u16),
     Call(u16),
     Return,

@@ -611,6 +611,10 @@ impl VM{
                     self.stack.truncate(self.stack.len() - args as usize);
                     println!();
                 },
+                Instruction::PrintValue => {
+                    let value = self.pop();
+                    value.print(&self.heap);
+                }
                 Instruction::Call(args) => {
                     let arg_count = args as usize;
                     let function = self.peek(arg_count);
