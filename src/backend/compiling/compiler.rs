@@ -30,7 +30,8 @@ struct CompiledFunction{
 
 struct Global{
     pub name : String,
-    pub index : usize
+    pub index : usize,
+    pub size : usize
 }
 pub struct CompileFailed;
 #[derive(Default)]
@@ -95,8 +96,8 @@ impl Compiler{
         }
         self.generic_functions.retain(|function| function.depth <= self.scope_depth);
     }
-    fn get_global(&self,name:&str)->Option<usize>{
-       self.globals.iter().rev().position(|global| global.name == name).map(|index|  self.globals.len() - index - 1)
+    fn get_global(&self,name:&str)->Option<&Global>{
+       self.globals.iter().rev().find(|global| global.name == name)
     }
     fn get_local(&self,name:&str)->Option<usize>{
         self.functions.last().unwrap().locals.iter().rev().find(|local| local.name == name).map(|local| local.index)
@@ -165,8 +166,11 @@ impl Compiler{
         if let Some(index) = self.get_local(name){
             self.emit_instruction(Instruction::LoadLocal(index as u16),line);
         }
-        else if let Some(index) =  self.get_global(name){
-            self.emit_instruction(Instruction::LoadGlobal(index as u16),line);
+        else if let Some(global) =  self.get_global(name){
+            let index = global.index;
+            for i in 0..global.size{
+                self.emit_instruction(Instruction::LoadGlobal((index+i) as u16),line);
+            }
         }
         else{
             let upvalue = self.resolve_upvalue(name);
@@ -177,8 +181,12 @@ impl Compiler{
         if let Some(index) = self.get_local(name){
             self.emit_instruction(Instruction::StoreLocal(index as u16),line);
         }
-        else if let Some(index) = self.get_global(name){
-            self.emit_instruction(Instruction::StoreGlobal(index as u16),line);
+        else if let Some(global) = self.get_global(name){
+            let index = global.index;
+            let size = global.size;
+            for i in (0..size).rev(){
+                self.emit_instruction(Instruction::StoreGlobal((index+i) as u16),line);
+            }
         }
         else{
             let upvalue = self.resolve_upvalue(name);
@@ -187,7 +195,7 @@ impl Compiler{
     }
     fn declare_global(&mut self,name:String,size:usize)->usize{
         let global_index = self.next_global_slot;
-        self.globals.push(Global { name, index:global_index });
+        self.globals.push(Global { name, index:global_index ,size});
         self.next_global_slot += size;
         global_index
     }
