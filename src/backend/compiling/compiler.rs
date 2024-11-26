@@ -368,27 +368,7 @@ impl Compiler{
 
             },
             PatternNodeKind::Struct { ty, fields } => {
-                let mut jumps = Vec::new();
-                if let Type::EnumVariant { variant_index,.. } = ty{
-                    self.push_top_of_stack(pattern.location.start_line);
-                    self.emit_instruction(Instruction::LoadField(0), pattern.location.start_line);
-                    self.load_int(*variant_index as i64, pattern.location.start_line);
-                    self.emit_instruction(Instruction::Equals, pattern.location.start_line);
-                    jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.start_line));
-                }
-                for (field_name,field_pattern) in fields{
-                    self.push_top_of_stack(field_pattern.location.start_line);
-                    self.emit_instruction(Instruction::LoadField(ty.get_field_index(field_name, &self.type_context).unwrap() as u16),field_pattern.location.start_line);
-                    self.compile_pattern_check(field_pattern,ty);
-                    jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalseAndPop(0xFF), field_pattern.location.end_line));
-                }
-                self.load_bool(true, pattern.location.end_line);
-                let end_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
-                for jump in jumps{
-                    self.patch_jump(jump);
-                }
-                self.load_bool(false, pattern.location.end_line);
-                self.patch_jump(end_jump);
+                todo!("Re-Implement Struct Patterns");
             },
             PatternNodeKind::Array(before,ignore ,after) => {
                 let total_length = before.len() + after.len();
@@ -656,18 +636,9 @@ impl Compiler{
                     TypedAssignmentTargetKind::Field { lhs, name } => {
                         self.compile_lvalue(lhs);
                         self.compile_expr(rhs);
-                        match &lhs.ty{
-                            Type::Struct { name:_,.. } => {
-                                let field_index= lhs.ty.get_field_index(&name.content, &self.type_context).expect("Already checked fields");
-                                self.emit_instruction(Instruction::StoreFieldByRef(field_index as u16), rhs.location.end_line);
-                                self.emit_instruction(Instruction::LoadField(field_index as u16), rhs.location.end_line);
-                            },
-                            _ => {
-                                let field_index= lhs.ty.get_field_index(&name.content, &self.type_context).expect("Already checked fields");
-                                self.emit_instruction(Instruction::StoreFieldByRef(field_index as u16), rhs.location.end_line);
-                                self.emit_instruction(Instruction::LoadField(field_index as u16), rhs.location.end_line);
-                            }
-                        }
+                        let field_index= lhs.ty.get_field_index(&name.content, &self.type_context).expect("Already checked fields");
+                        self.emit_instruction(Instruction::StoreFieldByRef(field_index as u16), rhs.location.end_line);
+                        self.emit_instruction(Instruction::LoadFieldByRef(field_index as u16), rhs.location.end_line);
                     }
                 }
 
@@ -723,10 +694,7 @@ impl Compiler{
                         self.emit_instruction(Instruction::GetArrayLength, field_name.location.end_line);
                     },
                     (ty @ (Type::Struct {.. } | Type::EnumVariant {.. }),field) => {
-                        self.emit_instruction(
-                            Instruction::LoadField(ty.get_field_index(field, &self.type_context).expect("All fields should be checked") as u16,
-                            ),field_name.location.end_line
-                        );
+                        todo!("Field expression")
                     }
                     _ => unreachable!("{:?}",lhs.ty)
                 }
@@ -780,13 +748,7 @@ impl Compiler{
                 }
             },
             PatternNodeKind::Struct { fields,ty } => {
-                for (field_name,field) in fields.iter(){
-                    let index = ty.get_field_index(field_name, &self.type_context).expect("All fields should be checked");
-                    self.emit_instruction(Instruction::Copy(1), line);
-                    self.emit_instruction(Instruction::LoadField(index as u16), line);
-                    self.compile_pattern_assignment(field, ty, line);
-                }
-                self.emit_instruction(Instruction::Pop, line);
+                todo!("Pattern struct assigmnent")
             },
             PatternNodeKind::Wildcard => {
                 self.emit_instruction(Instruction::Pop, line);

@@ -436,8 +436,19 @@ impl VM{
                     };
                     self.push(Value::Record(record))?;
                 },
-                Instruction::LoadField(field) => {
-                    todo!("REIMPLEMENT RECORDS FIELD LOADING");
+                Instruction::LoadFieldByRef(field) => {
+                    let Value::Address(address) = self.pop() else {
+                        panic!("Can't use as address")
+                    };
+                    let record_value = match address{
+                        Address::Global(global) => &self.globals[&global],
+                        Address::Local(local) => &self.stack[local]
+                    };
+                    let Value::Record(record) = record_value else {
+                        panic!("Can't use as record")
+                    };
+                    let field_value = record.fields[field as usize].clone();
+                    self.push(field_value)?;
 
                 },
                 Instruction::GetArrayLength => {

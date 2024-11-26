@@ -19,9 +19,9 @@ pub enum Instruction {
     StoreGlobal(u16),
     LoadGlobal(u16),
     LoadGlobalRef(u16),
-    
-    LoadField(u16),
+
     StoreField(u16),
+    LoadFieldByRef(u16),
     StoreFieldByRef(u16),
 
     LoadUpvalue(u16),
