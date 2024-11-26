@@ -39,6 +39,16 @@ pub struct Compiler{
     mono_counter : usize
 }
 impl Compiler{
+    fn calculate_size(&self,ty:&Type)->usize{
+        match ty{
+            Type::Never => 0,
+            Type::Struct { id, .. } => {
+                self.type_context.structs.get_struct_info(id).expect("All structs have been checked")
+                .fields.iter().map(|(_,ty)| self.calculate_size(ty)).sum()
+            },
+            _ => 1
+        }
+    }
     pub fn new(type_context:TypeContext)->Self{
         Self { type_context,functions:vec![CompiledFunction::default()],..Default::default() }
     }
@@ -674,46 +684,17 @@ impl Compiler{
                 }
             },
             TypedExprNodeKind::StructInit { kind,fields } => {
-
-                let total_fields = match kind{
-                    InitKind::Struct(_) => fields.len(),
-                    InitKind::Variant(id, _) => {
-                        self.type_context.enums.get_enum(*id).variants.iter().map(|variant|{
-                            variant.fields.len()
-                        }).max().unwrap_or(0) + 1
-                    }
-                };
-                let name = match kind{
-                    InitKind::Variant(id,variant_index ) => {
-                        let enum_info = self.type_context.enums.get_enum(*id);
-                        enum_info.variants[*variant_index].name.clone()
-                    },
-                    InitKind::Struct(_) => {
-                        format!("{}",expr.ty)
-                    }
-                };
-                self.load_string(name, expr.location.start_line);
-                match kind {
-                    InitKind::Variant(id, variant_index) => {
-                        self.load_int(*variant_index as i64, expr.location.start_line);
-                        let enum_info = self.type_context.enums.get_enum(*id);
-                        let field_count = enum_info.variants[*variant_index].fields.len() as i64;
-                        self.load_int(field_count , expr.location.start_line);
-                        self.emit_instruction(Instruction::BuildCaseRecord(total_fields as u16), expr.location.start_line);
-                    },
-                    InitKind::Struct(_) =>{
-                        self.emit_instruction(Instruction::BuildRecord(total_fields as u16),expr.location.start_line);
-                    }
-                };
-                for (name,field_expr) in fields{
-                    self.compile_expr(field_expr);
-                    let field_index =  match kind{
-                        InitKind::Struct(id) => self.type_context.structs.get_struct_info(id).expect("Should definitely be a struct").get_field(name).expect("Struct should definitely have field").0,
-                        InitKind::Variant(id, variant) => {
-                            self.type_context.enums.get_enum(*id).variants[*variant].fields.iter().position(|(field_name,_)| field_name == name).map(|index| index + 1).expect("Already checked fields")
+                match kind{
+                    InitKind::Struct(struct_id) => {
+                        let struct_info = self.type_context.structs.get_struct_info(struct_id).expect("All structs should be checked");
+                        let size = struct_info.fields.iter().map(|(_,ty)|self.calculate_size(ty)).sum::<usize>();
+                        for _ in 0..size{
+                            self.emit_instruction(Instruction::LoadInt(0),expr.location.start_line);
                         }
-                    };
-                    self.emit_instruction(Instruction::StoreField(field_index as u16), field_expr.location.end_line);
+                    },
+                    InitKind::Variant(.. ) => {
+                        todo!()
+                    }
                 }
             },
             TypedExprNodeKind::MethodCall { lhs, method, args } => {
