@@ -780,13 +780,17 @@ impl Compiler{
             TypedStmtNode::Expr(expr) => {
                 self.compile_expr(expr);
                 if expr.ty == Type::Unit{
-                    self.emit_instruction(Instruction::Pop, expr.location.end_line);
+                    for _ in 0..self.calculate_size(&expr.ty){
+                        self.emit_instruction(Instruction::Pop,expr.location.end_line);
+                    }
                 }
             },
             TypedStmtNode::ExprWithSemi(expr) => {
                 self.compile_expr(expr);
                 if expr.ty != Type::Never{
-                    self.emit_instruction(Instruction::Pop,expr.location.end_line);
+                    for _ in 0..self.calculate_size(&expr.ty){
+                        self.emit_instruction(Instruction::Pop,expr.location.end_line);
+                    }
                 }
             },
             TypedStmtNode::Let { pattern, expr } => {
