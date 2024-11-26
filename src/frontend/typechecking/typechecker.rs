@@ -1202,18 +1202,21 @@ impl TypeChecker{
                 };
                 let id = self.type_context.structs.define_struct (vec![].into_iter() );
                 let generic_params = self.convert_to_generic_params(&generic_params);
-                self.environment.add_type(
-                    struct_name.clone(), 
-                Type::Struct { 
+                let struct_type = Type::Struct { 
                     generic_args: generic_params.clone().unwrap_or_default(), 
                     id, 
                     name: struct_name.clone()
-                });
+                };
+                self.environment.add_type(struct_name.clone(), struct_type.clone());
                 let mut field_names = HashSet::new();
                 let Ok(fields) = fields.iter().map(|(field,ty)|{
                     let field_type = self.check_type(ty)?;
                     if !field_names.insert(&field.content){
                         self.error(format!("Repeated field '{}'.",field.content), field.location.start_line);
+                        return Err(TypeCheckFailed);
+                    }
+                    if field_type == struct_type{
+                        self.error(format!("Can't declare recursive 'struct' '{}'.",field_type),field.location.start_line);
                         return Err(TypeCheckFailed);
                     }
                     Ok((field.clone(),field_type))
