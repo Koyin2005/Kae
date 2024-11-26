@@ -33,11 +33,8 @@ pub enum Upvalue{
     },
     Closed(Value)
 }
-
 #[derive(Clone, Copy,Debug,PartialEq)]
-pub struct StackAddress(usize);
-
-
+pub struct Address(pub usize);
 
 #[derive(Clone,Copy,Debug,PartialEq)]
 pub enum Value{
@@ -52,7 +49,7 @@ pub enum Value{
     List(Object),
     Function(Object),
     Closure(Object),
-    NativeFunction(Object)
+    NativeFunction(Object),
 }
 impl Value{
     pub fn make_case_record(heap:&mut Heap,variant_name:&str,variant_tag:usize,variant_fields : &[Self],total_field_count:usize)->Self{
