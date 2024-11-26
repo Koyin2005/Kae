@@ -115,8 +115,8 @@ impl Compiler{
     fn load_bool(&mut self,bool:bool,line:u32){
         self.emit_instruction(Instruction::LoadBool(bool), line);
     }
-    fn define_name(&mut self,name:String,line:u32){
-        let index = self.declare_name(name);
+    fn define_name(&mut self,name:String,size:usize,line:u32){
+        let index = self.declare_name(name,size);
         self.emit_define_instruction(index, line);
     }
     fn resolve_upvalue(&mut self,name:&str)->usize{
@@ -178,7 +178,7 @@ impl Compiler{
         self.globals.push(name);
         self.globals.len()-1
     }
-    fn declare_name(&mut self,name:String)->usize{
+    fn declare_name(&mut self,name:String,size:usize)->usize{
         if self.scope_depth == 0{
             self.declare_global(name)
         }else{
@@ -250,15 +250,15 @@ impl Compiler{
         let params = function.signature.params.iter().enumerate().filter_map(|(i,(pattern,ty))|{
             match &pattern.kind{
                 PatternNodeKind::Name(name) => {
-                    self.declare_name(name.clone());
+                    self.declare_name(name.clone(),self.calculate_size(ty));
                     None
 
                 },
                 PatternNodeKind::Tuple(elements) if elements.is_empty() => {
-                    self.declare_name(format!("*param_{}",i));
+                    self.declare_name(format!("*param_{}",i),self.calculate_size(ty));
                     None
                 },
-                _ => Some((self.declare_name(format!("*param_{}",i)),pattern,ty))
+                _ => Some((self.declare_name(format!("*param_{}",i),self.calculate_size(ty)),pattern,ty))
             }
 
         }).collect::<Vec<_>>();
@@ -301,7 +301,8 @@ impl Compiler{
             self.emit_instruction(Instruction::LoadClosure(func_constant as u16), function.body.location.end_line);
         }
     }
-    fn compile_pattern_check(&mut self,pattern:&PatternNode){
+    fn compile_pattern_check(&mut self,pattern:&PatternNode,ty:&Type){
+        let size =  self.calculate_size(ty);
         match &pattern.kind{
             PatternNodeKind::Int(int) => {
                 self.push_top_of_stack(pattern.location.end_line);
@@ -328,14 +329,14 @@ impl Compiler{
             },
             PatternNodeKind::Name(name) => {
                 self.push_top_of_stack(pattern.location.start_line);
-                self.define_name(name.clone(), pattern.location.end_line);
+                self.define_name(name.clone(), size,pattern.location.end_line);
                 self.load_bool(true, pattern.location.end_line);
             },
             PatternNodeKind::Is(name,right_pattern) => {
                 self.push_top_of_stack(right_pattern.location.start_line);
-                self.compile_pattern_check(right_pattern);
+                self.compile_pattern_check(right_pattern,ty);
                 let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), right_pattern.location.end_line);
-                self.define_name(name.content.clone(), right_pattern.location.end_line);
+                self.define_name(name.content.clone(), size,right_pattern.location.end_line);
                 self.load_bool(true, right_pattern.location.end_line);
                 let true_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), right_pattern.location.end_line);
                 self.patch_jump(false_jump);
@@ -348,7 +349,7 @@ impl Compiler{
                 for (i,element) in  elements.iter().enumerate(){
                     self.push_top_of_stack(element.location.start_line);
                     self.emit_instruction(Instruction::GetTupleElement(i as u16), element.location.start_line);
-                    self.compile_pattern_check(element);
+                    self.compile_pattern_check(element,ty);
                     jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalseAndPop(0xFF), element.location.end_line));
                 }
                 self.load_bool(true,pattern.location.end_line);
@@ -372,7 +373,7 @@ impl Compiler{
                 for (field_name,field_pattern) in fields{
                     self.push_top_of_stack(field_pattern.location.start_line);
                     self.emit_instruction(Instruction::LoadField(ty.get_field_index(field_name, &self.type_context).unwrap() as u16),field_pattern.location.start_line);
-                    self.compile_pattern_check(field_pattern);
+                    self.compile_pattern_check(field_pattern,ty);
                     jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalseAndPop(0xFF), field_pattern.location.end_line));
                 }
                 self.load_bool(true, pattern.location.end_line);
@@ -402,7 +403,7 @@ impl Compiler{
                     self.push_top_of_stack(pattern.location.start_line);
                     self.load_int(i as i64, pattern.location.start_line);
                     self.emit_instruction(Instruction::LoadIndex, pattern.location.start_line);
-                    self.compile_pattern_check(pattern);
+                    self.compile_pattern_check(pattern,ty);
                     jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalseAndPop(0xFF), pattern.location.end_line));
                 }
 
@@ -421,7 +422,7 @@ impl Compiler{
                                 self.emit_instruction(Instruction::AddInt, pattern.location.start_line);
                             }
                             self.emit_instruction(Instruction::LoadIndex, pattern.location.start_line);
-                            self.compile_pattern_check(pattern);
+                            self.compile_pattern_check(pattern,ty);
                             let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalseAndPop(0xFF), pattern.location.end_line);
                             after_jumps.push(false_jump);
 
@@ -442,7 +443,7 @@ impl Compiler{
                         self.push_top_of_stack(pattern.location.start_line);
                         self.load_int((i+before.len()) as i64, pattern.location.start_line);
                         self.emit_instruction(Instruction::LoadIndex, pattern.location.start_line);
-                        self.compile_pattern_check(pattern);
+                        self.compile_pattern_check(pattern,ty);
                         let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line);
                         self.emit_instruction(Instruction::Pop, pattern.location.end_line);
                         let true_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), pattern.location.end_line);
@@ -621,7 +622,7 @@ impl Compiler{
                 self.compile_expr(matchee);
                 let jumps_to_patch = arms.iter().map(|arm|{
                     self.begin_scope();
-                    self.compile_pattern_check(&arm.pattern);
+                    self.compile_pattern_check(&arm.pattern,&matchee.ty);
                     let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), arm.pattern.location.end_line);
                     self.emit_instruction(Instruction::Pop, arm.pattern.location.end_line);
                     self.compile_expr(&arm.expr);
@@ -768,10 +769,11 @@ impl Compiler{
             }
         }
     }
-    fn compile_pattern_assignment(&mut self,pattern:&PatternNode,ty:&Type,line:u32){
+    fn compile_pattern_assignment(&mut self,pattern:&PatternNode,ty:&Type,line:u32){ 
+        let size = self.calculate_size(ty);
         match &pattern.kind{
             PatternNodeKind::Name(name) => {
-                self.define_name(name.clone(),line);
+                self.define_name(name.clone(),size,line);
             },
             PatternNodeKind::Tuple(patterns) => {
                 if !patterns.is_empty(){
@@ -804,7 +806,7 @@ impl Compiler{
             },
             PatternNodeKind::Is(name, right_pattern) => {
                 self.emit_instruction(Instruction::Copy(1), line);
-                self.define_name(name.content.clone(), line);
+                self.define_name(name.content.clone(), size,line);
                 self.compile_pattern_assignment(right_pattern, ty, line);
             }
             _ => {}
@@ -834,7 +836,7 @@ impl Compiler{
             },
             TypedStmtNode::Fun { name, function} => {
                     let name= name.content.clone();
-                    let index = self.declare_name(name.clone());
+                    let index = self.declare_name(name.clone(),1);
                     self.compile_function(function,name.clone(),None);
                     self.emit_define_instruction(index, function.body.location.end_line);
                 
@@ -852,7 +854,7 @@ impl Compiler{
                 for method in methods{
                     let method_name = format!("{}::{}",ty,method.name.content);
                     self.compile_function(&method.function, method_name.clone(), None);
-                    self.define_name(method_name, method.function.body.location.end_line);
+                    self.define_name(method_name, 1,method.function.body.location.end_line);
                 }
             }
         }
@@ -867,33 +869,33 @@ impl Compiler{
             name : "input".to_string(),
             function : native_input
         })), 1);
-        self.define_name("input".to_string(), 1);
+        self.define_name("input".to_string(), 1,1);
 
         self.load_constant(Constant::NativeFunction(Rc::new(NativeFunction{
             name : "panic".to_string(),
             function : native_panic
         })), 1);
-        self.define_name("panic".to_string(), 1);
+        self.define_name("panic".to_string(), 1,1);
         
         self.load_constant(Constant::NativeFunction(Rc::new(NativeFunction{
             name : "push".to_string(),
             function : native_push
         })), 1);
-        self.define_name("push".to_string(), 1);
+        self.define_name("push".to_string(), 1,1);
 
         
         self.load_constant(Constant::NativeFunction(Rc::new(NativeFunction{
             name : "pop".to_string(),
             function : native_pop
         })), 1);
-        self.define_name("pop".to_string(), 1);
+        self.define_name("pop".to_string(), 1,1);
 
         
         self.load_constant(Constant::NativeFunction(Rc::new(NativeFunction{
             name : "parse_int".to_string(),
             function : native_parse_int
         })), 1);
-        self.define_name("parse_int".to_string(), 1);
+        self.define_name("parse_int".to_string(), 1,1);
         self.compile_stmts(&stmts);
         let last_line = self.current_chunk.lines.last().copied().unwrap_or(1);
         self.emit_instruction(Instruction::LoadUnit,last_line);
