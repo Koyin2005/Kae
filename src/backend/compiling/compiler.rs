@@ -25,6 +25,7 @@ struct GenericFunction{
 struct CompiledFunction{
     pub locals : Vec<Local>,
     pub upvalues : Vec<Upvalue>,
+    pub next_local_slot:usize
 }
 pub struct CompileFailed;
 #[derive(Default)]
