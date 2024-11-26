@@ -6,7 +6,7 @@ use crate::backend::disassembly::disassemble_instruction;
 
 use super::{instructions::{Chunk, Constant, Instruction, Program}, objects::{Heap, Object}, values::{Address, Closure, Function, Record, Upvalue, Value}};
 
-pub const DEBUG_TRACE_EXEC : bool = true;
+pub const DEBUG_TRACE_EXEC : bool = false;
 pub const MAX_STACK_SIZE : usize = 255;
 pub const MAX_FRAMES : usize = 64;
 
