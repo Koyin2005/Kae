@@ -107,7 +107,9 @@ impl Compiler{
 
         }
         else{
-            self.emit_instruction(Instruction::StoreLocal(index as u16),line);
+            for i in (0..size).rev(){
+                self.emit_instruction(Instruction::StoreLocal((index + i) as u16),line);
+            }
         }
 
     }
