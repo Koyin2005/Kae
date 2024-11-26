@@ -103,8 +103,9 @@ impl Compiler{
     }
     fn emit_define_instruction(&mut self,index:usize,size:usize,line:u32){
         if self.scope_depth == 0{
-            self.emit_instruction(Instruction::StoreGlobal(index as u16),line);
-
+            for i in (0..size).rev(){
+                self.emit_instruction(Instruction::StoreGlobal((index+i) as u16),line);
+            }
         }
         else{
             for i in (0..size).rev(){
