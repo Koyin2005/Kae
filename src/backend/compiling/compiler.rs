@@ -464,14 +464,14 @@ impl Compiler{
             
         }
     }
+    fn print_string(&mut self,string:String,line: u32){
+        self.load_string(string, line);
+        self.emit_instruction(Instruction::PrintValue,line);
+    }
     fn compile_print(&mut self,ty:&Type,line:u32){
-        fn print_string(this: &mut Compiler,string:String,line: u32){
-            this.load_string(string, line);
-            this.emit_instruction(Instruction::PrintValue,line);
-        }
         match ty{
             Type::Struct { id, name,.. } => {
-                print_string(self, name.clone(), line);
+                self.print_string(name.clone(), line);
                 for (_,field) in &self.get_struct_info(id).fields{
                     
                 }
@@ -520,6 +520,7 @@ impl Compiler{
                     self.compile_expr(arg);
                     self.compile_print(&arg.ty,arg.location.start_line);
                 }
+                self.emit_instruction(Instruction::Print(0), expr.location.end_line);
                 self.emit_instruction(Instruction::LoadUnit,expr.location.end_line);
             },
             TypedExprNodeKind::Block { stmts, expr:result_expr } => {
