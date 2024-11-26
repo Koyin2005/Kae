@@ -518,6 +518,19 @@ impl Compiler{
             }
         }
     }
+    fn compile_lvalue(&mut self,expr:&TypedExprNode){
+        match &expr.kind{
+            TypedExprNodeKind::Get(name) => {
+                
+            },
+            TypedExprNodeKind::Field(lhs, field) => {
+
+            },
+            _ => {
+                todo!()
+            }
+        }
+    }
     fn compile_expr(&mut self,expr:&TypedExprNode){
         match &expr.kind{
             TypedExprNodeKind::Unit => {
@@ -686,11 +699,18 @@ impl Compiler{
                         self.emit_instruction(Instruction::LoadIndex, rhs.location.end_line);
                     },
                     TypedAssignmentTargetKind::Field { lhs, name } => {
-                        self.compile_expr(lhs);
+                        self.compile_lvalue(lhs);
                         self.compile_expr(rhs);
-                        let field_index= lhs.ty.get_field_index(&name.content, &self.type_context).expect("Already checked fields");
-                        self.emit_instruction(Instruction::StoreField(field_index as u16), rhs.location.end_line);
-                        self.emit_instruction(Instruction::LoadField(field_index as u16), rhs.location.end_line);
+                        match &lhs.ty{
+                            Type::Struct { id, name,.. } => {
+                                todo!()
+                            },
+                            _ => {
+                                let field_index= lhs.ty.get_field_index(&name.content, &self.type_context).expect("Already checked fields");
+                                self.emit_instruction(Instruction::StoreField(field_index as u16), rhs.location.end_line);
+                                self.emit_instruction(Instruction::LoadField(field_index as u16), rhs.location.end_line);
+                            }
+                        }
                     }
                 }
 
