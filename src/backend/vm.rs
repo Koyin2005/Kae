@@ -168,6 +168,12 @@ impl VM{
                 };
                 &record.fields[*field]
             },
+            Address::Index(base_address, index) => {
+                let Value::List(list) = self.read_address(base_address) else {
+                    unreachable!("Can't use as list")
+                };
+                &list.as_list(&self.heap)[*index]
+            }
         }
     }
     fn read_address_mut(&mut self,address:&Address)->&mut Value{
@@ -180,6 +186,12 @@ impl VM{
                 };
                 &mut record.fields[*field]
             },
+            Address::Index(base_address, index) => {
+                let &Value::List(list) = self.read_address(base_address) else {
+                    unreachable!("Can't use as list")
+                };
+                &mut list.as_list_mut(&mut self.heap)[*index]
+            }
         }
     }
     pub fn runtime_error(&self,message:&str){
