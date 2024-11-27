@@ -38,7 +38,7 @@ pub enum Address{
     Global(usize),
     Stack(usize),
     Field(Box<Address>,usize),
-    Index(Box<Address>,usize),
+    Index(Object,usize),
 }
 impl Display for Address{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -46,7 +46,7 @@ impl Display for Address{
             Address::Stack(address) => write!(f,"*{}",address),
             Address::Global(global) => write!(f,"*{}",global),
             Address::Field(address,offset) => write!(f,"{}->{}",address,offset),
-            Address::Index(address,index ) => write!(f,"{}[{}]",address,index)
+            Address::Index(address,index ) => write!(f,"*{:?}[{}]",address,index)
         }
     }
 }

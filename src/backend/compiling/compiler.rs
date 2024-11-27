@@ -44,15 +44,8 @@ pub struct Compiler{
     anonymous_var_counter:usize
 }
 impl Compiler{
-    fn calculate_size(&self,ty:&Type)->usize{
-        match ty{
-            Type::Never => 0,
-            Type::Struct { id, .. } => {
-                self.type_context.structs.get_struct_info(id).expect("All structs have been checked")
-                .fields.iter().map(|(_,ty)| self.calculate_size(ty)).sum()
-            },
-            _ => 1
-        }
+    fn is_ref_type(&self,ty:&Type)->bool{
+        matches!(ty,Type::Array(_)|Type::String|Type::Function { .. }) 
     }
     fn get_struct_info(&self,struct_id:&StructId)->&Struct{
         self.type_context.structs.get_struct_info(struct_id).expect("All structs should be checked")
@@ -309,7 +302,6 @@ impl Compiler{
         }
     }
     fn compile_pattern_check(&mut self,pattern:&PatternNode,ty:&Type){
-        let size =  self.calculate_size(ty);
         match &pattern.kind{
             PatternNodeKind::Int(int) => {
                 self.push_top_of_stack(pattern.location.end_line);
@@ -455,16 +447,26 @@ impl Compiler{
     fn compile_lvalue(&mut self,expr:&TypedExprNode){
         match &expr.kind{
             TypedExprNodeKind::Get(name) => {
-                self.load_name_ref(name,expr.location.start_line);
+                if self.is_ref_type(&expr.ty) {
+                    self.load_name(&name, expr.location.start_line);
+                }
+                else{
+                    self.load_name_ref(name,expr.location.start_line);
+                }
             },
             TypedExprNodeKind::Field(lhs, field) => {
                 self.compile_lvalue(&lhs);
                 let field_index = lhs.ty.get_field_index(&field.content, &self.type_context).unwrap();
                 self.emit_instruction(Instruction::LoadFieldRef(field_index as u16),field.location.end_line);
             },
+            TypedExprNodeKind::Index { lhs, rhs } => {
+                self.compile_expr(&lhs);
+                self.compile_expr(&rhs);
+                self.emit_instruction(Instruction::LoadIndexRef, rhs.location.end_line);  
+            },
             _ => {
                 self.compile_expr(expr);
-                if !matches!(expr.ty,Type::Array(_)|Type::String|Type::Function { .. }) {
+                if !self.is_ref_type(&expr.ty) {
                     let name = format!("*{}",self.anonymous_var_counter);
                     self.define_name(name.clone(),expr.location.end_line);
                     self.load_name_ref(&name, expr.location.end_line);

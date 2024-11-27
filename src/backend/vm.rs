@@ -168,10 +168,7 @@ impl VM{
                 };
                 &record.fields[*field]
             },
-            Address::Index(base_address, index) => {
-                let Value::List(list) = self.read_address(base_address) else {
-                    unreachable!("Can't use as list")
-                };
+            Address::Index(list, index) => {
                 &list.as_list(&self.heap)[*index]
             }
         }
@@ -186,10 +183,7 @@ impl VM{
                 };
                 &mut record.fields[*field]
             },
-            Address::Index(base_address, index) => {
-                let &Value::List(list) = self.read_address(base_address) else {
-                    unreachable!("Can't use as list")
-                };
+            Address::Index(list, index) => {
                 &mut list.as_list_mut(&mut self.heap)[*index]
             }
         }
@@ -587,6 +581,22 @@ impl VM{
                     if 0 <= index && (index as usize)< len{
                         let list = list.as_list_mut(&mut self.heap);
                         list[index as usize] = value;
+                    }
+                    else{
+                        self.runtime_error(&format!("Index out of bounds : index was '{}', but len was '{}'.",index,len));
+                        return Err(RuntimeError);
+                    }
+                },
+                Instruction::LoadIndexRef => {
+                    let Value::Int(index) = self.peek(0) else {
+                        panic!("Expected an int.")
+                    };
+                    let Value::List(list) = self.peek(1) else{
+                        panic!("Expected a list.")
+                    };
+                    let len = list.as_list(&self.heap).len();
+                    if 0 <= index && (index as usize)< len{
+                        self.push(Value::Address(Address::Index(list, index as usize)))?;
                     }
                     else{
                         self.runtime_error(&format!("Index out of bounds : index was '{}', but len was '{}'.",index,len));
