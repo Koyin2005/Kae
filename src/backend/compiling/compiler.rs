@@ -140,13 +140,13 @@ impl Compiler{
     fn load_name_ref(&mut self,name:&str,line: u32){
         if let Some(index) = self.get_local(name){
             //Todo LoadLocalRef
-            todo!("Load Local Ref")
+            self.emit_instruction(Instruction::LoadLocalRef(index as u16), line);
         }
         else if let Some(global) =  self.get_global(name){
             self.emit_instruction(Instruction::LoadGlobalRef(global as u16),line);
         }
         else{
-            //Todo LoadLocalRef
+            //Todo LoadUpvalueRefs
             todo!("Load Upvalue Ref")
         }
     }

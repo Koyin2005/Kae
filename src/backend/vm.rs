@@ -520,6 +520,10 @@ impl VM{
                     let location = local as usize + self.current_frame().bp;
                     self.push(self.stack[location].clone())?;
                 },
+                Instruction::LoadLocalRef(local) => {
+                    let location = local as usize + self.current_frame().bp;
+                    self.push(Value::Address(Address::Stack(location)))?;
+                },
                 Instruction::LoadGlobal(global) => {
                     self.push(self.globals[&(global as usize)].clone())?;
                 },

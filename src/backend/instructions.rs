@@ -14,6 +14,7 @@ pub enum Instruction {
 
     LoadLocal(u16),
     StoreLocal(u16),
+    LoadLocalRef(u16),
     
     StoreGlobal(u16),
     LoadGlobal(u16),
@@ -57,7 +58,7 @@ pub enum Instruction {
     LoadIndex,
     StoreIndex,
     LoadIndexRef,
-    
+
     BuildRecord(u16),
     BuildCaseRecord(u16),
     BuildTuple(u16),
