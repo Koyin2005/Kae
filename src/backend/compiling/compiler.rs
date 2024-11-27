@@ -137,19 +137,6 @@ impl Compiler{
         }
         upvalue.unwrap()
     }
-    fn load_name_ref(&mut self,name:&str,line: u32){
-        if let Some(index) = self.get_local(name){
-            //Todo LoadLocalRef
-            self.emit_instruction(Instruction::LoadLocalRef(index as u16), line);
-        }
-        else if let Some(global) =  self.get_global(name){
-            self.emit_instruction(Instruction::LoadGlobalRef(global as u16),line);
-        }
-        else{
-            //Todo LoadUpvalueRefs
-            todo!("Load Upvalue Ref")
-        }
-    }
     fn load_name(&mut self,name:&str,line:u32){
         if let Some(index) = self.get_local(name){
             self.emit_instruction(Instruction::LoadLocal(index as u16),line);
@@ -444,37 +431,7 @@ impl Compiler{
             
         }
     }
-    fn compile_lvalue(&mut self,expr:&TypedExprNode){
-        match &expr.kind{
-            TypedExprNodeKind::Get(name) => {
-                if self.is_ref_type(&expr.ty) {
-                    self.load_name(&name, expr.location.start_line);
-                }
-                else{
-                    self.load_name_ref(name,expr.location.start_line);
-                }
-            },
-            TypedExprNodeKind::Field(lhs, field) => {
-                self.compile_lvalue(&lhs);
-                let field_index = lhs.ty.get_field_index(&field.content, &self.type_context).unwrap();
-                self.emit_instruction(Instruction::LoadFieldRef(field_index as u16),field.location.end_line);
-            },
-            TypedExprNodeKind::Index { lhs, rhs } => {
-                self.compile_expr(&lhs);
-                self.compile_expr(&rhs);
-                self.emit_instruction(Instruction::LoadIndexRef, rhs.location.end_line);  
-            },
-            _ => {
-                self.compile_expr(expr);
-                if !self.is_ref_type(&expr.ty) {
-                    let name = format!("*{}",self.anonymous_var_counter);
-                    self.define_name(name.clone(),expr.location.end_line);
-                    self.load_name_ref(&name, expr.location.end_line);
-                    self.anonymous_var_counter += 1;
-                }
-            }
-        }
-    }
+    
     fn compile_expr(&mut self,expr:&TypedExprNode){
         match &expr.kind{
             TypedExprNodeKind::Unit => {
@@ -639,11 +596,11 @@ impl Compiler{
                         self.emit_instruction(Instruction::LoadIndex, rhs.location.end_line);
                     },
                     TypedAssignmentTargetKind::Field { lhs, name } => {
-                        self.compile_lvalue(lhs);
+                        self.compile_expr(lhs);
                         self.compile_expr(rhs);
                         let field_index= lhs.ty.get_field_index(&name.content, &self.type_context).expect("Already checked fields");
-                        self.emit_instruction(Instruction::StoreFieldByRef(field_index as u16), rhs.location.end_line);
-                        self.emit_instruction(Instruction::LoadFieldByRef(field_index as u16), rhs.location.end_line);
+                        self.emit_instruction(Instruction::StoreField(field_index as u16), rhs.location.end_line);
+                        self.emit_instruction(Instruction::LoadField(field_index as u16), rhs.location.end_line);
                     }
                 }
 
@@ -702,9 +659,9 @@ impl Compiler{
                         if matches!(ty,Type::EnumVariant {.. }) {
                             todo!("Re-implement Enum variants")
                         }
-                        self.compile_lvalue(lhs);
+                        self.compile_expr(lhs);
                         let field = ty.get_field_index(field, &self.type_context).expect("All fields should exist");
-                        self.emit_instruction(Instruction::LoadFieldByRef(field as u16),field_name.location.end_line);
+                        self.emit_instruction(Instruction::LoadField(field as u16),field_name.location.end_line);
                     }
                     _ => unreachable!("{:?}",lhs.ty)
                 }

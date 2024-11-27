@@ -4,7 +4,7 @@ use fxhash::FxHashMap;
 
 use crate::backend::disassembly::disassemble_instruction;
 
-use super::{instructions::{Chunk, Constant, Instruction, Program}, objects::{Heap, Object}, values::{Address, Closure, Function, Record, Upvalue, Value}};
+use super::{instructions::{Chunk, Constant, Instruction, Program}, objects::{Heap, Object}, values::{Closure, Function, Record, Upvalue, Value}};
 
 pub const DEBUG_TRACE_EXEC : bool = false;
 pub const MAX_STACK_SIZE : usize = 255;
@@ -155,36 +155,6 @@ impl VM{
                 else{
                     i+=1;
                 }
-            }
-        }
-    }
-    fn read_address(&self,address:&Address)->&Value{
-        match address{
-            Address::Global(global) => &self.globals[global],
-            Address::Stack(stack) => &self.stack[*stack],
-            Address::Field(base_address, field) => {
-                let Value::Record(record) = self.read_address(base_address) else {
-                    unreachable!("Can't use as record")
-                };
-                &record.fields[*field]
-            },
-            Address::Index(list, index) => {
-                &list.as_list(&self.heap)[*index]
-            }
-        }
-    }
-    fn read_address_mut(&mut self,address:&Address)->&mut Value{
-        match address{
-            Address::Global(global) => self.globals.get_mut(global).unwrap(),
-            Address::Stack(stack) => &mut self.stack[*stack],
-            Address::Field(base_address, field) => {
-                let Value::Record(record) = self.read_address_mut(base_address) else {
-                    unreachable!("Can't use as record")
-                };
-                &mut record.fields[*field]
-            },
-            Address::Index(list, index) => {
-                &mut list.as_list_mut(&mut self.heap)[*index]
             }
         }
     }
@@ -466,16 +436,8 @@ impl VM{
                     };
                     self.push(Value::Record(record))?;
                 },
-                Instruction::LoadFieldByRef(field) => {
-                    let Value::Address(address) = self.pop() else {
-                        panic!("Can't use as address")
-                    };
-                    let record_value = self.read_address(&address);
-                    let Value::Record(record) = record_value else {
-                        panic!("Can't use as record")
-                    };
-                    let field_value = record.fields[field as usize].clone();
-                    self.push(field_value)?;
+                Instruction::LoadField(field) => {
+                    todo!("REIMPLEMENT LOAD FIELD")
 
                 },
                 Instruction::GetArrayLength => {
@@ -492,25 +454,6 @@ impl VM{
                     };
                     record.fields[field as usize] = value;
                 },
-                Instruction::StoreFieldByRef(field) => {
-                    let value = self.pop();
-                    let Value::Address(address) = self.pop() else {
-                        panic!("Can't use address of non-record.")
-                    };
-                    let record_value = self.read_address_mut(&address);
-                    let Value::Record(record) = record_value else {
-                        panic!("Can't use field of non-record")
-                    };
-                    record.fields[field as usize] = value;
-                    self.push(Value::Address(address))?;
-
-                },
-                Instruction::LoadFieldRef(field) => {
-                    let Value::Address(address) = self.pop() else {
-                        panic!("Can't use as address")
-                    };
-                    self.push(Value::Address(Address::Field(Box::new(address), field as usize)))?;
-                },
                 Instruction::StoreLocal(local) => {
                     let value = self.pop();
                     let location = local as usize + self.current_frame().bp;
@@ -520,16 +463,9 @@ impl VM{
                     let location = local as usize + self.current_frame().bp;
                     self.push(self.stack[location].clone())?;
                 },
-                Instruction::LoadLocalRef(local) => {
-                    let location = local as usize + self.current_frame().bp;
-                    self.push(Value::Address(Address::Stack(location)))?;
-                },
                 Instruction::LoadGlobal(global) => {
                     self.push(self.globals[&(global as usize)].clone())?;
                 },
-                Instruction::LoadGlobalRef(global) => {
-                    self.push(Value::Address(Address::Global(global as usize)))?;
-                }
                 Instruction::StoreGlobal(global) => {
                     let value = self.pop();
                     self.globals.insert(global as usize, value);
@@ -585,22 +521,6 @@ impl VM{
                     if 0 <= index && (index as usize)< len{
                         let list = list.as_list_mut(&mut self.heap);
                         list[index as usize] = value;
-                    }
-                    else{
-                        self.runtime_error(&format!("Index out of bounds : index was '{}', but len was '{}'.",index,len));
-                        return Err(RuntimeError);
-                    }
-                },
-                Instruction::LoadIndexRef => {
-                    let Value::Int(index) = self.peek(0) else {
-                        panic!("Expected an int.")
-                    };
-                    let Value::List(list) = self.peek(1) else{
-                        panic!("Expected a list.")
-                    };
-                    let len = list.as_list(&self.heap).len();
-                    if 0 <= index && (index as usize)< len{
-                        self.push(Value::Address(Address::Index(list, index as usize)))?;
                     }
                     else{
                         self.runtime_error(&format!("Index out of bounds : index was '{}', but len was '{}'.",index,len));
@@ -668,20 +588,6 @@ impl VM{
                     let offset = (offset - 1) as usize;
                     self.push(self.peek(offset))?;
                 },
-                Instruction::StoreIndirect => {
-                    let value = self.pop();
-                    match self.pop(){
-                        Value::Address(Address::Stack(local)) => {
-                            self.stack[local] = value;
-                        },
-                        Value::Address(Address::Global(global)) => {
-                            self.globals.insert(global, value);
-                        }
-                        value => {
-                            panic!("Can't use '{}' as address.",value.format(&self.heap, &mut Vec::new()))
-                        }
-                    }
-                }
                 Instruction::Print(args) => {
                     for offset in (0..args).rev(){
                         if args - offset  -1 > 0{

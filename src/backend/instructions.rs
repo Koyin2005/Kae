@@ -14,20 +14,16 @@ pub enum Instruction {
 
     LoadLocal(u16),
     StoreLocal(u16),
-    LoadLocalRef(u16),
     
     StoreGlobal(u16),
     LoadGlobal(u16),
-    LoadGlobalRef(u16),
 
-    LoadFieldRef(u16),
+    LoadField(u16),
     StoreField(u16),
-    LoadFieldByRef(u16),
-    StoreFieldByRef(u16),
 
     LoadUpvalue(u16),
     StoreUpvalue(u16),
-    StoreIndirect,
+    
     UnpackTuple,
 
     AddInt,
@@ -57,7 +53,6 @@ pub enum Instruction {
 
     LoadIndex,
     StoreIndex,
-    LoadIndexRef,
 
     BuildRecord(u16),
     BuildCaseRecord(u16),

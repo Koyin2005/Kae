@@ -34,23 +34,6 @@ pub enum Upvalue{
     Closed(Value)
 }
 #[derive(Clone,Debug,PartialEq)]
-pub enum Address{
-    Global(usize),
-    Stack(usize),
-    Field(Box<Address>,usize),
-    Index(Object,usize),
-}
-impl Display for Address{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self{
-            Address::Stack(address) => write!(f,"*{}",address),
-            Address::Global(global) => write!(f,"*{}",global),
-            Address::Field(address,offset) => write!(f,"{}->{}",address,offset),
-            Address::Index(address,index ) => write!(f,"*{:?}[{}]",address,index)
-        }
-    }
-}
-#[derive(Clone,Debug,PartialEq)]
 pub enum Value{
     Int(i64),
     Float(f64),
@@ -63,8 +46,7 @@ pub enum Value{
     List(Object),
     Function(Object),
     Closure(Object),
-    NativeFunction(Object),
-    Address(Address)
+    NativeFunction(Object)
 }
 impl Value{
     pub fn make_case_record(heap:&mut Heap,variant_name:&str,variant_tag:usize,variant_fields : &[Self],total_field_count:usize)->Self{
@@ -82,7 +64,6 @@ impl Value{
             (Self::Float(float),Self::Float(other)) => float == other,
             (Self::Bool(bool),Self::Bool(other)) => bool == other,
             (Self::Unit,Self::Unit) => true,
-            (Self::Address(address),Self::Address(other)) => address == other,
             (Self::Record(record),Self::Record(other)) => {
                 record == other
             },
@@ -111,9 +92,6 @@ impl Value{
     }
     pub fn format(& self,heap:&Heap,seen_values : &mut Vec<&Value>)->String{
         match self{
-            Value::Address(address) => {
-                format!("{}",address)
-            },
             Value::Bool(bool) => {
                 format!("{}",*bool)
             },
