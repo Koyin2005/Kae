@@ -438,15 +438,11 @@ impl VM{
                     self.push(record)?;
                 },
                 Instruction::LoadField(field) => {
-                    todo!("REIMPLEMENT LOAD FIELD")
-
-                },
-                Instruction::GetArrayLength => {
-                    let Value::List(list) = self.pop() else {
-                        panic!("Can't get length of non-list")
+                    let Value::Record(record) = self.pop() else {
+                        panic!("Can't get field of non-record.")
                     };
-                    let length = list.as_list(&self.heap).len();
-                    self.push(Value::Int(length as i64))?;
+                    self.push(record.as_record(&self.heap).fields[field as usize].clone())?;
+
                 },
                 Instruction::StoreField(field) => {
                     let value = self.pop();
@@ -454,6 +450,13 @@ impl VM{
                         panic!("Can't get field of non-record.")
                     };
                     record.get_record_fields_mut(&mut self.heap)[field as usize] = value;
+                },
+                Instruction::GetArrayLength => {
+                    let Value::List(list) = self.pop() else {
+                        panic!("Can't get length of non-list")
+                    };
+                    let length = list.as_list(&self.heap).len();
+                    self.push(Value::Int(length as i64))?;
                 },
                 Instruction::StoreLocal(local) => {
                     let value = self.pop();
