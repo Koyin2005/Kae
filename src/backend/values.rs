@@ -39,7 +39,7 @@ pub enum Value{
     Float(f64),
     Bool(bool),
     Unit,
-    Record(Record),
+    Record(Object),
     CaseRecord(Object),
     Tuple(Object),
     String(Object),
@@ -111,6 +111,7 @@ impl Value{
                 String::from("{}")
             }
             Value::Record(record) => {
+                let record = record.as_record(heap);
                 let name = Value::String(record.name);
                 let mut result = name.format(heap, seen_values);
                 if !record.fields.is_empty(){
@@ -126,7 +127,12 @@ impl Value{
                 result
             },
             Value::Tuple(tuple) => {
-                let mut result = String::from("(");
+                let mut result = String::from("("); for (i,field) in tuple.as_tuple(heap).iter().enumerate(){
+                    if i>0{
+                        result.push(',');
+                    }
+                    result.push_str(&field.format(heap, seen_values));
+                }
                 result.push(')');
                 result
             },

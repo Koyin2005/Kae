@@ -434,7 +434,8 @@ impl VM{
                         fields:(0..fields).map(|_| Value::Int(0)).collect(),
                         name
                     };
-                    self.push(Value::Record(record))?;
+                    let record = Value::Record(Object::new_record(&mut self.heap, record));
+                    self.push(record)?;
                 },
                 Instruction::LoadField(field) => {
                     todo!("REIMPLEMENT LOAD FIELD")
@@ -449,10 +450,10 @@ impl VM{
                 },
                 Instruction::StoreField(field) => {
                     let value = self.pop();
-                    let Value::Record(record) = self.peek_mut(0) else {
+                    let Value::Record(record) = self.peek(0) else {
                         panic!("Can't get field of non-record.")
                     };
-                    record.fields[field as usize] = value;
+                    record.get_record_fields_mut(&mut self.heap)[field as usize] = value;
                 },
                 Instruction::StoreLocal(local) => {
                     let value = self.pop();
