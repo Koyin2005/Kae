@@ -6,7 +6,7 @@ use crate::backend::disassembly::disassemble_instruction;
 
 use super::{instructions::{Chunk, Constant, Instruction, Program}, objects::{Heap, Object}, values::{Closure, Function, Record, Upvalue, Value}};
 
-pub const DEBUG_TRACE_EXEC : bool = false;
+pub const DEBUG_TRACE_EXEC : bool = true;
 pub const MAX_STACK_SIZE : usize = 255;
 pub const MAX_FRAMES : usize = 64;
 
@@ -439,6 +439,19 @@ impl VM{
                     let record = Value::Record(Object::new_record(&mut self.heap, record));
                     self.push(record)?;
                 },
+                Instruction::LoadFieldRef(field) => {
+                    match self.pop(){
+                        Value::StackAddress(address) => {
+                            self.push(Value::StackAddress(address + field as usize))?;
+                        },
+                        Value::GlobalAddress(address) => {
+                            self.push(Value::GlobalAddress(address + field as usize))?;
+                        },
+                        _ => {
+                            panic!("Can't get field of non-record.")
+                        }
+                    }
+                }
                 Instruction::LoadField(field) => {
                     match self.pop(){
                         Value::StackAddress(address) => {
@@ -496,7 +509,7 @@ impl VM{
                 },
                 Instruction::StoreStructField(field) => {
                     let size = self.pop_size();
-                    match self.peek(0){
+                    match self.peek(size){
                         Value::Record(record) => {
                             for field in (field as usize..field as usize+size).rev(){
                                 let value = self.pop();

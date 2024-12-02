@@ -534,7 +534,14 @@ impl Compiler{
                         if field_offset>=u16::MAX as usize{
                             todo!("Add support for fields that are offseted more than {}",u16::MAX);
                         }
-                        self.emit_instruction(Instruction::LoadField(field_offset as u16), line);
+                        let field_size = self.get_size_in_stack_slots(&field_type);
+                        if field_size == 1{
+                            self.emit_instruction(Instruction::LoadField(field_offset as u16), line);
+                        }
+                        else{
+                            self.load_size(field_size, line);
+                            self.emit_instruction(Instruction::LoadStructField(field_offset as u16), line);
+                        }
                         self.compile_print(&field_type, if i < field_count-1 { b','} else { b'}'} , line);
 
                     }
@@ -562,7 +569,11 @@ impl Compiler{
             },
             TypedExprNodeKind::Field(lhs, field) => {
                 self.compile_lvalue(lhs);
-                todo!("ADD SUPPORT FOR FIELD LVALUES!")
+                let Type::Struct { id,.. } = &lhs.ty else {
+                    todo!("ADD ENUMS")
+                };
+                let field_offset = self.get_field_offset(id, &field.content);
+                self.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), field.location.end_line);
             }
             _ => {
                 self.compile_expr(expr);
@@ -810,13 +821,20 @@ impl Compiler{
                         self.compile_expr(lhs);
                         self.emit_instruction(Instruction::GetArrayLength, field_name.location.end_line);
                     },
-                    (ty @ (Type::Struct {.. } | Type::EnumVariant {.. }),field) => {
+                    (ty @ Type::Struct {id,.. },field) => {
                         if matches!(ty,Type::EnumVariant {.. }) {
                             todo!("Re-implement Enum variants")
                         }
                         self.compile_lvalue(lhs);
-                        let field = ty.get_field_index(field, &self.type_context).expect("All fields should exist");
-                        self.emit_instruction(Instruction::LoadField(field as u16),field_name.location.end_line);
+                        let field = self.get_field_offset(id, field);
+                        let size = self.get_size_in_stack_slots(ty);
+                        if size == 1{
+                            self.emit_instruction(Instruction::LoadField(field as u16),field_name.location.end_line);
+                        }
+                        else{
+                            self.load_size(size, field_name.location.end_line);
+                            self.emit_instruction(Instruction::LoadStructField(field as u16),field_name.location.end_line); 
+                        }
                     }
                     _ => unreachable!("{:?}",lhs.ty)
                 }
@@ -832,7 +850,14 @@ impl Compiler{
                                 todo!("Add support for wider fields")
                             }
                             self.compile_expr(field_expr);
-                            self.emit_instruction(Instruction::StoreField(field_offset as u16), field_expr.location.end_line);
+                            let size = self.get_size_in_stack_slots(&field_expr.ty);
+                            if size == 1{
+                                self.emit_instruction(Instruction::StoreField(field_offset as u16), field_expr.location.end_line);
+                            }
+                            else{
+                                self.load_size(size, field_expr.location.end_line);
+                                self.emit_instruction(Instruction::StoreStructField(field_offset as u16), field_expr.location.end_line);
+                            }
                         }
                         self.emit_instruction(Instruction::Pop,expr.location.end_line);
                     },

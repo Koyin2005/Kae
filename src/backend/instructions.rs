@@ -28,6 +28,7 @@ pub enum Instruction {
 
     LoadField(u16),
     LoadStructField(u16),
+    LoadFieldRef(u16),
     StoreField(u16),
     StoreStructField(u16),
 
