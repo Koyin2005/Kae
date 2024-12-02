@@ -39,6 +39,7 @@ pub enum Value{
     Float(f64),
     Bool(bool),
     StackAddress(usize),
+    GlobalAddress(usize),
     Unit,
     Record(Object),
     CaseRecord(Object),
@@ -89,6 +90,7 @@ impl Value{
             (Self::NativeFunction(object),Self::NativeFunction(other)) => object == other,
             (Self::Closure(object),Self::Closure(other)) => object == other,
             (Self::StackAddress(address),Self::StackAddress(other)) => address == other,
+            (Self::GlobalAddress(address),Self::GlobalAddress(other)) => address == other,
             _ => false
         }
     }
@@ -162,6 +164,9 @@ impl Value{
                 format!("native<{}>",object.as_native_function(heap).name)
             },
             Value::StackAddress(address) => {
+                format!("*{}",address)
+            },
+            Value::GlobalAddress(address) => {
                 format!("*{}",address)
             }
         }
