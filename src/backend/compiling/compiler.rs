@@ -709,7 +709,14 @@ impl Compiler{
                         self.load_size(self.get_size_in_stack_slots(&expr.ty),expr.location.start_line);
                         self.emit_instruction(Instruction::StackAlloc,expr.location.start_line);
                         for (field_name,field_expr) in fields{
+                            let field_offset = self.get_field_offset(struct_id, &field_name);
+                            if field_offset >= u16::MAX as usize{
+                                todo!("Add support for wider fields")
+                            }
+                            self.compile_expr(field_expr);
+                            self.emit_instruction(Instruction::StoreField(field_offset as u16), field_expr.location.end_line);
                         }
+                        self.emit_instruction(Instruction::Pop,expr.location.end_line);
                     },
                     InitKind::Variant(.. ) => {
                         todo!()
