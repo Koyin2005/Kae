@@ -100,8 +100,7 @@ impl Compiler{
                 self.emit_instruction(Instruction::StoreGlobal(index as u16),line);
             }
             else{
-                self.load_size(size, line);
-                self.emit_instruction(Instruction::StoreGlobalStruct(index as u16),line);
+                self.emit_instruction(Instruction::StoreGlobalStruct(index as u16,size),line);
             }
         }
         else{
@@ -109,14 +108,18 @@ impl Compiler{
                 self.emit_instruction(Instruction::StoreLocal(index as u16),line);
             }
             else{
-                self.load_size(size, line);
-                self.emit_instruction(Instruction::StoreLocalStruct(index as u16),line);
+                self.emit_instruction(Instruction::StoreLocalStruct(index as u16,size),line);
             }
         }
 
     }
     fn load_string(&mut self,name:String,line:u32){
         self.load_constant(Constant::String(name.into()), line);
+    }
+    fn push_values_on_top_of_stack(&mut self,size:usize,line:u32){
+        for _ in 0..size{
+            self.push_slots_below_to_top(size as u16, line);
+        }
     }
     fn push_top_of_stack(&mut self,line:u32){
         self.push_slots_below_to_top(1, line);
@@ -163,9 +166,6 @@ impl Compiler{
         upvalue.unwrap()
     }
     fn load_name(&mut self,name:&str,size:usize,line:u32){
-        if size != 1{
-            self.load_size(size, line);
-        }
         let instruction = if let Some(index) = self.get_local(name){
             if size==1{
                 Instruction::LoadLocal(index as u16)
@@ -179,7 +179,7 @@ impl Compiler{
                 Instruction::LoadGlobal(global as u16)
             }
             else{
-                Instruction::LoadGlobalStruct(global as u16)
+                Instruction::LoadGlobalStruct(global as u16,size)
             }
         }
         else{
@@ -188,7 +188,7 @@ impl Compiler{
                 Instruction::LoadUpvalue(upvalue as u16)
             }
             else{
-                Instruction::LoadUpvalueStruct(upvalue as u16)
+                Instruction::LoadUpvalueStruct(upvalue as u16,size)
 
             }
         };
@@ -196,15 +196,12 @@ impl Compiler{
 
     }
     fn store_name(&mut self,name:&str,size:usize,line:u32){
-        if size != 1{
-            self.load_size(size, line);
-        }
         let instruction = if let Some(index) = self.get_local(name){
             if size == 1{
                 Instruction::StoreLocal(index as u16)
             }
             else{
-                Instruction::StoreLocalStruct(index as u16)
+                Instruction::StoreLocalStruct(index as u16,size)
             }
         }
         else if let Some(global) = self.get_global(name){
@@ -212,7 +209,7 @@ impl Compiler{
                 Instruction::StoreGlobal(global as u16)
             }
             else {
-                Instruction::StoreGlobalStruct(global as u16)
+                Instruction::StoreGlobalStruct(global as u16,size)
             }
         }
         else{
@@ -221,7 +218,7 @@ impl Compiler{
                 Instruction::StoreUpvalue(upvalue as u16)
             }
             else{
-                Instruction::StoreUpvalueStruct(upvalue as u16)
+                Instruction::StoreUpvalueStruct(upvalue as u16,size)
             }
         };
         self.emit_instruction(instruction,line);
@@ -265,8 +262,7 @@ impl Compiler{
     }
     fn emit_pops(&mut self,n:usize,line:u32){
         if n>1{
-            self.load_size(n, line);
-            self.emit_instruction(Instruction::PopStruct, line);
+            self.emit_instruction(Instruction::PopStruct(n), line);
         }
         else if n==1{
             self.emit_instruction(Instruction::Pop, line);
@@ -348,8 +344,7 @@ impl Compiler{
                 self.emit_instruction(Instruction::Return, function.body.location.end_line);
             }
             else{
-                self.load_size(size, function.body.location.end_line);
-                self.emit_instruction(Instruction::ReturnStruct, function.body.location.end_line);
+                self.emit_instruction(Instruction::ReturnStruct(size), function.body.location.end_line);
             }
         }
         disassemble(&function_name, &self.current_chunk,&self.constants);
@@ -405,15 +400,17 @@ impl Compiler{
                 self.load_bool(true, pattern.location.end_line);
             },
             PatternNodeKind::Name(name) => {
+                let size = self.get_size_in_stack_slots(ty);
                 self.push_top_of_stack(pattern.location.start_line);
-                self.define_name(name.clone(), todo!("ADD support for multisize values in patterns") as usize,pattern.location.end_line);
+                self.define_name(name.clone(), size,pattern.location.end_line);
                 self.load_bool(true, pattern.location.end_line);
             },
             PatternNodeKind::Is(name,right_pattern) => {
-                self.push_top_of_stack(right_pattern.location.start_line);
+                let size = self.get_size_in_stack_slots(ty);
+                self.push_values_on_top_of_stack(size,right_pattern.location.start_line);
                 self.compile_pattern_check(right_pattern,ty);
                 let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), right_pattern.location.end_line);
-                self.define_name(name.content.clone(), todo!("ADD support for multisize values in patterns") as usize,right_pattern.location.end_line);
+                self.define_name(name.content.clone(), size,right_pattern.location.end_line);
                 self.load_bool(true, right_pattern.location.end_line);
                 let true_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), right_pattern.location.end_line);
                 self.patch_jump(false_jump);
@@ -439,7 +436,10 @@ impl Compiler{
 
             },
             PatternNodeKind::Struct { ty, fields } => {
-                todo!("Re-Implement Struct Patterns");
+                let size = self.get_size_in_stack_slots(ty);
+                for (field_name,field_pattern) in fields{
+
+                }
             },
             PatternNodeKind::Array(before,ignore ,after) => {
                 let total_length = before.len() + after.len();
@@ -546,8 +546,7 @@ impl Compiler{
                             self.emit_instruction(Instruction::LoadField(field_offset as u16), line);
                         }
                         else{
-                            self.load_size(field_size, line);
-                            self.emit_instruction(Instruction::LoadStructField(field_offset as u16), line);
+                            self.emit_instruction(Instruction::LoadStructField(field_offset as u16,field_size), line);
                         }
                         self.compile_print(&field_type, if i < field_count-1 { b','} else { b'}'} , line);
 
@@ -768,10 +767,8 @@ impl Compiler{
                             self.emit_instruction(Instruction::LoadField(field_index as u16), rhs.location.end_line);
                         }
                         else{
-                            self.load_size(size, rhs.location.end_line);
-                            self.emit_instruction(Instruction::StoreStructField(field_index as u16), rhs.location.end_line);
-                            self.load_size(size, rhs.location.end_line);
-                            self.emit_instruction(Instruction::LoadStructField(field_index as u16), rhs.location.end_line);
+                            self.emit_instruction(Instruction::StoreStructField(field_index as u16,size), rhs.location.end_line);
+                            self.emit_instruction(Instruction::LoadStructField(field_index as u16,size), rhs.location.end_line);
 
                         }
                     }
@@ -796,8 +793,7 @@ impl Compiler{
                         self.emit_instruction(Instruction::Return, expr.location.end_line);
                     }
                     else {
-                        self.load_size(size, expr.location.end_line);
-                        self.emit_instruction(Instruction::ReturnStruct, expr.location.end_line);
+                        self.emit_instruction(Instruction::ReturnStruct(size), expr.location.end_line);
                     }
                 }
                 else{
@@ -842,13 +838,12 @@ impl Compiler{
                         }
                         self.compile_lvalue(lhs);
                         let field = self.get_field_offset(id, field);
-                        let size = self.get_size_in_stack_slots(ty);
-                        if size == 1{
+                        let field_size = self.get_size_in_stack_slots(&expr.ty);
+                        if field_size == 1{
                             self.emit_instruction(Instruction::LoadField(field as u16),field_name.location.end_line);
                         }
                         else{
-                            self.load_size(size, field_name.location.end_line);
-                            self.emit_instruction(Instruction::LoadStructField(field as u16),field_name.location.end_line); 
+                            self.emit_instruction(Instruction::LoadStructField(field as u16,field_size),field_name.location.end_line); 
                         }
                     }
                     _ => unreachable!("{:?}",lhs.ty)
@@ -857,8 +852,7 @@ impl Compiler{
             TypedExprNodeKind::StructInit { kind,fields } => {
                 match kind{
                     InitKind::Struct(struct_id) => {
-                        self.load_size(self.get_size_in_stack_slots(&expr.ty),expr.location.start_line);
-                        self.emit_instruction(Instruction::StackAlloc,expr.location.start_line);
+                        self.emit_instruction(Instruction::StackAlloc(Some(self.get_size_in_stack_slots(&expr.ty))),expr.location.start_line);
                         for (field_name,field_expr) in fields{
                             let field_offset = self.get_field_offset(struct_id, &field_name);
                             if field_offset >= u16::MAX as usize{
@@ -870,8 +864,7 @@ impl Compiler{
                                 self.emit_instruction(Instruction::StoreField(field_offset as u16), field_expr.location.end_line);
                             }
                             else{
-                                self.load_size(size, field_expr.location.end_line);
-                                self.emit_instruction(Instruction::StoreStructField(field_offset as u16), field_expr.location.end_line);
+                                self.emit_instruction(Instruction::StoreStructField(field_offset as u16,size), field_expr.location.end_line);
                             }
                         }
                         self.emit_instruction(Instruction::Pop,expr.location.end_line);

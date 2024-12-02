@@ -17,26 +17,26 @@ pub enum Instruction {
     LoadLocalRef(u16),
 
     StoreLocal(u16),
-    StoreLocalStruct(u16),
+    StoreLocalStruct(u16,usize),
     
     StoreGlobal(u16),
-    StoreGlobalStruct(u16),
+    StoreGlobalStruct(u16,usize),
 
     LoadGlobal(u16),
-    LoadGlobalStruct(u16),
+    LoadGlobalStruct(u16,usize),
     LoadGlobalRef(u16),
 
     LoadField(u16),
-    LoadStructField(u16),
+    LoadStructField(u16,usize),
     LoadFieldRef(u16),
     StoreField(u16),
-    StoreStructField(u16),
+    StoreStructField(u16,usize),
 
     LoadUpvalue(u16),
-    LoadUpvalueStruct(u16),
+    LoadUpvalueStruct(u16,usize),
     
     StoreUpvalue(u16),
-    StoreUpvalueStruct(u16),
+    StoreUpvalueStruct(u16,usize),
 
     UnpackTuple,
 
@@ -92,11 +92,11 @@ pub enum Instruction {
     Call(u16),
 
     LoadStackTopOffset,
-    StackAlloc,
-    ReturnStruct,
+    StackAlloc(Option<usize>),
+    ReturnStruct(usize),
     Return,
     Pop,
-    PopStruct,
+    PopStruct(usize),
     Copy(u16)
 }
 #[derive(Clone,Debug,PartialEq)]

@@ -6,7 +6,7 @@ use crate::backend::disassembly::disassemble_instruction;
 
 use super::{instructions::{Chunk, Constant, Instruction, Program}, objects::{Heap, Object}, values::{Closure, Function, Record, Upvalue, Value}};
 
-pub const DEBUG_TRACE_EXEC : bool = true;
+pub const DEBUG_TRACE_EXEC : bool = false;
 pub const MAX_STACK_SIZE : usize = 255;
 pub const MAX_FRAMES : usize = 64;
 
@@ -469,8 +469,7 @@ impl VM{
                     }
 
                 },
-                Instruction::LoadStructField(field) => {
-                    let size = self.pop_size();
+                Instruction::LoadStructField(field,size) => {
                     match self.pop(){
                         Value::StackAddress(address) => {
                             for address in address..address + size{
@@ -479,6 +478,7 @@ impl VM{
                         },
                         Value::GlobalAddress(address) => {
                             for address in address..address + size{
+                                println!("{}",address+field as usize);
                                 self.push(self.globals[&(address + field as usize)].clone())?;
                             }
                         }
@@ -507,8 +507,7 @@ impl VM{
                         _ =>  panic!("Can't get field of non-record.")
                     }
                 },
-                Instruction::StoreStructField(field) => {
-                    let size = self.pop_size();
+                Instruction::StoreStructField(field,size) => {
                     match self.peek(size){
                         Value::Record(record) => {
                             for field in (field as usize..field as usize+size).rev(){
@@ -544,8 +543,7 @@ impl VM{
                     let location = local as usize + self.current_frame().bp;
                     self.stack[location] = value;
                 },
-                Instruction::StoreLocalStruct(local) => {
-                    let size = self.pop_size();
+                Instruction::StoreLocalStruct(local,size) => {
                     let location = local as usize + self.current_frame().bp;
                     for offset in (0..size).rev(){
                         self.stack[location + offset] = self.pop();
@@ -568,8 +566,7 @@ impl VM{
                 Instruction::LoadGlobal(global) => {
                     self.push(self.globals[&(global as usize)].clone())?;
                 },
-                Instruction::LoadGlobalStruct(global) => {
-                    let size = self.pop_size();
+                Instruction::LoadGlobalStruct(global,size) => {
                     for global in global as usize..global as usize + size{
                         self.push(self.globals[&(global as usize)].clone())?;
                     }
@@ -581,8 +578,7 @@ impl VM{
                     let value = self.pop();
                     self.globals.insert(global as usize, value);
                 },
-                Instruction::StoreGlobalStruct(global) => {
-                    let size = self.pop_size();
+                Instruction::StoreGlobalStruct(global,size) => {
                     for i in (0..size).rev(){
                         let value = self.pop();
                         self.globals.insert(global as usize + i, value);
@@ -596,8 +592,7 @@ impl VM{
                         Upvalue::Open { location } => self.stack[location].clone()
                     })?;
                 },
-                Instruction::LoadUpvalueStruct(upvalue) => {
-                    let size = self.pop_size();
+                Instruction::LoadUpvalueStruct(upvalue,size) => {
                     for upvalue in upvalue as usize..upvalue as usize + size{
                         let upvalue = self.current_frame().closure.expect("Can only use upvalues with closure").as_closure(&self.heap).upvalues[upvalue as usize].as_upvalue(&self.heap);
                     
@@ -615,8 +610,7 @@ impl VM{
                         Upvalue::Open { location } => self.stack[*location] = value
                     }
                 },
-                Instruction::StoreUpvalueStruct(upvalue) => {
-                    let size = self.pop_size();
+                Instruction::StoreUpvalueStruct(upvalue,size) => {
                     for upvalue in (upvalue as usize..upvalue as usize + size).rev(){
                         let value = self.pop();
                         let upvalue = self.current_frame().closure.expect("Can only use upvalues with closure").as_closure(&self.heap).upvalues[upvalue as usize].as_upvalue_mut(&mut self.heap);
@@ -783,8 +777,7 @@ impl VM{
                         break;
                     }
                 },
-                Instruction::ReturnStruct => {
-                    let size = self.pop_size();
+                Instruction::ReturnStruct(size) => {
                     let values = self.pop_values(size);
                     if let Some(frame) = self.frames.pop(){
                         self.close_upvalues(frame.bp);
@@ -798,16 +791,15 @@ impl VM{
                     }
 
                 }
-                Instruction::StackAlloc => {
-                    let size = self.pop_size();
+                Instruction::StackAlloc(size) => {
+                    let size = size.unwrap_or_else(|| self.pop_size());
                     let address = self.stack.len();
                     for _ in 0..size{
                         self.stack.push(Value::Int(0));
                     }
                     self.stack.push(Value::StackAddress(address))
                 },
-                Instruction::PopStruct => {
-                    let size = self.pop_size();
+                Instruction::PopStruct(size) => {
                     for _ in 0..size{
                         self.pop();
                     }
