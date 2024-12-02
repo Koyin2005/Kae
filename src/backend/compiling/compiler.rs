@@ -104,7 +104,13 @@ impl Compiler{
             }
         }
         else{
-            self.emit_instruction(Instruction::StoreLocal(index as u16),line);
+            if size == 1{
+                self.emit_instruction(Instruction::StoreLocal(index as u16),line);
+            }
+            else{
+                self.load_size(size, line);
+                self.emit_instruction(Instruction::StoreLocalStruct(index as u16),line);
+            }
         }
 
     }
