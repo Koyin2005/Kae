@@ -236,7 +236,7 @@ impl Compiler{
             let local_index = self.next_local;
             self.next_local+=size;
             self.functions.last_mut().unwrap().locals.push(Local { name,index: local_index, depth: self.scope_depth ,is_captured:false});
-            self.current_chunk.locals = self.current_chunk.locals.max(local_index +1);
+            self.current_chunk.locals = self.current_chunk.locals.max(self.next_local);
             local_index
         }
     }
