@@ -38,6 +38,7 @@ pub enum Value{
     Int(i64),
     Float(f64),
     Bool(bool),
+    StackAddress(usize),
     Unit,
     Record(Object),
     CaseRecord(Object),
@@ -87,6 +88,7 @@ impl Value{
             (Self::String(object),Self::String(other)) => object.as_string(heap) == other.as_string(heap),
             (Self::NativeFunction(object),Self::NativeFunction(other)) => object == other,
             (Self::Closure(object),Self::Closure(other)) => object == other,
+            (Self::StackAddress(address),Self::StackAddress(other)) => address == other,
             _ => false
         }
     }
@@ -158,6 +160,9 @@ impl Value{
             },
             Value::NativeFunction(object) => {
                 format!("native<{}>",object.as_native_function(heap).name)
+            },
+            Value::StackAddress(address) => {
+                format!("*{}",address)
             }
         }
     }
