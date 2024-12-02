@@ -476,8 +476,36 @@ impl Compiler{
             
         }
     }
-    fn compile_print(&mut self,ty:&Type,after:u8){
+    fn compile_print(&mut self,ty:&Type,after:u8,line:u32){
+        match ty{
+            Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Tuple(_) => {
+                self.emit_instruction(Instruction::PrintValue(Some(after)), line);
+            },
+            Type::Struct { id,.. } => {
+                let field_count = self.get_struct_info(id).fields.len();
+                let has_fields = field_count>0;
+                let size = self.get_size_in_stack_slots(ty);
+                self.load_string(format!("{}",ty), line);
+                self.emit_instruction(Instruction::PrintValue(Some(if !has_fields {after} else {b'{'})), line);
+                if has_fields{
+                    self.load_size(self.get_size_in_stack_slots(ty), line);
+                    self.emit_instruction(Instruction::LoadStackTopOffset, line);
+                    for (i,(field_name,field_type)) in self.get_struct_info(id).fields.clone().into_iter().enumerate(){
+                        let field_offset = self.get_field_offset(id, &field_name);
+                        if field_offset>=u16::MAX as usize{
+                            todo!("Add support for fields that are offseted more than {}",u16::MAX);
+                        }
+                        self.emit_instruction(Instruction::LoadField(field_offset as u16), line);
+                        self.compile_print(&field_type, if i < field_count-1 { b' '} else { b'}'} , line);
 
+                    }
+                    self.emit_pops(size, line);
+                    self.emit_instruction(Instruction::PrintAscii(after), line);
+                }
+            }
+            Type::Never => {},
+            ty => todo!("Add support for {}.",ty)
+        }
     }
     fn compile_expr(&mut self,expr:&TypedExprNode){
         match &expr.kind{
@@ -515,7 +543,7 @@ impl Compiler{
             TypedExprNodeKind::Print(args) => {
                 for (i,arg) in args.iter().enumerate(){
                     self.compile_expr(arg);
-                    self.compile_print(&arg.ty,if i==args.len()-1 {b' '} else{b'\n'} );
+                    self.compile_print(&arg.ty,if i==args.len()-1 {b' '} else{b'\n'},arg.location.end_line);
                 }
                 self.emit_instruction(Instruction::LoadUnit,expr.location.end_line);
             },

@@ -626,7 +626,12 @@ impl VM{
                 Instruction::PrintValue(after) => {
                     let value = self.pop();
                     value.print(&self.heap);
-                    print!("{}",after as char);
+                    if let Some(after) = after{
+                        print!("{}",after as char);
+                    }
+                },
+                Instruction::PrintAscii(byte)=>{
+                    print!("{}",byte as char);
                 }
                 Instruction::Call(args) => {
                     let arg_count = args as usize;
