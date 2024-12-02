@@ -724,7 +724,9 @@ impl Compiler{
                 match &lhs.kind{
                     TypedAssignmentTargetKind::Name(name) => {
                         self.compile_expr(rhs);
-                        self.push_top_of_stack(rhs.location.end_line);
+                        for _ in 0..size{
+                            self.push_slots_below_to_top(size as u16, rhs.location.end_line);
+                        }
                         self.store_name(name, size,rhs.location.end_line);
 
                     },
