@@ -444,10 +444,17 @@ impl VM{
                     self.push(record)?;
                 },
                 Instruction::LoadField(field) => {
-                    let Value::Record(record) = self.pop() else {
-                        panic!("Can't get field of non-record.")
-                    };
-                    self.push(record.as_record(&self.heap).fields[field as usize].clone())?;
+                    match self.pop(){
+                        Value::StackAddress(address) => {
+                            self.push(self.stack[address + field as usize].clone())?;
+                        },
+                        Value::Record(record)  => {
+                            self.push(record.as_record(&self.heap).fields[field as usize].clone())?;
+                        },
+                        _ => {
+                            panic!("Can't get field of non-record.")
+                        }
+                    }
 
                 },
                 Instruction::StoreField(field) => {

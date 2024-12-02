@@ -494,9 +494,9 @@ impl Compiler{
                 self.load_string(format!("{}",ty), line);
                 self.emit_instruction(Instruction::PrintValue(Some(if !has_fields {after} else {b'{'})), line);
                 if has_fields{
-                    self.load_size(self.get_size_in_stack_slots(ty), line);
-                    self.emit_instruction(Instruction::LoadStackTopOffset, line);
                     for (i,(field_name,field_type)) in self.get_struct_info(id).fields.clone().into_iter().enumerate(){
+                        self.load_size(self.get_size_in_stack_slots(ty), line);
+                        self.emit_instruction(Instruction::LoadStackTopOffset, line);
                         let field_offset = self.get_field_offset(id, &field_name);
                         if field_offset>=u16::MAX as usize{
                             todo!("Add support for fields that are offseted more than {}",u16::MAX);
