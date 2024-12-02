@@ -779,7 +779,7 @@ impl Compiler{
                 for arg in args{
                     self.compile_expr(arg);
                 }
-                self.emit_instruction(Instruction::Call(args.len() as u16),expr.location.end_line);
+                self.emit_instruction(Instruction::Call(args.iter().map(|arg| self.get_size_in_stack_slots(&arg.ty)).sum::<usize>() as u16),expr.location.end_line);
             },
             TypedExprNodeKind::Return { expr:return_expr } => {
                 if let Some(expr) = return_expr.as_ref(){
