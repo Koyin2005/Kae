@@ -343,7 +343,14 @@ impl Compiler{
         self.end_scope(function.body.location.end_line);
 
         if function.body.ty != Type::Never{
-            self.emit_instruction(Instruction::Return, function.body.location.end_line);
+            let size = self.get_size_in_stack_slots(&function.body.ty);
+            if size == 1{
+                self.emit_instruction(Instruction::Return, function.body.location.end_line);
+            }
+            else{
+                self.load_size(size, function.body.location.end_line);
+                self.emit_instruction(Instruction::ReturnStruct, function.body.location.end_line);
+            }
         }
         disassemble(&function_name, &self.current_chunk,&self.constants);
         let compiled_function = self.functions.pop().expect("Function should still be around");
@@ -784,11 +791,19 @@ impl Compiler{
             TypedExprNodeKind::Return { expr:return_expr } => {
                 if let Some(expr) = return_expr.as_ref(){
                     self.compile_expr(expr);
+                    let size = self.get_size_in_stack_slots(&expr.ty);
+                    if size == 1{
+                        self.emit_instruction(Instruction::Return, expr.location.end_line);
+                    }
+                    else {
+                        self.load_size(size, expr.location.end_line);
+                        self.emit_instruction(Instruction::ReturnStruct, expr.location.end_line);
+                    }
                 }
                 else{
                     self.emit_instruction(Instruction::LoadUnit, expr.location.end_line);
+                    self.emit_instruction(Instruction::Return, expr.location.end_line);
                 }
-                self.emit_instruction(Instruction::Return, expr.location.end_line);
             },
             TypedExprNodeKind::GetGeneric { name, args } => {
                 let Some((index,generic_function)) = self.generic_functions.iter().enumerate().rev()
