@@ -80,6 +80,7 @@ pub enum Instruction {
     StackAlloc,
     Return,
     Pop,
+    PopStruct,
     Copy(u16)
 }
 #[derive(Clone,Debug,PartialEq)]

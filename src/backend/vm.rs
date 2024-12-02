@@ -666,6 +666,16 @@ impl VM{
                         self.stack.push(Value::Int(0));
                     }
                     self.stack.push(Value::StackAddress(address))
+                },
+                Instruction::PopStruct => {
+                    let Value::Int(size) = self.pop() else {
+                        unreachable!("Expected an int.")
+                    };
+                    let size = size as usize;
+                    for _ in 0..size{
+                        self.pop();
+                    }
+
                 }
             }
         }

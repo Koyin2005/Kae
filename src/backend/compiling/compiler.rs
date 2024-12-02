@@ -51,7 +51,7 @@ impl Compiler{
     }
     fn get_field_offset(&self,struct_id:&StructId,name:&str)->usize{
         let (field_index,_) = self.get_struct_info(struct_id).get_field(name).expect("Should have checked all fields");
-        self.get_struct_info(struct_id).fields.iter().take(1.min(field_index)-1).map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum()
+        self.get_struct_info(struct_id).fields.iter().take(if field_index > 0 { field_index} else { 0}).map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum()
     }
     fn get_size_in_stack_slots(&self,ty:&Type)->usize{
         match ty{
