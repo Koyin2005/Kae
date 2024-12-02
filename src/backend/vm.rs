@@ -71,10 +71,6 @@ impl VM{
         values.reverse();
         values
     }
-    fn peek_mut(&mut self,offset:usize)->&mut Value{
-        let slot = self.stack.len() - offset - 1;
-        &mut self.stack[slot]
-    }
     fn peek(&self,offset:usize)->Value{
         self.stack[self.stack.len() - offset - 1].clone()
     }
