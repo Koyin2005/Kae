@@ -549,7 +549,7 @@ impl Compiler{
             TypedExprNodeKind::Print(args) => {
                 for (i,arg) in args.iter().enumerate(){
                     self.compile_expr(arg);
-                    self.compile_print(&arg.ty,if i==args.len()-1 {b' '} else{b'\n'},arg.location.end_line);
+                    self.compile_print(&arg.ty,if i<args.len()-1 {b' '} else{b'\n'},arg.location.end_line);
                 }
                 self.emit_instruction(Instruction::LoadUnit,expr.location.end_line);
             },
