@@ -93,6 +93,7 @@ pub enum Instruction {
 
     LoadStackTopOffset,
     StackAlloc,
+    ReturnStruct,
     Return,
     Pop,
     PopStruct,

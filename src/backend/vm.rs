@@ -783,6 +783,21 @@ impl VM{
                         break;
                     }
                 },
+                Instruction::ReturnStruct => {
+                    let size = self.pop_size();
+                    let values = self.pop_values(size);
+                    if let Some(frame) = self.frames.pop(){
+                        self.close_upvalues(frame.bp);
+                        self.stack.truncate(frame.bp);
+                        for value in values{
+                            self.push(value)?;
+                        }
+                    }
+                    if self.frames.is_empty(){
+                        break;
+                    }
+
+                }
                 Instruction::StackAlloc => {
                     let size = self.pop_size();
                     let address = self.stack.len();
