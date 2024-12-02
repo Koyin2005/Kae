@@ -481,15 +481,18 @@ impl VM{
                 Instruction::LoadGlobal(global) => {
                     self.push(self.globals[&(global as usize)].clone())?;
                 },
+                Instruction::LoadGlobalStruct(global) => {
+                    let size = self.pop_size();
+                    for global in global as usize..global as usize + size{
+                        self.push(self.globals[&(global as usize)].clone())?;
+                    }
+                }
                 Instruction::StoreGlobal(global) => {
                     let value = self.pop();
                     self.globals.insert(global as usize, value);
                 },
                 Instruction::StoreGlobalStruct(global) => {
-                    let Value::Int(size) = self.pop() else{
-                        panic!("Expected int.")
-                    };
-                    let size = size as usize;
+                    let size = self.pop_size();
                     for i in (0..size).rev(){
                         let value = self.pop();
                         self.globals.insert(global as usize + i, value);
@@ -685,7 +688,7 @@ impl VM{
                 Instruction::LoadStackTopOffset => {
                     let size = self.pop_size();
                     self.push(Value::StackAddress(self.stack.len() - size))?;
-                }
+                },
             }
         }
         Ok(())

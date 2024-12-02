@@ -18,6 +18,7 @@ pub enum Instruction {
     StoreGlobal(u16),
     StoreGlobalStruct(u16),
     LoadGlobal(u16),
+    LoadGlobalStruct(u16),
 
     LoadField(u16),
     StoreField(u16),
