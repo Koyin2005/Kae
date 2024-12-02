@@ -224,6 +224,15 @@ impl Compiler{
         self.current_chunk.code.push(instruction);
         self.current_chunk.lines.push(line);
     }
+    fn emit_pops(&mut self,n:usize,line:u32){
+        if n>1{
+            self.load_size(n, line);
+            self.emit_instruction(Instruction::PopStruct, line);
+        }
+        else if n==1{
+            self.emit_instruction(Instruction::Pop, line);
+        }
+    }
     fn add_constant(&mut self,constant:Constant)->usize{
         self.constants.iter().position(|current_constant|{
             &constant == current_constant
@@ -777,13 +786,13 @@ impl Compiler{
             TypedStmtNode::Expr(expr) => {
                 self.compile_expr(expr);
                 if expr.ty == Type::Unit{
-                    self.emit_instruction(Instruction::Pop,expr.location.end_line);
+                    self.emit_pops(self.get_size_in_stack_slots(&expr.ty), expr.location.end_line);
                 }
             },
             TypedStmtNode::ExprWithSemi(expr) => {
                 self.compile_expr(expr);
                 if expr.ty != Type::Never{
-                    self.emit_instruction(Instruction::Pop,expr.location.end_line);
+                    self.emit_pops(self.get_size_in_stack_slots(&expr.ty), expr.location.end_line);
                 }
             },
             TypedStmtNode::Let { pattern, expr } => {
