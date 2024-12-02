@@ -14,19 +14,24 @@ pub enum Instruction {
 
     LoadLocal(u16),
     LoadLocalStruct(u16),
+    LoadLocalRef(u16),
+
     StoreLocal(u16),
     StoreLocalStruct(u16),
     
     StoreGlobal(u16),
     StoreGlobalStruct(u16),
+
     LoadGlobal(u16),
     LoadGlobalStruct(u16),
+    LoadGlobalRef(u16),
 
     LoadField(u16),
     StoreField(u16),
 
     LoadUpvalue(u16),
     LoadUpvalueStruct(u16),
+    
     StoreUpvalue(u16),
     StoreUpvalueStruct(u16),
     

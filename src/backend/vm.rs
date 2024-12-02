@@ -495,6 +495,9 @@ impl VM{
                         self.push(self.stack[location + offset].clone())?;
                     }
                 },
+                Instruction::LoadLocalRef(local) => {
+                    self.push(Value::StackAddress(self.current_frame().bp + local as usize))?;
+                },
                 Instruction::LoadGlobal(global) => {
                     self.push(self.globals[&(global as usize)].clone())?;
                 },
@@ -503,6 +506,9 @@ impl VM{
                     for global in global as usize..global as usize + size{
                         self.push(self.globals[&(global as usize)].clone())?;
                     }
+                },
+                Instruction::LoadGlobalRef(global) => {
+
                 }
                 Instruction::StoreGlobal(global) => {
                     let value = self.pop();
