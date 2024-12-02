@@ -155,12 +155,18 @@ impl Compiler{
         }
         upvalue.unwrap()
     }
-    fn load_name(&mut self,name:&str,line:u32){
+    fn load_name(&mut self,name:&str,size:usize,line:u32){
         if let Some(index) = self.get_local(name){
             self.emit_instruction(Instruction::LoadLocal(index as u16),line);
         }
         else if let Some(global) =  self.get_global(name){
-            self.emit_instruction(Instruction::LoadGlobal(global as u16),line);
+            if size==1{
+                self.emit_instruction(Instruction::LoadGlobal(global as u16),line);
+            }
+            else{
+                self.load_size(size, line);
+                self.emit_instruction(Instruction::LoadGlobalStruct(global as u16),line);
+            }
         }
         else{
             let upvalue = self.resolve_upvalue(name);
@@ -538,7 +544,7 @@ impl Compiler{
                 self.emit_instruction(Instruction::BuildTuple(elements.len() as u16),expr.location.end_line);
             },
             TypedExprNodeKind::Get(name) => {
-                self.load_name(name,expr.location.end_line);
+                self.load_name(name,self.get_size_in_stack_slots(&expr.ty),expr.location.end_line);
             },
             TypedExprNodeKind::Print(args) => {
                 for (i,arg) in args.iter().enumerate(){
@@ -703,7 +709,7 @@ impl Compiler{
             TypedExprNodeKind::GetGeneric { name, args } => {
                 let Some((index,generic_function)) = self.generic_functions.iter().enumerate().rev()
                     .find(|(_,generic_function)| &generic_function.name == name) else {
-                        self.load_name(name, expr.location.end_line);
+                        self.load_name(name, 1,expr.location.end_line);
                         return;
                     };
 
@@ -763,7 +769,7 @@ impl Compiler{
                 }
             },
             TypedExprNodeKind::MethodCall { lhs, method, args } => {
-                self.load_name(&format!("{}::{}",lhs.ty,method.content), lhs.location.start_line);
+                self.load_name(&format!("{}::{}",lhs.ty,method.content), 1,lhs.location.start_line);
                 self.compile_expr(lhs);
                 for arg in args{
                     self.compile_expr(arg);
@@ -771,7 +777,7 @@ impl Compiler{
                 self.emit_instruction(Instruction::Call((args.len()+1) as u16), expr.location.end_line);
             },
             TypedExprNodeKind::GetMethod { ty, method } => {
-                self.load_name(&format!("{}::{}",ty,method.content),method.location.end_line);
+                self.load_name(&format!("{}::{}",ty,method.content),1,method.location.end_line);
             }
         }
     }
