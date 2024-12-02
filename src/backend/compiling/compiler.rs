@@ -547,6 +547,20 @@ impl Compiler{
             ty => todo!("Add support for {}.",ty)
         }
     }
+    fn compile_lvalue(&mut self,expr:&TypedExprNode){
+        match &expr.kind{
+            TypedExprNodeKind::Get(name) => {
+            },
+            TypedExprNodeKind::Field(lhs, field) => {
+                todo!("ADD SUPPORT FOR FIELD LVALUES!")
+            }
+            _ => {
+                self.compile_expr(expr);
+                self.load_size(self.get_size_in_stack_slots(&expr.ty), expr.location.end_line);
+                self.emit_instruction(Instruction::LoadStackTopOffset,expr.location.end_line);
+            }
+        }
+    }
     fn compile_expr(&mut self,expr:&TypedExprNode){
         match &expr.kind{
             TypedExprNodeKind::Unit => {
