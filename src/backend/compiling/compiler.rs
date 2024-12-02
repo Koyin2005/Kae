@@ -49,6 +49,10 @@ impl Compiler{
     fn is_ref_type(&self,ty:&Type)->bool{
         matches!(ty,Type::Array(_)|Type::String|Type::Function { .. }) 
     }
+    fn get_field_offset(&self,struct_id:&StructId,name:&str)->usize{
+        let (field_index,_) = self.get_struct_info(struct_id).get_field(name).expect("Should have checked all fields");
+        self.get_struct_info(struct_id).fields.iter().take(1.min(field_index)-1).map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum()
+    }
     fn get_size_in_stack_slots(&self,ty:&Type)->usize{
         match ty{
             Type::Struct { id,.. } => self.get_struct_info(id).fields.iter().map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum(),
@@ -702,8 +706,9 @@ impl Compiler{
             TypedExprNodeKind::StructInit { kind,fields } => {
                 match kind{
                     InitKind::Struct(struct_id) => {
+                        self.load_size(self.get_size_in_stack_slots(&expr.ty),expr.location.start_line);
+                        self.emit_instruction(Instruction::StackAlloc,expr.location.start_line);
                         for (field_name,field_expr) in fields{
-                            self.compile_expr(field_expr);
                         }
                     },
                     InitKind::Variant(.. ) => {
