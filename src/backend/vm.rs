@@ -446,10 +446,15 @@ impl VM{
                 },
                 Instruction::StoreField(field) => {
                     let value = self.pop();
-                    let Value::Record(record) = self.peek(0) else {
-                        panic!("Can't get field of non-record.")
-                    };
-                    record.get_record_fields_mut(&mut self.heap)[field as usize] = value;
+                    match self.peek(0){
+                        Value::Record(record) => {
+                            record.get_record_fields_mut(&mut self.heap)[field as usize] = value;
+                        },
+                        Value::StackAddress(address) => {
+                            self.stack[address + field as usize] = value;
+                        }
+                        _ =>  panic!("Can't get field of non-record.")
+                    }
                 },
                 Instruction::GetArrayLength => {
                     let Value::List(list) = self.pop() else {
