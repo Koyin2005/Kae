@@ -651,6 +651,17 @@ impl VM{
                         break;
                     }
                 },
+                Instruction::StackAlloc => {
+                    let Value::Int(size) = self.pop() else {
+                        unreachable!("Expected an int.")
+                    };
+                    let size = size as usize;
+                    let address = self.stack.len();
+                    for _ in 0..size{
+                        self.stack.push(Value::Int(0));
+                    }
+                    self.stack.push(Value::StackAddress(address))
+                }
             }
         }
         Ok(())

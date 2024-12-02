@@ -76,6 +76,8 @@ pub enum Instruction {
     Rotate(u16),
     Print(u16),
     Call(u16),
+
+    StackAlloc,
     Return,
     Pop,
     Copy(u16)
