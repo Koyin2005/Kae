@@ -91,12 +91,12 @@ impl Compiler{
     }
     fn emit_define_instruction(&mut self,index:usize,size:usize,line:u32){
         if self.scope_depth == 0{
-            if size > 1{
-                self.load_int(size as i64, line);
-                self.emit_instruction(Instruction::StoreGlobalStruct(index as u16),line);
-            }
-            else if size == 1{
+            if size == 1{
                 self.emit_instruction(Instruction::StoreGlobal(index as u16),line);
+            }
+            else{
+                self.load_size(size, line);
+                self.emit_instruction(Instruction::StoreGlobalStruct(index as u16),line);
             }
         }
         else{
@@ -172,7 +172,7 @@ impl Compiler{
                 self.emit_instruction(Instruction::StoreGlobal(global as u16),line);
             }
             else {
-                self.load_int(size as i64, line);
+                self.load_size(size, line);
                 self.emit_instruction(Instruction::StoreGlobalStruct(global as u16),line);
             }
         }
@@ -241,6 +241,15 @@ impl Compiler{
         let constant = self.add_constant(constant);
         self.load_constant_at_index(constant, line);
         constant
+    }
+    fn load_size(&mut self,size:usize,line:u32){
+        if size <= i16::MAX as usize {
+            self.emit_instruction(Instruction::LoadInt(size as i16),line);
+        }
+        else{
+            self.load_constant(Constant::Int(size as i64), line);
+        }
+
     }
     fn load_int(&mut self,int:i64,line:u32){
         if int <= i16::MAX as i64  && int >= i16::MIN as i64 {
