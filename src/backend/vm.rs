@@ -444,6 +444,9 @@ impl VM{
                         Value::StackAddress(address) => {
                             self.push(self.stack[address + field as usize].clone())?;
                         },
+                        Value::GlobalAddress(address) => {
+                            self.push(self.globals[&(address + field as usize)].clone())?;
+                        }
                         Value::Record(record)  => {
                             self.push(record.as_record(&self.heap).fields[field as usize].clone())?;
                         },
@@ -458,6 +461,9 @@ impl VM{
                     match self.peek(0){
                         Value::Record(record) => {
                             record.get_record_fields_mut(&mut self.heap)[field as usize] = value;
+                        },
+                        Value::GlobalAddress(address) => {
+                            self.globals.insert(address + field as usize,value);
                         },
                         Value::StackAddress(address) => {
                             self.stack[address + field as usize] = value;
@@ -508,7 +514,7 @@ impl VM{
                     }
                 },
                 Instruction::LoadGlobalRef(global) => {
-
+                    self.push(Value::GlobalAddress(global as usize))?;
                 }
                 Instruction::StoreGlobal(global) => {
                     let value = self.pop();

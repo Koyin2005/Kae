@@ -550,8 +550,19 @@ impl Compiler{
     fn compile_lvalue(&mut self,expr:&TypedExprNode){
         match &expr.kind{
             TypedExprNodeKind::Get(name) => {
+                if let Some(local) = self.get_local(name){
+                    self.emit_instruction(Instruction::LoadLocalRef(local as u16), expr.location.end_line);
+                }
+                else if let Some(global) = self.get_global(name){
+                    self.emit_instruction(Instruction::LoadGlobalRef(global as u16), expr.location.end_line);
+                }
+                else{
+                    let _upvalue = self.resolve_upvalue(name);
+                    todo!("UPVALUE REFS")
+                }
             },
             TypedExprNodeKind::Field(lhs, field) => {
+                self.compile_lvalue(lhs);
                 todo!("ADD SUPPORT FOR FIELD LVALUES!")
             }
             _ => {
@@ -726,7 +737,7 @@ impl Compiler{
                         self.emit_instruction(Instruction::LoadIndex, rhs.location.end_line);
                     },
                     TypedAssignmentTargetKind::Field { lhs, name } => {
-                        self.compile_expr(lhs);
+                        self.compile_lvalue(lhs);
                         self.compile_expr(rhs);
                         let field_index= lhs.ty.get_field_index(&name.content, &self.type_context).expect("Already checked fields");
                         self.emit_instruction(Instruction::StoreField(field_index as u16), rhs.location.end_line);
