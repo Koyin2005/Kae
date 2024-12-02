@@ -189,22 +189,35 @@ impl Compiler{
 
     }
     fn store_name(&mut self,name:&str,size:usize,line:u32){
-        if let Some(index) = self.get_local(name){
-            self.emit_instruction(Instruction::StoreLocal(index as u16),line);
+        if size != 1{
+            self.load_size(size, line);
+        }
+        let instruction = if let Some(index) = self.get_local(name){
+            if size == 1{
+                Instruction::StoreLocal(index as u16)
+            }
+            else{
+                Instruction::StoreLocalStruct(index as u16)
+            }
         }
         else if let Some(global) = self.get_global(name){
             if size == 1 {
-                self.emit_instruction(Instruction::StoreGlobal(global as u16),line);
+                Instruction::StoreGlobal(global as u16)
             }
             else {
-                self.load_size(size, line);
-                self.emit_instruction(Instruction::StoreGlobalStruct(global as u16),line);
+                Instruction::StoreGlobalStruct(global as u16)
             }
         }
         else{
             let upvalue = self.resolve_upvalue(name);
-            self.emit_instruction(Instruction::StoreUpvalue(upvalue as u16), line);
-        }
+            if size == 1{
+                Instruction::StoreUpvalue(upvalue as u16)
+            }
+            else{
+                Instruction::StoreUpvalueStruct(upvalue as u16)
+            }
+        };
+        self.emit_instruction(instruction,line);
     }
     fn declare_global(&mut self,name:String,size:usize)->usize{
         self.globals.push(Global { name,index:self.next_global});
