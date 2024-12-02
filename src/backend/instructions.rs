@@ -13,7 +13,9 @@ pub enum Instruction {
     CloseUpvalue(u16),
 
     LoadLocal(u16),
+    LoadLocalStruct(u16),
     StoreLocal(u16),
+    StoreLocalStruct(u16),
     
     StoreGlobal(u16),
     StoreGlobalStruct(u16),
@@ -24,7 +26,9 @@ pub enum Instruction {
     StoreField(u16),
 
     LoadUpvalue(u16),
+    LoadUpvalueStruct(u16),
     StoreUpvalue(u16),
+    StoreUpvalueStruct(u16),
     
     UnpackTuple,
 

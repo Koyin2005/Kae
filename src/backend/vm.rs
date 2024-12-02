@@ -481,9 +481,23 @@ impl VM{
                     let location = local as usize + self.current_frame().bp;
                     self.stack[location] = value;
                 },
+                Instruction::StoreLocalStruct(local) => {
+                    let size = self.pop_size();
+                    let location = local as usize + self.current_frame().bp;
+                    for offset in (0..size).rev(){
+                        self.stack[location + offset] = self.pop();
+                    }
+                },
                 Instruction::LoadLocal(local) => {
                     let location = local as usize + self.current_frame().bp;
                     self.push(self.stack[location].clone())?;
+                },
+                Instruction::LoadLocalStruct(local) => {
+                    let size = self.pop_size();
+                    let location = local as usize + self.current_frame().bp;
+                    for offset in 0..size{
+                        self.push(self.stack[location + offset].clone())?;
+                    }
                 },
                 Instruction::LoadGlobal(global) => {
                     self.push(self.globals[&(global as usize)].clone())?;
@@ -513,6 +527,17 @@ impl VM{
                         Upvalue::Open { location } => self.stack[location].clone()
                     })?;
                 },
+                Instruction::LoadUpvalueStruct(upvalue) => {
+                    let size = self.pop_size();
+                    for upvalue in upvalue as usize..upvalue as usize + size{
+                        let upvalue = self.current_frame().closure.expect("Can only use upvalues with closure").as_closure(&self.heap).upvalues[upvalue as usize].as_upvalue(&self.heap);
+                    
+                        self.push(match upvalue {
+                            Upvalue::Closed(value) => value,
+                            Upvalue::Open { location } => self.stack[location].clone()
+                        })?;
+                    }
+                },
                 Instruction::StoreUpvalue(upvalue) => {
                     let value = self.pop();
                     let upvalue = self.current_frame().closure.expect("Can only use upvalues with closure").as_closure(&self.heap).upvalues[upvalue as usize].as_upvalue_mut(&mut self.heap);
@@ -521,6 +546,18 @@ impl VM{
                         Upvalue::Open { location } => self.stack[*location] = value
                     }
                 },
+                Instruction::StoreUpvalueStruct(upvalue) => {
+                    let size = self.pop_size();
+                    for upvalue in (upvalue as usize..upvalue as usize + size).rev(){
+                        let value = self.pop();
+                        let upvalue = self.current_frame().closure.expect("Can only use upvalues with closure").as_closure(&self.heap).upvalues[upvalue as usize].as_upvalue_mut(&mut self.heap);
+                        match upvalue{
+                            Upvalue::Closed(closed) => *closed = value,
+                            Upvalue::Open { location } => self.stack[*location] = value
+                        }
+                    }
+                    
+                }
                 Instruction::LoadIndex => {
                     let Value::Int(index) = self.pop() else {
                         panic!("Expected an int.")
