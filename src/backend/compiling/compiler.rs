@@ -502,7 +502,7 @@ impl Compiler{
                             todo!("Add support for fields that are offseted more than {}",u16::MAX);
                         }
                         self.emit_instruction(Instruction::LoadField(field_offset as u16), line);
-                        self.compile_print(&field_type, if i < field_count-1 { b' '} else { b'}'} , line);
+                        self.compile_print(&field_type, if i < field_count-1 { b','} else { b'}'} , line);
 
                     }
                     self.emit_pops(size, line);
