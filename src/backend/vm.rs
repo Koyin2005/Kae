@@ -57,6 +57,12 @@ impl VM{
         self.stack.push(value);
         Ok(())
     }
+    fn pop_size(&mut self)->usize{
+        let Value::Int(size) = self.pop() else {
+            unreachable!("Expected an int.")
+        };
+        size as usize
+    }
     fn pop(&mut self)->Value{
         self.stack.pop().unwrap()
     }
@@ -657,10 +663,7 @@ impl VM{
                     }
                 },
                 Instruction::StackAlloc => {
-                    let Value::Int(size) = self.pop() else {
-                        unreachable!("Expected an int.")
-                    };
-                    let size = size as usize;
+                    let size = self.pop_size();
                     let address = self.stack.len();
                     for _ in 0..size{
                         self.stack.push(Value::Int(0));
@@ -668,14 +671,15 @@ impl VM{
                     self.stack.push(Value::StackAddress(address))
                 },
                 Instruction::PopStruct => {
-                    let Value::Int(size) = self.pop() else {
-                        unreachable!("Expected an int.")
-                    };
-                    let size = size as usize;
+                    let size = self.pop_size();
                     for _ in 0..size{
                         self.pop();
                     }
 
+                },
+                Instruction::LoadStackTopOffset => {
+                    let size = self.pop_size();
+                    self.push(Value::StackAddress(self.stack.len() - size))?;
                 }
             }
         }

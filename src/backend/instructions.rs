@@ -77,6 +77,7 @@ pub enum Instruction {
     Print(u16),
     Call(u16),
 
+    LoadStackTopOffset,
     StackAlloc,
     Return,
     Pop,
