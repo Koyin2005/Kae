@@ -800,7 +800,7 @@ impl Compiler{
                         if matches!(ty,Type::EnumVariant {.. }) {
                             todo!("Re-implement Enum variants")
                         }
-                        self.compile_expr(lhs);
+                        self.compile_lvalue(lhs);
                         let field = ty.get_field_index(field, &self.type_context).expect("All fields should exist");
                         self.emit_instruction(Instruction::LoadField(field as u16),field_name.location.end_line);
                     }
