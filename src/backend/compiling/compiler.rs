@@ -572,6 +572,7 @@ impl Compiler{
         }
     }
     fn compile_expr(&mut self,expr:&TypedExprNode){
+        let size = self.get_size_in_stack_slots(&expr.ty);
         match &expr.kind{
             TypedExprNodeKind::Unit => {
                 self.emit_instruction(Instruction::LoadUnit,expr.location.end_line);
@@ -740,9 +741,21 @@ impl Compiler{
                     TypedAssignmentTargetKind::Field { lhs, name } => {
                         self.compile_lvalue(lhs);
                         self.compile_expr(rhs);
-                        let field_index= lhs.ty.get_field_index(&name.content, &self.type_context).expect("Already checked fields");
-                        self.emit_instruction(Instruction::StoreField(field_index as u16), rhs.location.end_line);
-                        self.emit_instruction(Instruction::LoadField(field_index as u16), rhs.location.end_line);
+                        let Type::Struct { id,.. } = &lhs.ty else {
+                            panic!("SHOULD BE A STRUCT!")
+                        };
+                        let field_index= self.get_field_offset(&id,&name.content);
+                        if size == 1{
+                            self.emit_instruction(Instruction::StoreField(field_index as u16), rhs.location.end_line);
+                            self.emit_instruction(Instruction::LoadField(field_index as u16), rhs.location.end_line);
+                        }
+                        else{
+                            self.load_size(size, rhs.location.end_line);
+                            self.emit_instruction(Instruction::StoreStructField(field_index as u16), rhs.location.end_line);
+                            self.load_size(size, rhs.location.end_line);
+                            self.emit_instruction(Instruction::LoadStructField(field_index as u16), rhs.location.end_line);
+
+                        }
                     }
                 }
 

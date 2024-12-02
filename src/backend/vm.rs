@@ -456,6 +456,29 @@ impl VM{
                     }
 
                 },
+                Instruction::LoadStructField(field) => {
+                    let size = self.pop_size();
+                    match self.pop(){
+                        Value::StackAddress(address) => {
+                            for address in address..address + size{
+                                self.push(self.stack[address + field as usize].clone())?;
+                            }
+                        },
+                        Value::GlobalAddress(address) => {
+                            for address in address..address + size{
+                                self.push(self.globals[&(address + field as usize)].clone())?;
+                            }
+                        }
+                        Value::Record(record)  => {
+                            for i in 0..size{
+                                self.push(record.as_record(&self.heap).fields[field as usize + i].clone())?;
+                            }
+                        },
+                        _ => {
+                            panic!("Can't get field of non-record.")
+                        }
+                    }
+                }
                 Instruction::StoreField(field) => {
                     let value = self.pop();
                     match self.peek(0){
@@ -471,6 +494,31 @@ impl VM{
                         _ =>  panic!("Can't get field of non-record.")
                     }
                 },
+                Instruction::StoreStructField(field) => {
+                    let size = self.pop_size();
+                    match self.peek(0){
+                        Value::Record(record) => {
+                            for field in (field as usize..field as usize+size).rev(){
+                                let value = self.pop();
+                                record.get_record_fields_mut(&mut self.heap)[field] = value;
+                            }
+                        },
+                        Value::GlobalAddress(address) => {
+                            for address in (address..address+size).rev(){
+                                let value = self.pop();
+                                self.globals.insert(address + field as usize,value);
+                            }
+                        },
+                        Value::StackAddress(address) => {
+                            for address in (address..address+size).rev(){
+                                let value = self.pop();
+                                self.stack[address + field as usize] = value;
+                            }
+                        }
+                        _ =>  panic!("Can't get field of non-record.")
+                    }
+
+                }
                 Instruction::GetArrayLength => {
                     let Value::List(list) = self.pop() else {
                         panic!("Can't get length of non-list")

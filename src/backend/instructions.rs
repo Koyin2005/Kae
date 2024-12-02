@@ -27,14 +27,16 @@ pub enum Instruction {
     LoadGlobalRef(u16),
 
     LoadField(u16),
+    LoadStructField(u16),
     StoreField(u16),
+    StoreStructField(u16),
 
     LoadUpvalue(u16),
     LoadUpvalueStruct(u16),
     
     StoreUpvalue(u16),
     StoreUpvalueStruct(u16),
-    
+
     UnpackTuple,
 
     AddInt,
