@@ -47,6 +47,12 @@ impl Compiler{
     fn is_ref_type(&self,ty:&Type)->bool{
         matches!(ty,Type::Array(_)|Type::String|Type::Function { .. }) 
     }
+    fn get_size_in_stack_slots(&self,ty:&Type)->usize{
+        match ty{
+            Type::Struct { id,.. } => self.get_struct_info(id).fields.iter().map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum(),
+            _ => 1
+        }
+    }
     fn get_struct_info(&self,struct_id:&StructId)->&Struct{
         self.type_context.structs.get_struct_info(struct_id).expect("All structs should be checked")
     }
