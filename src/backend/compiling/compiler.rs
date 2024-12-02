@@ -476,7 +476,9 @@ impl Compiler{
             
         }
     }
-    
+    fn compile_print(&mut self,ty:&Type,after:u8){
+
+    }
     fn compile_expr(&mut self,expr:&TypedExprNode){
         match &expr.kind{
             TypedExprNodeKind::Unit => {
@@ -511,10 +513,10 @@ impl Compiler{
                 self.load_name(name,expr.location.end_line);
             },
             TypedExprNodeKind::Print(args) => {
-                for arg in args{
+                for (i,arg) in args.iter().enumerate(){
                     self.compile_expr(arg);
+                    self.compile_print(&arg.ty,if i==args.len()-1 {b' '} else{b'\n'} );
                 }
-                self.emit_instruction(Instruction::Print(args.len() as u16), expr.location.end_line);
                 self.emit_instruction(Instruction::LoadUnit,expr.location.end_line);
             },
             TypedExprNodeKind::Block { stmts, expr:result_expr } => {
