@@ -39,6 +39,7 @@ pub struct Compiler{
     globals : Vec<Global>,
     next_global:usize,
     generic_functions : Vec<GenericFunction>,
+    next_local:usize,
     functions : Vec<CompiledFunction>,
     scope_depth : usize,
     type_context : TypeContext,
@@ -88,7 +89,7 @@ impl Compiler{
         self.generic_functions.retain(|function| function.depth <= self.scope_depth);
     }
     fn get_global(&self,name:&str)->Option<usize>{
-       self.globals.iter().rev().position(|global| global.name == name).map(|index| self.globals.len() - index - 1)
+       self.globals.iter().rev().find(|global| global.name == name).map(|global| global.index)
     }
     fn get_local(&self,name:&str)->Option<usize>{
         self.functions.last().unwrap().locals.iter().rev().find(|local| local.name == name).map(|local| local.index)
@@ -225,17 +226,15 @@ impl Compiler{
         };
         self.emit_instruction(instruction,line);
     }
-    fn declare_global(&mut self,name:String,size:usize)->usize{
-        self.globals.push(Global { name,index:self.next_global});
-        let global_index = self.next_global;
-        self.next_global += size;
-        global_index
-    }
     fn declare_name(&mut self,name:String,size:usize)->usize{
         if self.scope_depth == 0{
-            self.declare_global(name,size)
+            self.globals.push(Global { name,index:self.next_global});
+            let global_index = self.next_global;
+            self.next_global += size;
+            global_index
         }else{
-            let local_index = self.functions.last().unwrap().locals.len();
+            let local_index = self.next_local;
+            self.next_local+=size;
             self.functions.last_mut().unwrap().locals.push(Local { name,index: local_index, depth: self.scope_depth ,is_captured:false});
             self.current_chunk.locals = self.current_chunk.locals.max(local_index +1);
             local_index
