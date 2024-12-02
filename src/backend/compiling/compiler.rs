@@ -156,22 +156,37 @@ impl Compiler{
         upvalue.unwrap()
     }
     fn load_name(&mut self,name:&str,size:usize,line:u32){
-        if let Some(index) = self.get_local(name){
-            self.emit_instruction(Instruction::LoadLocal(index as u16),line);
+        if size != 1{
+            self.load_size(size, line);
+        }
+        let instruction = if let Some(index) = self.get_local(name){
+            if size==1{
+                Instruction::LoadLocal(index as u16)
+            }
+            else{
+                Instruction::LoadLocalStruct(index as u16)
+            }
         }
         else if let Some(global) =  self.get_global(name){
             if size==1{
-                self.emit_instruction(Instruction::LoadGlobal(global as u16),line);
+                Instruction::LoadGlobal(global as u16)
             }
             else{
-                self.load_size(size, line);
-                self.emit_instruction(Instruction::LoadGlobalStruct(global as u16),line);
+                Instruction::LoadGlobalStruct(global as u16)
             }
         }
         else{
             let upvalue = self.resolve_upvalue(name);
-            self.emit_instruction(Instruction::LoadUpvalue(upvalue as u16), line);
-        }
+            if size == 1{
+                Instruction::LoadUpvalue(upvalue as u16)
+            }
+            else{
+                Instruction::LoadUpvalueStruct(upvalue as u16)
+
+            }
+        };
+        self.emit_instruction(instruction, line);
+
     }
     fn store_name(&mut self,name:&str,size:usize,line:u32){
         if let Some(index) = self.get_local(name){
