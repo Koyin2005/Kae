@@ -675,12 +675,8 @@ impl Compiler{
             TypedExprNodeKind::StructInit { kind,fields } => {
                 match kind{
                     InitKind::Struct(struct_id) => {
-                        self.load_string(format!("{}",expr.ty), expr.location.start_line);
-                        self.emit_instruction(Instruction::BuildRecord(self.get_struct_info(struct_id).fields.len() as u16), expr.location.start_line);
                         for (field_name,field_expr) in fields{
                             self.compile_expr(field_expr);
-                            let field_index = expr.ty.get_field_index(&field_name, &self.type_context).expect("All fields should be checked");
-                            self.emit_instruction(Instruction::StoreField(field_index as u16), field_expr.location.end_line);
                         }
                     },
                     InitKind::Variant(.. ) => {

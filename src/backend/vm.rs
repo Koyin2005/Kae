@@ -474,6 +474,16 @@ impl VM{
                     let value = self.pop();
                     self.globals.insert(global as usize, value);
                 },
+                Instruction::StoreGlobalStruct(global) => {
+                    let Value::Int(size) = self.pop() else{
+                        panic!("Expected int.")
+                    };
+                    let size = size as usize;
+                    for i in (0..size).rev(){
+                        let value = self.pop();
+                        self.globals.insert(global as usize + i, value);
+                    }
+                }
                 Instruction::LoadUpvalue(upvalue) => {
                     let upvalue = self.current_frame().closure.expect("Can only use upvalues with closure").as_closure(&self.heap).upvalues[upvalue as usize].as_upvalue(&self.heap);
                    
