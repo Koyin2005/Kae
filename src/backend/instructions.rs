@@ -91,7 +91,7 @@ pub enum Instruction {
     Print(u16),
     Call(u16),
 
-    LoadStackTopOffset,
+    LoadStackTopOffset(usize),
     StackAlloc(Option<usize>),
     ReturnStruct(usize),
     Return,

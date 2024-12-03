@@ -835,8 +835,7 @@ impl VM{
                     }
 
                 },
-                Instruction::LoadStackTopOffset => {
-                    let size = self.pop_size();
+                Instruction::LoadStackTopOffset(size) => {
                     self.push(Value::StackAddress(self.stack.len() - size))?;
                 },
             }
