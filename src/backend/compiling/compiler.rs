@@ -615,10 +615,6 @@ impl Compiler{
                 for element in elements{
                     self.compile_expr(element);
                 }
-                if elements.len() > u16::MAX as usize{
-                    todo!("Too many elements in tuple");
-                }
-                self.emit_instruction(Instruction::BuildTuple(elements.len() as u16),expr.location.end_line);
             },
             TypedExprNodeKind::Get(name) => {
                 self.load_name(name,self.get_size_in_stack_slots(&expr.ty),expr.location.end_line);
