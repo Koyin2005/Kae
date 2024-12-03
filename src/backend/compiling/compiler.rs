@@ -588,6 +588,7 @@ impl Compiler{
                 self.emit_instruction(Instruction::PrintAscii(after), line);
             },
             Type::Never => {},
+            Type::Param { .. } => unreachable!("All values that get printed should be fully substituted!"),
             ty => todo!("Add support for {}.",ty)
         }
     }
