@@ -606,7 +606,6 @@ impl Compiler{
         }
     }
     fn compile_expr(&mut self,expr:&TypedExprNode){
-        let size = self.get_size_in_stack_slots(&expr.ty);
         match &expr.kind{
             TypedExprNodeKind::Unit => {
                 self.emit_instruction(Instruction::LoadUnit,expr.location.end_line);
