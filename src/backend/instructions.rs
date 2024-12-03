@@ -13,7 +13,7 @@ pub enum Instruction {
     CloseUpvalue(u16),
 
     LoadLocal(u16),
-    LoadLocalStruct(u16),
+    LoadLocalStruct(u16,usize),
     LoadLocalRef(u16),
 
     StoreLocal(u16),

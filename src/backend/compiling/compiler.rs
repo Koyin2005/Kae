@@ -171,7 +171,7 @@ impl Compiler{
                 Instruction::LoadLocal(index as u16)
             }
             else{
-                Instruction::LoadLocalStruct(index as u16)
+                Instruction::LoadLocalStruct(index as u16,size)
             }
         }
         else if let Some(global) =  self.get_global(name){

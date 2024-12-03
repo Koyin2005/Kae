@@ -553,8 +553,7 @@ impl VM{
                     let location = local as usize + self.current_frame().bp;
                     self.push(self.stack[location].clone())?;
                 },
-                Instruction::LoadLocalStruct(local) => {
-                    let size = self.pop_size();
+                Instruction::LoadLocalStruct(local,size) => {
                     let location = local as usize + self.current_frame().bp;
                     for offset in 0..size{
                         self.push(self.stack[location + offset].clone())?;
