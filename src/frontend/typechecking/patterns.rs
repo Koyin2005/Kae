@@ -71,6 +71,21 @@ impl PatternChecker{
                     false
                 })
             },
+            Type::Bool => {
+                let mut found_true = false;
+                let mut found_false = false;
+                for pattern in patterns.iter(){
+                    if let PatternNodeKind::Bool(bool) = pattern.kind{
+                        if bool{
+                            found_true = true;
+                        }
+                        else{
+                            found_false = true;
+                        }
+                    }
+                }
+                found_true && found_false
+            }
             _ => false
         }
     }
