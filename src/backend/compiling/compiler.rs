@@ -546,16 +546,8 @@ impl Compiler{
                     for (i,(field_name,field_type)) in self.get_struct_info(id).fields.clone().into_iter().enumerate(){
                         self.emit_instruction(Instruction::LoadStackTopOffset(size), line);
                         let field_offset = self.get_field_offset(id, &field_name);
-                        if field_offset>=u16::MAX as usize{
-                            todo!("Add support for fields that are offseted more than {}",u16::MAX);
-                        }
                         let field_size = self.get_size_in_stack_slots(&field_type);
-                        if field_size == 1{
-                            self.emit_instruction(Instruction::LoadField(field_offset as u16), line);
-                        }
-                        else{
-                            self.emit_instruction(Instruction::LoadStructField(field_offset as u16,field_size), line);
-                        }
+                        self.emit_load_field(field_offset, field_size, line);
                         self.compile_print(&field_type, if i < field_count-1 { b','} else { b'}'} , line);
 
                     }
@@ -570,12 +562,7 @@ impl Compiler{
                 for (i,element) in elements.iter().enumerate(){
                     self.emit_instruction(Instruction::LoadStackTopOffset(size), line);
                     let element_size = self.get_size_in_stack_slots(element);
-                    if element_size == 1{
-                        self.emit_instruction(Instruction::LoadField(field_offset as u16), line);
-                    }
-                    else{
-                        self.emit_instruction(Instruction::LoadStructField(field_offset as u16,element_size), line);
-                    }
+                    self.emit_load_field(field_offset, element_size, line);
                     self.compile_print(&element, if i < elements.len()-1 { b','} else { b')'} , line);
                     field_offset += element_size;
                 }
