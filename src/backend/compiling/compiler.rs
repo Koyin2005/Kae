@@ -269,6 +269,14 @@ impl Compiler{
             self.emit_instruction(Instruction::Pop, line);
         }
     }
+    fn emit_load_field(&mut self,field_offset:usize,field_size:usize,line:u32){
+        if field_size == 1{
+            self.emit_instruction(Instruction::LoadField(field_offset as u16), line);
+        }
+        else{
+            self.emit_instruction(Instruction::LoadStructField(field_offset as u16,field_size), line);
+        }
+    }
     fn add_constant(&mut self,constant:Constant)->usize{
         self.constants.iter().position(|current_constant|{
             &constant == current_constant
