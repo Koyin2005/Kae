@@ -50,15 +50,33 @@ impl Compiler{
     fn is_ref_type(&self,ty:&Type)->bool{
         matches!(ty,Type::Array(_)|Type::String|Type::Function { .. }) 
     }
-    fn get_field_offset(&self,struct_id:&StructId,name:&str)->usize{
-        let (field_index,_) = self.get_struct_info(struct_id).get_field(name).expect("Should have checked all fields");
-        self.get_struct_info(struct_id).fields.iter().take(if field_index > 0 { field_index} else { 0}).map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum()
+    fn get_field_offset(&self,base_ty:&Type,name:&str)->usize{
+        let field_index = base_ty.get_field_index(name, &self.type_context).expect("Should have checked all fields");
+        self.get_fields(base_ty).iter().take(if field_index > 0 { field_index} else { 0}).map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum()
     }
     fn get_size_in_stack_slots(&self,ty:&Type)->usize{
         match ty{
-            Type::Struct { id,.. } => self.get_struct_info(id).fields.iter().map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum(),
+            Type::Struct {.. } => self.get_fields(ty).iter().map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum(),
             Type::Tuple(elements) => elements.iter().map(|ty| self.get_size_in_stack_slots(ty)).sum(),
             _ => 1
+        }
+    }
+    fn get_fields(&self,ty:&Type)->Vec<(String,Type)>{
+        match ty{
+            Type::Struct { generic_args, id, .. } => {
+                    let fields_iter = self.get_struct_info(id).fields.iter();
+                    if generic_args.is_empty(){
+                        fields_iter.cloned().collect()
+                    }
+                    else{
+                        let fields_iter = fields_iter.map(|(field_name,_)|{
+                            (field_name.clone(),ty.get_field(&field_name, &self.type_context).expect("All fields should exist"))
+                        });
+                        fields_iter.collect()
+                    }
+            },
+            _ => Vec::new()
+            
         }
     }
     fn get_struct_info(&self,struct_id:&StructId)->&Struct{
@@ -543,9 +561,9 @@ impl Compiler{
                 self.load_string(format!("{}",ty), line);
                 self.emit_instruction(Instruction::PrintValue(Some(if !has_fields {after} else {b'{'})), line);
                 if has_fields{
-                    for (i,(field_name,field_type)) in self.get_struct_info(id).fields.clone().into_iter().enumerate(){
+                    for (i,(field_name,field_type)) in self.get_fields(ty).into_iter().enumerate(){
                         self.emit_instruction(Instruction::LoadStackTopOffset(size), line);
-                        let field_offset = self.get_field_offset(id, &field_name);
+                        let field_offset = self.get_field_offset(ty, &field_name);
                         let field_size = self.get_size_in_stack_slots(&field_type);
                         self.emit_load_field(field_offset, field_size, line);
                         self.compile_print(&field_type, if i < field_count-1 { b','} else { b'}'} , line);
@@ -589,10 +607,7 @@ impl Compiler{
             },
             TypedExprNodeKind::Field(lhs, field) => {
                 self.compile_lvalue(lhs);
-                let Type::Struct { id,.. } = &lhs.ty else {
-                    todo!("ADD ENUMS")
-                };
-                let field_offset = self.get_field_offset(id, &field.content);
+                let field_offset = self.get_field_offset(&lhs.ty, &field.content);
                 self.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), field.location.end_line);
             }
             _ => {
@@ -766,10 +781,7 @@ impl Compiler{
                     TypedAssignmentTargetKind::Field { lhs, name } => {
                         self.compile_lvalue(lhs);
                         self.compile_expr(rhs);
-                        let Type::Struct { id,.. } = &lhs.ty else {
-                            panic!("SHOULD BE A STRUCT!")
-                        };
-                        let field_index= self.get_field_offset(&id,&name.content);
+                        let field_index= self.get_field_offset(&lhs.ty,&name.content);
                         if size == 1{
                             self.emit_instruction(Instruction::StoreField(field_index as u16), rhs.location.end_line);
                             self.emit_instruction(Instruction::LoadField(field_index as u16), rhs.location.end_line);
@@ -845,7 +857,7 @@ impl Compiler{
                             todo!("Re-implement Enum variants")
                         }
                         self.compile_lvalue(lhs);
-                        let field = self.get_field_offset(id, field);
+                        let field = self.get_field_offset(ty, field);
                         let field_size = self.get_size_in_stack_slots(&expr.ty);
                         if field_size == 1{
                             self.emit_instruction(Instruction::LoadField(field as u16),field_name.location.end_line);
@@ -859,10 +871,10 @@ impl Compiler{
             },
             TypedExprNodeKind::StructInit { kind,fields } => {
                 match kind{
-                    InitKind::Struct(struct_id) => {
+                    InitKind::Struct(_) => {
                         self.emit_instruction(Instruction::StackAlloc(Some(self.get_size_in_stack_slots(&expr.ty))),expr.location.start_line);
                         for (field_name,field_expr) in fields{
-                            let field_offset = self.get_field_offset(struct_id, &field_name);
+                            let field_offset = self.get_field_offset(&expr.ty, &field_name);
                             if field_offset >= u16::MAX as usize{
                                 todo!("Add support for wider fields")
                             }
@@ -902,12 +914,17 @@ impl Compiler{
             },
             PatternNodeKind::Tuple(patterns) => {
                 if !patterns.is_empty(){
+                    let size = self.get_size_in_stack_slots(ty);
                     let Type::Tuple(elements) = ty else {
                         unreachable!()
                     };
-                    self.emit_instruction(Instruction::UnpackTuple,line);
+                    let mut field_offset = 0;
                     for (pattern,ty) in patterns.iter().zip(elements.iter()){
+                        let field_size = self.get_size_in_stack_slots(ty);
+                        self.emit_instruction(Instruction::LoadStackTopOffset(size), line);
+                        self.emit_load_field(field_offset, field_size, line);
                         self.compile_pattern_assignment(pattern, ty,line);
+                        field_offset += field_size;
                     }
                 }
                 else{
