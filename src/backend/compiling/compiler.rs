@@ -57,6 +57,7 @@ impl Compiler{
     fn get_size_in_stack_slots(&self,ty:&Type)->usize{
         match ty{
             Type::Struct { id,.. } => self.get_struct_info(id).fields.iter().map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum(),
+            Type::Tuple(elements) => elements.iter().map(|ty| self.get_size_in_stack_slots(ty)).sum(),
             _ => 1
         }
     }
