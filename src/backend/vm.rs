@@ -167,6 +167,7 @@ impl VM{
         }
     }
     pub fn run(&mut self)->Result<(),RuntimeError>{
+        let mut debug_buffer = if DEBUG_TRACE_EXEC { Some(String::new())} else {None};
         while self.current_frame().ip < self.current_chunk().code.len(){
             if DEBUG_TRACE_EXEC{
                 for value in self.stack.iter(){
@@ -734,13 +735,38 @@ impl VM{
                 },
                 Instruction::PrintValue(after) => {
                     let value = self.pop();
-                    value.print(&self.heap);
-                    if let Some(after) = after{
-                        print!("{}",after as char);
+                    if let Some(buffer) = debug_buffer.as_mut(){
+                        buffer.push_str(&value.format(&self.heap, &mut Vec::new()));
+                        if let Some(after) = after{
+                            let after = after as char;
+                            if after == '\n'{
+                                println!("{}",buffer);
+                            }
+                            else{
+                                buffer.push(after);
+                            }
+                        }
+                    }
+                    else{
+                        value.print(&self.heap);
+                        if let Some(after) = after{
+                            print!("{}",after as char);
+                        }
                     }
                 },
                 Instruction::PrintAscii(byte)=>{
-                    print!("{}",byte as char);
+                    if let Some(buffer) = debug_buffer.as_mut(){
+                        let byte_char = byte as char;
+                        if byte_char == '\n'{
+                            println!();
+                        }
+                        else{
+                            buffer.push(byte_char);
+                        }
+                    }
+                    else{
+                        print!("{}",byte as char);
+                    }
                 }
                 Instruction::Call(args) => {
                     let arg_count = args as usize;
