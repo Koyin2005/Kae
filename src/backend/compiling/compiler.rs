@@ -525,7 +525,7 @@ impl Compiler{
     }
     fn compile_print(&mut self,ty:&Type,after:u8,line:u32){
         match ty{
-            Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Tuple(_) => {
+            Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String => {
                 self.emit_instruction(Instruction::PrintValue(Some(after)), line);
             },
             Type::Struct { id,.. } => {
