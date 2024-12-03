@@ -178,6 +178,9 @@ impl VM{
                     print!("[{}] ",value.format(&self.heap,&mut Vec::new()));
                 }
                 println!();
+                if let Some(debug_buffer) = debug_buffer.as_ref(){
+                    println!("{:?}",debug_buffer);
+                }
                 let instruction = self.current_chunk().code[self.current_frame().ip];
                 print!("{} ",self.current_frame().function.name);
                 disassemble_instruction(self.current_chunk(), self.current_frame().ip, instruction,&self.constants);
@@ -741,6 +744,7 @@ impl VM{
                             let after = after as char;
                             if after == '\n'{
                                 println!("{}",buffer);
+                                buffer.clear();
                             }
                             else{
                                 buffer.push(after);
@@ -758,7 +762,8 @@ impl VM{
                     if let Some(buffer) = debug_buffer.as_mut(){
                         let byte_char = byte as char;
                         if byte_char == '\n'{
-                            println!();
+                            println!("{}",buffer);
+                            buffer.clear();
                         }
                         else{
                             buffer.push(byte_char);
