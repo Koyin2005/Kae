@@ -560,6 +560,7 @@ impl Compiler{
                 let mut field_offset = 0;
                 let size = self.get_size_in_stack_slots(ty);
                 for (i,element) in elements.iter().enumerate(){
+                    self.emit_instruction(Instruction::LoadStackTopOffset(size), line);
                     let element_size = self.get_size_in_stack_slots(element);
                     if element_size == 1{
                         self.emit_instruction(Instruction::LoadField(field_offset as u16), line);
