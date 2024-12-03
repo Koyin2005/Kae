@@ -555,7 +555,25 @@ impl Compiler{
                     self.emit_pops(size, line);
                     self.emit_instruction(Instruction::PrintAscii(after), line);
                 }
-            }
+            },
+            Type::Tuple(elements) => {
+                self.emit_instruction(Instruction::PrintAscii('(' as u8), line);
+                let mut field_offset = 0;
+                let size = self.get_size_in_stack_slots(ty);
+                for (i,element) in elements.iter().enumerate(){
+                    let element_size = self.get_size_in_stack_slots(element);
+                    if element_size == 1{
+                        self.emit_instruction(Instruction::LoadField(field_offset as u16), line);
+                    }
+                    else{
+                        self.emit_instruction(Instruction::LoadStructField(field_offset as u16,element_size), line);
+                    }
+                    self.compile_print(&element, if i < elements.len()-1 { b','} else { b')'} , line);
+                    field_offset += element_size;
+                }
+                self.emit_pops(size, line);
+                self.emit_instruction(Instruction::PrintAscii(after), line);
+            },
             Type::Never => {},
             ty => todo!("Add support for {}.",ty)
         }
