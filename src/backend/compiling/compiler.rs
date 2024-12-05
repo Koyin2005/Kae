@@ -966,9 +966,14 @@ impl Compiler{
             TypedStmtNode::Let { pattern, expr } => {
                 let size = self.get_size_in_stack_slots(&expr.ty);
                 self.compile_expr(expr);
-                self.emit_instruction(Instruction::LoadStackTopOffset(size),expr.location.end_line);
-                self.compile_pattern_assignment(pattern, &expr.ty, expr.location.end_line);
-                self.emit_pops(size, expr.location.end_line);
+                if let PatternNodeKind::Name(name) = &pattern.kind{
+                    self.define_name(name.to_string(), size,expr.location.end_line);
+                }
+                else{
+                    self.emit_instruction(Instruction::LoadStackTopOffset(size),expr.location.end_line);
+                    self.compile_pattern_assignment(pattern, &expr.ty, expr.location.end_line);
+                    self.emit_pops(size, expr.location.end_line);
+                }
             },
             TypedStmtNode::Fun { name, function} => {
                     let name= name.content.clone();
