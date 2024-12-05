@@ -911,32 +911,32 @@ impl Compiler{
     fn compile_pattern_assignment(&mut self,pattern:&PatternNode,ty:&Type,line:u32){
         match &pattern.kind{
             PatternNodeKind::Name(name) => {
-                self.define_name(name.clone(),self.get_size_in_stack_slots(ty),line);
+                let size = self.get_size_in_stack_slots(ty);
+                self.emit_load_field(0, size, line);
+                self.define_name(name.clone(),size,line);
             },
             PatternNodeKind::Tuple(patterns) => {
                 if !patterns.is_empty(){
-                    let size = self.get_size_in_stack_slots(ty);
                     let Type::Tuple(elements) = ty else {
                         unreachable!()
                     };
                     let mut field_offset = 0;
                     for (pattern,ty) in patterns.iter().zip(elements.iter()){
+                        self.push_top_of_stack(line);
                         let field_size = self.get_size_in_stack_slots(ty);
-                        self.emit_instruction(Instruction::LoadStackTopOffset(size), line);
-                        self.emit_load_field(field_offset, field_size, line);
+                        self.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), line);
                         self.compile_pattern_assignment(pattern, ty,line);
                         field_offset += field_size;
                     }
                 }
-                else{
-                    self.emit_instruction(Instruction::Pop,line)
-                }
+                self.emit_instruction(Instruction::Pop,line)
+                
             },
             PatternNodeKind::Struct { fields,ty } => {
                 todo!("Pattern struct assigmnent")
             },
             PatternNodeKind::Wildcard => {
-                self.emit_instruction(Instruction::Pop, line);
+                self.emit_pops(self.get_size_in_stack_slots(ty), line);
             },
             PatternNodeKind::Array(before, ignore, after) if before.is_empty() && after.is_empty() && ignore.is_some() => {
                 self.emit_instruction(Instruction::Pop, line);
@@ -964,8 +964,11 @@ impl Compiler{
                 }
             },
             TypedStmtNode::Let { pattern, expr } => {
+                let size = self.get_size_in_stack_slots(&expr.ty);
                 self.compile_expr(expr);
-                self.compile_pattern_assignment(pattern, &expr.ty,expr.location.end_line);
+                self.emit_instruction(Instruction::LoadStackTopOffset(size),expr.location.end_line);
+                self.compile_pattern_assignment(pattern, &expr.ty, expr.location.end_line);
+                self.emit_pops(size, expr.location.end_line);
             },
             TypedStmtNode::Fun { name, function} => {
                     let name= name.content.clone();
