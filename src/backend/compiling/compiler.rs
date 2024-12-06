@@ -575,8 +575,7 @@ impl Compiler{
         }
     }
     fn compile_print(&mut self,ty:&Type,after:u8,line:u32){
-        fn compile_print_field(mut this:&mut Compiler,ty: &Type,after: u8,line: u32){
-            
+        fn compile_print_field(this:&mut Compiler,ty: &Type,after: u8,line: u32){
             match ty{
                 Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Function {.. } => {
                     this.emit_load_field(0, 1, line);
