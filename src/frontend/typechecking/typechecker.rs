@@ -1248,7 +1248,8 @@ impl TypeChecker{
                 };
                 let generic_params = self.convert_to_generic_params(&generic_names);
                 let id = self.type_context.enums.define_enum(enum_name.clone(),Vec::new());
-                self.environment.add_type(enum_name.clone(), Type::Enum { id, name: enum_name.clone(),generic_args:generic_params.unwrap_or_default()});                
+                let enum_type = Type::Enum { id, name: enum_name.clone(),generic_args:generic_params.unwrap_or_default()};
+                self.environment.add_type(enum_name.clone(), enum_type.clone());                
                 let variants = {
                     let mut seen_variant_names = HashSet::new();
                     let Ok(variants) = variants.iter().map(|variant|{
@@ -1261,6 +1262,10 @@ impl TypeChecker{
                             let ty = self.check_type(field_type)?;
                             if !seen_fields.insert(&field_name.content){
                                 self.error(format!("Redefined field '{}'.",field_name.content),field_name.location.start_line);
+                                return Err(TypeCheckFailed);
+                            }
+                            if ty == enum_type{
+                                self.error(format!("Can't declare recursive 'enum' '{}'.",ty),field_name.location.start_line);
                                 return Err(TypeCheckFailed);
                             }
                             Ok((field_name.clone(),ty))
