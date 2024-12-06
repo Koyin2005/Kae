@@ -579,6 +579,7 @@ impl Compiler{
             
             match ty{
                 Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Function {.. } => {
+                    this.emit_load_field(0, 1, line);
                     this.emit_instruction(Instruction::PrintValue(Some(after)), line);
                 },
                 Type::Struct { id,.. } => {
@@ -677,6 +678,12 @@ impl Compiler{
                 },
                 ty => todo!("Add support for {}.",ty)
             }
+        }
+        match ty{
+            Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Function {.. } => {
+                self.emit_instruction(Instruction::PrintValue(Some(after)), line);
+            },
+            ty => todo!("Add support for {}.",ty)
         }
     }
     fn compile_lvalue(&mut self,expr:&TypedExprNode){
