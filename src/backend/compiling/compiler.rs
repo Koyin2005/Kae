@@ -584,19 +584,15 @@ impl Compiler{
                 Type::Struct { id,.. } => {
                     let field_count = this.get_struct_info(id).fields.len();
                     let has_fields = field_count>0;
-                    let size = this.get_size_in_stack_slots(ty);
                     this.load_string(format!("{}",ty), line);
                     this.emit_instruction(Instruction::PrintValue(Some(if !has_fields {after} else {b'{'})), line);
                     if has_fields{
                         for (i,(field_name,field_type)) in this.get_fields(ty).into_iter().enumerate(){
-                            this.emit_instruction(Instruction::LoadStackTopOffset(size), line);
+                            this.push_top_of_stack(line);
                             let field_offset = this.get_field_offset(ty, &field_name);
-                            let field_size = this.get_size_in_stack_slots(&field_type);
-                            this.emit_load_field(field_offset, field_size, line);
+                            this.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), line);
                             this.compile_print(&field_type, if i < field_count-1 { b','} else { b'}'} , line);
-
                         }
-                        this.emit_pops(size, line);
                         this.emit_instruction(Instruction::PrintAscii(after), line);
                     }
                 },
@@ -680,13 +676,12 @@ impl Compiler{
             Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Function {.. } => {
                 self.emit_instruction(Instruction::PrintValue(Some(after)), line);
             },
-            Type::Tuple(_) => {
+            ty => {
                 let size = self.get_size_in_stack_slots(ty);
                 self.emit_instruction(Instruction::LoadStackTopOffset(size), line);
                 compile_print_field(self, ty, after, line);
                 self.emit_pops(size, line);
             }
-            ty => todo!("Add print support for {}.",ty)
         }
     }
     fn compile_lvalue(&mut self,expr:&TypedExprNode){
