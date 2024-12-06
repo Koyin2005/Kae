@@ -66,12 +66,12 @@ impl Compiler{
             Type::Tuple(elements) => elements.iter().map(|ty| self.get_size_in_stack_slots(ty)).sum(),
             Type::Enum { generic_args, id, name } => {
                 let max_variant_size = self.get_enum_info(id).variants.iter().map(|variant| {
-                    self.get_size_in_stack_slots(&Type::EnumVariant { generic_args: generic_args.clone(), id: *id, name: name.clone(), variant_index: variant.discrim })
+                    self.get_fields(&Type::EnumVariant { generic_args: generic_args.clone(), id: *id, name: name.clone(), variant_index: variant.discrim }).iter().map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum::<usize>()
                 }).max();
-                max_variant_size.unwrap_or(0)
+                max_variant_size.map_or(0,|size| size + 1)
             },
-            Type::EnumVariant { .. } => {
-                self.get_fields(ty).iter().map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum::<usize>()+1
+            Type::EnumVariant { generic_args,id,name,.. } => {
+                self.get_size_in_stack_slots(&Type::Enum { generic_args: generic_args.clone(), id: *id, name: name.clone() })
             }
             _ => 1
         }
