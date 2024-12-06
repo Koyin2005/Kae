@@ -68,10 +68,10 @@ impl Compiler{
                 let max_variant_size = self.get_enum_info(id).variants.iter().map(|variant| {
                     self.get_size_in_stack_slots(&Type::EnumVariant { generic_args: generic_args.clone(), id: *id, name: name.clone(), variant_index: variant.discrim })
                 }).max();
-                max_variant_size.map_or(0, |size| size + 1)
+                max_variant_size.unwrap_or(0)
             },
             Type::EnumVariant { .. } => {
-                self.get_fields(ty).iter().map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum::<usize>()
+                self.get_fields(ty).iter().map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum::<usize>()+1
             }
             _ => 1
         }
