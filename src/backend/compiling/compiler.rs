@@ -603,9 +603,8 @@ impl Compiler{
                 Type::Tuple(elements) => {
                     this.emit_instruction(Instruction::PrintAscii('(' as u8), line);
                     let mut field_offset = 0;
-                    let size = this.get_size_in_stack_slots(ty);
                     for (i,element) in elements.iter().enumerate(){
-                        this.emit_instruction(Instruction::LoadStackTopOffset(size), line);
+                        this.push_top_of_stack(line);
                         let element_size = this.get_size_in_stack_slots(element);
                         this.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), line);
                         compile_print_field(this,&element, if i < elements.len()-1 { b','} else { b')'} , line);
