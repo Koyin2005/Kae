@@ -908,6 +908,25 @@ impl Compiler{
             }
         }
     }
+    fn compile_pattern_destructure(&mut self,pattern:&PatternNode,ty:&Type,line:u32){
+        let size = self.get_size_in_stack_slots(ty);
+        match &pattern.kind{
+            PatternNodeKind::Name(name) =>{
+                self.define_name(name.to_string(), size,line);
+            },
+            PatternNodeKind::Wildcard  =>{
+                self.emit_pops(size,line);
+            },
+            PatternNodeKind::Tuple(elements) if elements.is_empty() => {
+                self.emit_pops(size, line);
+            },
+            _ => {
+                self.emit_instruction(Instruction::LoadStackTopOffset(size),line);
+                self.compile_pattern_assignment(pattern, ty,line);
+                self.emit_pops(size,line);
+            }
+        }
+    }
     fn compile_pattern_assignment(&mut self,pattern:&PatternNode,ty:&Type,line:u32){
         match &pattern.kind{
             PatternNodeKind::Name(name) => {
@@ -966,24 +985,8 @@ impl Compiler{
                 }
             },
             TypedStmtNode::Let { pattern, expr } => {
-                let size = self.get_size_in_stack_slots(&expr.ty);
                 self.compile_expr(expr);
-                match &pattern.kind{
-                    PatternNodeKind::Name(name) =>{
-                        self.define_name(name.to_string(), size,expr.location.end_line);
-                    },
-                    PatternNodeKind::Wildcard  =>{
-                        self.emit_pops(size, expr.location.end_line);
-                    },
-                    PatternNodeKind::Tuple(elements) if elements.is_empty() => {
-                        self.emit_pops(size, expr.location.end_line);
-                    },
-                    _ => {
-                        self.emit_instruction(Instruction::LoadStackTopOffset(size),expr.location.end_line);
-                        self.compile_pattern_assignment(pattern, &expr.ty, expr.location.end_line);
-                        self.emit_pops(size, expr.location.end_line);
-                    }
-                }
+                self.compile_pattern_destructure(pattern, &expr.ty, expr.location.end_line);
             },
             TypedStmtNode::Fun { name, function} => {
                     let name= name.content.clone();
