@@ -949,10 +949,7 @@ impl Compiler{
                         self.compile_expr(lhs);
                         self.emit_instruction(Instruction::GetArrayLength, field_name.location.end_line);
                     },
-                    (ty @ Type::Struct {id,.. },field) => {
-                        if matches!(ty,Type::EnumVariant {.. }) {
-                            todo!("Re-implement Enum variants")
-                        }
+                    (ty @ (Type::Struct {.. }|Type::EnumVariant { .. }),field) => {
                         self.compile_lvalue(lhs);
                         let field = self.get_field_offset(ty, field);
                         let field_size = self.get_size_in_stack_slots(&expr.ty);
