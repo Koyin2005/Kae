@@ -610,12 +610,12 @@ impl Compiler{
                 },
                 Type::Never | Type::Unknown => {},
                 Type::Param { .. } => unreachable!("All values that get printed should be fully substituted!"),
-                Type::Enum { generic_args, id, name } => {
+                Type::Enum { generic_args, id, .. } => {
                     if this.get_enum_info(id).variants.is_empty(){
                         return;
                     }
+                    let mut jumps = Vec::new();
                     if this.get_enum_info(id).variants.iter().all(|variant| variant.fields.is_empty()){
-                        let mut jumps = Vec::new();
                         for i in 0..this.get_enum_info(id).variants.len(){
                             this.push_top_of_stack(line);
                             this.load_size(i, line);
@@ -626,50 +626,54 @@ impl Compiler{
                             jumps.push(this.emit_jump_instruction(Instruction::Jump(0xFF), line));
                             this.patch_jump(false_jump);
                         }
-
-                        for jump in jumps{
-                            this.patch_jump(jump);
-                        }
-                        this.emit_pops(1, line);
-                        return;
                     }
-                    let size = this.get_size_in_stack_slots(ty);
-                    let mut jumps = Vec::new();
-                    for variant in 0..this.get_enum_info(id).variants.len(){
-                        this.emit_instruction(Instruction::LoadStackTopOffset(size),line);
-                        this.emit_instruction(Instruction::LoadField(0), line);
-                        this.load_size(variant, line);
-                        this.emit_instruction(Instruction::Equals, line);
-                        let false_jump = this.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), line);
-                        let variant_name = this.get_enum_info(id).variants[variant].name.clone();
-
-                        let ty = Type::EnumVariant { generic_args:generic_args.clone(), id:*id, name:variant_name.clone(), variant_index: variant };
-                        let variant_fields = this.get_fields(&ty);
-                        let variant_size = variant_fields.iter().map(|(_,field)| this.get_size_in_stack_slots(field)).sum::<usize>();
-                        this.load_string(variant_name, line);
-                        this.emit_instruction(Instruction::PrintValue(if variant_size > 0 {  Some('{' as u8)} else { Some(after) }), line);
-                        if variant_size>0{
-                            for (i,(field_name,field_type)) in variant_fields.into_iter().enumerate(){
-                                this.emit_instruction(Instruction::LoadStackTopOffset(size), line);
-                                let field_offset = this.get_field_offset(&ty, &field_name);
-                                let field_size = this.get_size_in_stack_slots(&field_type);
-                                this.emit_load_field(field_offset, field_size, line);
-                                this.compile_print(&field_type, if i < variant_size-1 { b','} else { b'}'} , line);
-
+                    else{
+                        for variant in 0..this.get_enum_info(id).variants.len(){
+                            this.push_top_of_stack(line);
+                            this.emit_instruction(Instruction::LoadField(0), line);
+                            this.load_size(variant, line);
+                            this.emit_instruction(Instruction::Equals, line);
+                            let false_jump = this.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), line);
+                            let variant_name = this.get_enum_info(id).variants[variant].name.clone();
+                            let ty = Type::EnumVariant { generic_args:generic_args.clone(), id:*id, name:variant_name.clone(), variant_index: variant };
+                            let variant_fields = this.get_fields(&ty);
+                            this.load_string(variant_name, line);
+                            this.emit_instruction(Instruction::PrintValue(if !variant_fields.is_empty() {  Some('{' as u8)} else { Some(after) }), line);
+                            if !variant_fields.is_empty(){
+                                let field_count = variant_fields.len();
+                                for (i,(field_name,field_type)) in variant_fields.into_iter().enumerate(){
+                                    this.push_top_of_stack(line);
+                                    let field_offset = this.get_field_offset(&ty, &field_name);
+                                    this.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), line);
+                                    compile_print_field(this,&field_type, if i < field_count - 1 as usize { b','} else { b'}'} , line);
+                                }
+                                this.emit_instruction(Instruction::PrintAscii(after), line);
                             }
-                            this.emit_instruction(Instruction::PrintAscii(after), line);
+                            jumps.push(this.emit_jump_instruction(Instruction::Jump(0xFF), line));
+                            this.patch_jump(false_jump);
                         }
-                        this.emit_pops(size, line);
-                        jumps.push(this.emit_jump_instruction(Instruction::Jump(0xFF), line));
-                        this.patch_jump(false_jump);
                     }
-
                     for jump in jumps{
                         this.patch_jump(jump);
                     }
 
                 },
-                ty => todo!("Add support for {}.",ty)
+                Type::EnumVariant { id, variant_index,.. } => {
+                    let variant_name = this.get_enum_info(id).variants[*variant_index].name.clone();
+                    let variant_fields = this.get_fields(&ty);
+                    this.load_string(variant_name, line);
+                    this.emit_instruction(Instruction::PrintValue(if !variant_fields.is_empty() {  Some('{' as u8)} else { Some(after) }), line);
+                    if !variant_fields.is_empty(){
+                        let field_count = variant_fields.len();
+                        for (i,(field_name,field_type)) in variant_fields.into_iter().enumerate(){
+                            this.push_top_of_stack(line);
+                            let field_offset = this.get_field_offset(&ty, &field_name);
+                            this.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), line);
+                            compile_print_field(this,&field_type, if i < field_count - 1 as usize { b','} else { b'}'} , line);
+                        }
+                        this.emit_instruction(Instruction::PrintAscii(after), line);
+                    }
+                }
             }
         }
         match ty{
