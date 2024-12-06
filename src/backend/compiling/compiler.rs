@@ -575,10 +575,14 @@ impl Compiler{
         }
     }
     fn compile_print(&mut self,ty:&Type,after:u8,line:u32){
+        fn compile_print_field(mut this:&mut Compiler,ty: &Type,after: u8,line: u32){
+
+        }
         match ty{
             Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Function {.. } => {
                 self.emit_instruction(Instruction::PrintValue(Some(after)), line);
             },
+            _ => todo!("RE-WRITE for {}",ty),
             Type::Struct { id,.. } => {
                 let field_count = self.get_struct_info(id).fields.len();
                 let has_fields = field_count>0;
