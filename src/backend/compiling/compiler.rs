@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, natives::{native_input, native_panic, native_parse_int, native_pop, native_push}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{Struct, StructId, Type, TypeContext}}};
+use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, natives::{native_input, native_panic, native_parse_int, native_pop, native_push}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{Enum, EnumId, Struct, StructId, Type, TypeContext}}};
 
 
 struct Local{
@@ -81,6 +81,10 @@ impl Compiler{
     }
     fn get_struct_info(&self,struct_id:&StructId)->&Struct{
         self.type_context.structs.get_struct_info(struct_id).expect("All structs should be checked")
+    }
+    
+    fn get_enum_info(&self,id:&EnumId)->&Enum{
+        self.type_context.enums.get_enum(*id)
     }
     pub fn new(type_context:TypeContext)->Self{
         Self { type_context,functions:vec![CompiledFunction::default()],..Default::default() }
