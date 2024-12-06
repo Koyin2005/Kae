@@ -608,11 +608,10 @@ impl Compiler{
                     for (i,element) in elements.iter().enumerate(){
                         this.emit_instruction(Instruction::LoadStackTopOffset(size), line);
                         let element_size = this.get_size_in_stack_slots(element);
-                        this.emit_load_field(field_offset, element_size, line);
-                        this.compile_print(&element, if i < elements.len()-1 { b','} else { b')'} , line);
+                        this.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), line);
+                        compile_print_field(this,&element, if i < elements.len()-1 { b','} else { b')'} , line);
                         field_offset += element_size;
                     }
-                    this.emit_pops(size, line);
                     this.emit_instruction(Instruction::PrintAscii(after), line);
                 },
                 Type::Never | Type::Unknown => {},
@@ -683,7 +682,13 @@ impl Compiler{
             Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Function {.. } => {
                 self.emit_instruction(Instruction::PrintValue(Some(after)), line);
             },
-            ty => todo!("Add support for {}.",ty)
+            Type::Tuple(_) => {
+                let size = self.get_size_in_stack_slots(ty);
+                self.emit_instruction(Instruction::LoadStackTopOffset(size), line);
+                compile_print_field(self, ty, after, line);
+                self.emit_pops(size, line);
+            }
+            ty => todo!("Add print support for {}.",ty)
         }
     }
     fn compile_lvalue(&mut self,expr:&TypedExprNode){
