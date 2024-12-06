@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{rc::Rc, usize};
 
 use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, natives::{native_input, native_panic, native_parse_int, native_pop, native_push}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{Enum, EnumId, Struct, StructId, Type, TypeContext}}};
 
@@ -53,7 +53,7 @@ impl Compiler{
     fn get_field_offset(&self,base_ty:&Type,name:&str)->usize{
         let field_index = base_ty.get_field_index(name, &self.type_context).expect("Should have checked all fields");
         let mut field_offset = self.get_fields(base_ty).iter().take(if field_index > 0 { field_index} else { 0}).map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum();
-        if let Type::Enum { id,.. } | Type::EnumVariant { id,.. } = base_ty{
+        if let Type::EnumVariant {id,.. } = base_ty{
             if !self.get_enum_info(id).variants.is_empty(){
                 field_offset += 1;
             }
@@ -69,6 +69,9 @@ impl Compiler{
                     self.get_size_in_stack_slots(&Type::EnumVariant { generic_args: generic_args.clone(), id: *id, name: name.clone(), variant_index: variant.discrim })
                 }).max();
                 max_variant_size.map_or(0, |size| size + 1)
+            },
+            Type::EnumVariant { .. } => {
+                self.get_fields(ty).iter().map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum::<usize>()
             }
             _ => 1
         }
@@ -893,16 +896,16 @@ impl Compiler{
                 }
             },
             TypedExprNodeKind::StructInit { kind,fields } => {
-                let constructed_type = match kind{
-                    InitKind::Struct(_) => expr.ty.clone(),
+                let (constructed_type,size) = match kind{
+                    InitKind::Struct(_) => (expr.ty.clone(),self.get_size_in_stack_slots(&expr.ty)),
                     InitKind::Variant(_, index) => {
                         let Type::Enum { generic_args, id, name } = expr.ty.clone() else {
                             unreachable!("Can only produce variants of enums")
                         };
-                        Type::EnumVariant { generic_args, id, name, variant_index: *index }
+                        (Type::EnumVariant { generic_args, id, name, variant_index: *index },self.get_size_in_stack_slots(&expr.ty))
                     }
                 };
-                self.emit_instruction(Instruction::StackAlloc(Some(self.get_size_in_stack_slots(&constructed_type))),expr.location.start_line);
+                self.emit_instruction(Instruction::StackAlloc(Some(size)),expr.location.start_line);
                 if let InitKind::Variant(_, discriminant) = kind{
                     self.load_size(*discriminant, expr.location.start_line);
                     self.emit_instruction(Instruction::StoreField(0),expr.location.start_line);
