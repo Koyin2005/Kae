@@ -62,21 +62,27 @@ impl Compiler{
         }
     }
     fn get_fields(&self,ty:&Type)->Vec<(String,Type)>{
-        match ty{
+        let (generic_args,fields_iter):(&[Type],_) = match ty{
             Type::Struct { generic_args, id, .. } => {
                     let fields_iter = self.get_struct_info(id).fields.iter();
-                    if generic_args.is_empty(){
-                        fields_iter.cloned().collect()
-                    }
-                    else{
-                        let fields_iter = fields_iter.map(|(field_name,_)|{
-                            (field_name.clone(),ty.get_field(&field_name, &self.type_context).expect("All fields should exist"))
-                        });
-                        fields_iter.collect()
-                    }
+                    (generic_args,fields_iter)
             },
-            _ => Vec::new()
+            Type::EnumVariant { generic_args, id, variant_index,.. } => {
+                let fields_iter = self.get_enum_info(id).variants[*variant_index].fields.iter();
+                (generic_args,fields_iter)
+            },
+            _ => (&[],(&[]).into_iter())
             
+        };
+        
+        if generic_args.is_empty(){
+            fields_iter.cloned().collect()
+        }
+        else{
+            let fields_iter = fields_iter.map(|(field_name,_)|{
+                (field_name.clone(),ty.get_field(&field_name, &self.type_context).expect("All fields should exist"))
+            });
+            fields_iter.collect()
         }
     }
     fn get_struct_info(&self,struct_id:&StructId)->&Struct{
