@@ -936,14 +936,16 @@ impl Compiler{
                 todo!("Pattern struct assigmnent")
             },
             PatternNodeKind::Wildcard => {
-                self.emit_pops(self.get_size_in_stack_slots(ty), line);
+                self.emit_pops(1, line);
             },
             PatternNodeKind::Array(before, ignore, after) if before.is_empty() && after.is_empty() && ignore.is_some() => {
                 self.emit_instruction(Instruction::Pop, line);
             },
             PatternNodeKind::Is(name, right_pattern) => {
-                self.emit_instruction(Instruction::Copy(1), line);
-                self.define_name(name.content.clone(),1,line);
+                self.push_top_of_stack(line);
+                let size = self.get_size_in_stack_slots(ty);
+                self.emit_load_field(0, size, line);
+                self.define_name(name.content.clone(), size, line);
                 self.compile_pattern_assignment(right_pattern, ty, line);
             }
             _ => {}
@@ -968,6 +970,9 @@ impl Compiler{
                 self.compile_expr(expr);
                 if let PatternNodeKind::Name(name) = &pattern.kind{
                     self.define_name(name.to_string(), size,expr.location.end_line);
+                }
+                else if let PatternNodeKind::Wildcard = &pattern.kind{
+                    self.emit_pops(size, expr.location.end_line);
                 }
                 else{
                     self.emit_instruction(Instruction::LoadStackTopOffset(size),expr.location.end_line);
