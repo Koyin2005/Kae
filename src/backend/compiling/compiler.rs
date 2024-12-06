@@ -989,11 +989,10 @@ impl Compiler{
                 self.compile_pattern_destructure(pattern, &expr.ty, expr.location.end_line);
             },
             TypedStmtNode::Fun { name, function} => {
-                    let name= name.content.clone();
-                    let index = self.declare_name(name.clone(),1);
-                    self.compile_function(function,name.clone(),None);
-                    self.emit_define_instruction(index,1,function.body.location.end_line);
-                
+                let name = name.content.clone();
+                let index = self.declare_name(name.clone(),1);
+                self.compile_function(function,name.clone(),None);
+                self.emit_define_instruction(index,1,function.body.location.end_line);
             },
             TypedStmtNode::GenericFunction {function,name,.. } => {
                 self.generic_functions.push(GenericFunction { name: name.content.clone(),
