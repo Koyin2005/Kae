@@ -615,7 +615,7 @@ impl Compiler{
                     this.emit_pops(size, line);
                     this.emit_instruction(Instruction::PrintAscii(after), line);
                 },
-                Type::Never => {},
+                Type::Never | Type::Unknown => {},
                 Type::Param { .. } => unreachable!("All values that get printed should be fully substituted!"),
                 Type::Enum { generic_args, id, name } => {
                     if this.get_enum_info(id).variants.is_empty(){
