@@ -52,12 +52,24 @@ impl Compiler{
     }
     fn get_field_offset(&self,base_ty:&Type,name:&str)->usize{
         let field_index = base_ty.get_field_index(name, &self.type_context).expect("Should have checked all fields");
-        self.get_fields(base_ty).iter().take(if field_index > 0 { field_index} else { 0}).map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum()
+        let mut field_offset = self.get_fields(base_ty).iter().take(if field_index > 0 { field_index} else { 0}).map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum();
+        if let Type::Enum { id,.. } | Type::EnumVariant { id,.. } = base_ty{
+            if !self.get_enum_info(id).variants.is_empty(){
+                field_offset += 1;
+            }
+        }
+        field_offset
     }
     fn get_size_in_stack_slots(&self,ty:&Type)->usize{
         match ty{
             Type::Struct {.. } => self.get_fields(ty).iter().map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum(),
             Type::Tuple(elements) => elements.iter().map(|ty| self.get_size_in_stack_slots(ty)).sum(),
+            Type::Enum { generic_args, id, name } => {
+                let max_variant_size = self.get_enum_info(id).variants.iter().map(|variant| {
+                    self.get_size_in_stack_slots(&Type::EnumVariant { generic_args: generic_args.clone(), id: *id, name: name.clone(), variant_index: variant.discrim })
+                }).max();
+                max_variant_size.map_or(0, |size| size + 1)
+            }
             _ => 1
         }
     }
