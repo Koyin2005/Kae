@@ -576,108 +576,107 @@ impl Compiler{
     }
     fn compile_print(&mut self,ty:&Type,after:u8,line:u32){
         fn compile_print_field(mut this:&mut Compiler,ty: &Type,after: u8,line: u32){
+            
+            match ty{
+                Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Function {.. } => {
+                    this.emit_instruction(Instruction::PrintValue(Some(after)), line);
+                },
+                Type::Struct { id,.. } => {
+                    let field_count = this.get_struct_info(id).fields.len();
+                    let has_fields = field_count>0;
+                    let size = this.get_size_in_stack_slots(ty);
+                    this.load_string(format!("{}",ty), line);
+                    this.emit_instruction(Instruction::PrintValue(Some(if !has_fields {after} else {b'{'})), line);
+                    if has_fields{
+                        for (i,(field_name,field_type)) in this.get_fields(ty).into_iter().enumerate(){
+                            this.emit_instruction(Instruction::LoadStackTopOffset(size), line);
+                            let field_offset = this.get_field_offset(ty, &field_name);
+                            let field_size = this.get_size_in_stack_slots(&field_type);
+                            this.emit_load_field(field_offset, field_size, line);
+                            this.compile_print(&field_type, if i < field_count-1 { b','} else { b'}'} , line);
 
-        }
-        match ty{
-            Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Function {.. } => {
-                self.emit_instruction(Instruction::PrintValue(Some(after)), line);
-            },
-            _ => todo!("RE-WRITE for {}",ty),
-            Type::Struct { id,.. } => {
-                let field_count = self.get_struct_info(id).fields.len();
-                let has_fields = field_count>0;
-                let size = self.get_size_in_stack_slots(ty);
-                self.load_string(format!("{}",ty), line);
-                self.emit_instruction(Instruction::PrintValue(Some(if !has_fields {after} else {b'{'})), line);
-                if has_fields{
-                    for (i,(field_name,field_type)) in self.get_fields(ty).into_iter().enumerate(){
-                        self.emit_instruction(Instruction::LoadStackTopOffset(size), line);
-                        let field_offset = self.get_field_offset(ty, &field_name);
-                        let field_size = self.get_size_in_stack_slots(&field_type);
-                        self.emit_load_field(field_offset, field_size, line);
-                        self.compile_print(&field_type, if i < field_count-1 { b','} else { b'}'} , line);
-
+                        }
+                        this.emit_pops(size, line);
+                        this.emit_instruction(Instruction::PrintAscii(after), line);
                     }
-                    self.emit_pops(size, line);
-                    self.emit_instruction(Instruction::PrintAscii(after), line);
-                }
-            },
-            Type::Tuple(elements) => {
-                self.emit_instruction(Instruction::PrintAscii('(' as u8), line);
-                let mut field_offset = 0;
-                let size = self.get_size_in_stack_slots(ty);
-                for (i,element) in elements.iter().enumerate(){
-                    self.emit_instruction(Instruction::LoadStackTopOffset(size), line);
-                    let element_size = self.get_size_in_stack_slots(element);
-                    self.emit_load_field(field_offset, element_size, line);
-                    self.compile_print(&element, if i < elements.len()-1 { b','} else { b')'} , line);
-                    field_offset += element_size;
-                }
-                self.emit_pops(size, line);
-                self.emit_instruction(Instruction::PrintAscii(after), line);
-            },
-            Type::Never => {},
-            Type::Param { .. } => unreachable!("All values that get printed should be fully substituted!"),
-            Type::Enum { generic_args, id, name } => {
-                if self.get_enum_info(id).variants.is_empty(){
-                    return;
-                }
-                if self.get_enum_info(id).variants.iter().all(|variant| variant.fields.is_empty()){
+                },
+                Type::Tuple(elements) => {
+                    this.emit_instruction(Instruction::PrintAscii('(' as u8), line);
+                    let mut field_offset = 0;
+                    let size = this.get_size_in_stack_slots(ty);
+                    for (i,element) in elements.iter().enumerate(){
+                        this.emit_instruction(Instruction::LoadStackTopOffset(size), line);
+                        let element_size = this.get_size_in_stack_slots(element);
+                        this.emit_load_field(field_offset, element_size, line);
+                        this.compile_print(&element, if i < elements.len()-1 { b','} else { b')'} , line);
+                        field_offset += element_size;
+                    }
+                    this.emit_pops(size, line);
+                    this.emit_instruction(Instruction::PrintAscii(after), line);
+                },
+                Type::Never => {},
+                Type::Param { .. } => unreachable!("All values that get printed should be fully substituted!"),
+                Type::Enum { generic_args, id, name } => {
+                    if this.get_enum_info(id).variants.is_empty(){
+                        return;
+                    }
+                    if this.get_enum_info(id).variants.iter().all(|variant| variant.fields.is_empty()){
+                        let mut jumps = Vec::new();
+                        for i in 0..this.get_enum_info(id).variants.len(){
+                            this.push_top_of_stack(line);
+                            this.load_size(i, line);
+                            this.emit_instruction(Instruction::Equals, line);
+                            let false_jump = this.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), line);
+                            this.load_string(this.get_enum_info(id).variants[i].name.clone(), line);
+                            this.emit_instruction(Instruction::PrintValue(Some(after)), line);
+                            jumps.push(this.emit_jump_instruction(Instruction::Jump(0xFF), line));
+                            this.patch_jump(false_jump);
+                        }
+
+                        for jump in jumps{
+                            this.patch_jump(jump);
+                        }
+                        this.emit_pops(1, line);
+                        return;
+                    }
+                    let size = this.get_size_in_stack_slots(ty);
                     let mut jumps = Vec::new();
-                    for i in 0..self.get_enum_info(id).variants.len(){
-                        self.push_top_of_stack(line);
-                        self.load_size(i, line);
-                        self.emit_instruction(Instruction::Equals, line);
-                        let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), line);
-                        self.load_string(self.get_enum_info(id).variants[i].name.clone(), line);
-                        self.emit_instruction(Instruction::PrintValue(Some(after)), line);
-                        jumps.push(self.emit_jump_instruction(Instruction::Jump(0xFF), line));
-                        self.patch_jump(false_jump);
+                    for variant in 0..this.get_enum_info(id).variants.len(){
+                        this.emit_instruction(Instruction::LoadStackTopOffset(size),line);
+                        this.emit_instruction(Instruction::LoadField(0), line);
+                        this.load_size(variant, line);
+                        this.emit_instruction(Instruction::Equals, line);
+                        let false_jump = this.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), line);
+                        let variant_name = this.get_enum_info(id).variants[variant].name.clone();
+
+                        let ty = Type::EnumVariant { generic_args:generic_args.clone(), id:*id, name:variant_name.clone(), variant_index: variant };
+                        let variant_fields = this.get_fields(&ty);
+                        let variant_size = variant_fields.iter().map(|(_,field)| this.get_size_in_stack_slots(field)).sum::<usize>();
+                        this.load_string(variant_name, line);
+                        this.emit_instruction(Instruction::PrintValue(if variant_size > 0 {  Some('{' as u8)} else { Some(after) }), line);
+                        if variant_size>0{
+                            for (i,(field_name,field_type)) in variant_fields.into_iter().enumerate(){
+                                this.emit_instruction(Instruction::LoadStackTopOffset(size), line);
+                                let field_offset = this.get_field_offset(&ty, &field_name);
+                                let field_size = this.get_size_in_stack_slots(&field_type);
+                                this.emit_load_field(field_offset, field_size, line);
+                                this.compile_print(&field_type, if i < variant_size-1 { b','} else { b'}'} , line);
+
+                            }
+                            this.emit_instruction(Instruction::PrintAscii(after), line);
+                        }
+                        this.emit_pops(size, line);
+                        jumps.push(this.emit_jump_instruction(Instruction::Jump(0xFF), line));
+                        this.patch_jump(false_jump);
                     }
 
                     for jump in jumps{
-                        self.patch_jump(jump);
+                        this.patch_jump(jump);
                     }
-                    self.emit_pops(1, line);
-                    return;
-                }
-                let size = self.get_size_in_stack_slots(ty);
-                let mut jumps = Vec::new();
-                for variant in 0..self.get_enum_info(id).variants.len(){
-                    self.emit_instruction(Instruction::LoadStackTopOffset(size),line);
-                    self.emit_instruction(Instruction::LoadField(0), line);
-                    self.load_size(variant, line);
-                    self.emit_instruction(Instruction::Equals, line);
-                    let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), line);
-                    let variant_name = self.get_enum_info(id).variants[variant].name.clone();
 
-                    let ty = Type::EnumVariant { generic_args:generic_args.clone(), id:*id, name:variant_name.clone(), variant_index: variant };
-                    let variant_fields = self.get_fields(&ty);
-                    let variant_size = variant_fields.iter().map(|(_,field)| self.get_size_in_stack_slots(field)).sum::<usize>();
-                    self.load_string(variant_name, line);
-                    self.emit_instruction(Instruction::PrintValue(if variant_size > 0 {  Some('{' as u8)} else { Some(after) }), line);
-                    if variant_size>0{
-                        for (i,(field_name,field_type)) in variant_fields.into_iter().enumerate(){
-                            self.emit_instruction(Instruction::LoadStackTopOffset(size), line);
-                            let field_offset = self.get_field_offset(&ty, &field_name);
-                            let field_size = self.get_size_in_stack_slots(&field_type);
-                            self.emit_load_field(field_offset, field_size, line);
-                            self.compile_print(&field_type, if i < variant_size-1 { b','} else { b'}'} , line);
-
-                        }
-                        self.emit_instruction(Instruction::PrintAscii(after), line);
-                    }
-                    self.emit_pops(size, line);
-                    jumps.push(self.emit_jump_instruction(Instruction::Jump(0xFF), line));
-                    self.patch_jump(false_jump);
-                }
-
-                for jump in jumps{
-                    self.patch_jump(jump);
-                }
-
-            },
-            ty => todo!("Add support for {}.",ty)
+                },
+                ty => todo!("Add support for {}.",ty)
+            }
         }
     }
     fn compile_lvalue(&mut self,expr:&TypedExprNode){
