@@ -482,7 +482,6 @@ impl VM{
                         },
                         Value::GlobalAddress(address) => {
                             for address in address..address + size{
-                                println!("{}",address+field as usize);
                                 self.push(self.globals[&(address + field as usize)].clone())?;
                             }
                         }
