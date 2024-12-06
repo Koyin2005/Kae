@@ -952,7 +952,15 @@ impl Compiler{
                 
             },
             PatternNodeKind::Struct { fields,ty } => {
-                todo!("Pattern struct assigmnent")
+                if !fields.is_empty(){
+                    for ((field_name,pattern),field_ty) in fields.iter().zip(self.get_fields(ty).iter().map(|(_,ty)| ty)){
+                        let field_offset = self.get_field_offset(ty, &field_name);
+                        self.push_top_of_stack(line);
+                        self.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), line);
+                        self.compile_pattern_assignment(pattern, field_ty,line);
+                    }
+                }
+                self.emit_instruction(Instruction::Pop,line)
             },
             PatternNodeKind::Wildcard => {
                 self.emit_pops(1, line);
