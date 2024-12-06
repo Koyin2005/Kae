@@ -160,7 +160,7 @@ impl Type{
                 }))
             },
             (Type::EnumVariant { id,  variant_index,.. },field_name) => {
-                type_context.enums.get_enum(*id).variants[*variant_index].fields.iter().position(|(field,_)| field ==  field_name).map(|index| index+1)
+                type_context.enums.get_enum(*id).variants[*variant_index].fields.iter().position(|(field,_)| field ==  field_name).map(|index| index)
                     
             }
             _ => None

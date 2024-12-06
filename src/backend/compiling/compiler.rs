@@ -614,6 +614,65 @@ impl Compiler{
             },
             Type::Never => {},
             Type::Param { .. } => unreachable!("All values that get printed should be fully substituted!"),
+            Type::Enum { generic_args, id, name } => {
+                if self.get_enum_info(id).variants.is_empty(){
+                    return;
+                }
+                if self.get_enum_info(id).variants.iter().all(|variant| variant.fields.is_empty()){
+                    let mut jumps = Vec::new();
+                    for i in 0..self.get_enum_info(id).variants.len(){
+                        self.push_top_of_stack(line);
+                        self.load_size(i, line);
+                        self.emit_instruction(Instruction::Equals, line);
+                        let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), line);
+                        self.load_string(self.get_enum_info(id).variants[i].name.clone(), line);
+                        self.emit_instruction(Instruction::PrintValue(Some(after)), line);
+                        jumps.push(self.emit_jump_instruction(Instruction::Jump(0xFF), line));
+                        self.patch_jump(false_jump);
+                    }
+
+                    for jump in jumps{
+                        self.patch_jump(jump);
+                    }
+                    self.emit_pops(1, line);
+                    return;
+                }
+                let size = self.get_size_in_stack_slots(ty);
+                let mut jumps = Vec::new();
+                for variant in 0..self.get_enum_info(id).variants.len(){
+                    self.emit_instruction(Instruction::LoadStackTopOffset(size),line);
+                    self.emit_instruction(Instruction::LoadField(0), line);
+                    self.load_size(variant, line);
+                    self.emit_instruction(Instruction::Equals, line);
+                    let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), line);
+                    let variant_name = self.get_enum_info(id).variants[variant].name.clone();
+
+                    let ty = Type::EnumVariant { generic_args:generic_args.clone(), id:*id, name:variant_name.clone(), variant_index: variant };
+                    let variant_fields = self.get_fields(&ty);
+                    let variant_size = variant_fields.iter().map(|(_,field)| self.get_size_in_stack_slots(field)).sum::<usize>();
+                    self.load_string(variant_name, line);
+                    self.emit_instruction(Instruction::PrintValue(if variant_size > 0 {  Some('{' as u8)} else { Some(after) }), line);
+                    if variant_size>0{
+                        for (i,(field_name,field_type)) in variant_fields.into_iter().enumerate(){
+                            self.emit_instruction(Instruction::LoadStackTopOffset(size), line);
+                            let field_offset = self.get_field_offset(&ty, &field_name);
+                            let field_size = self.get_size_in_stack_slots(&field_type);
+                            self.emit_load_field(field_offset, field_size, line);
+                            self.compile_print(&field_type, if i < variant_size-1 { b','} else { b'}'} , line);
+
+                        }
+                        self.emit_instruction(Instruction::PrintAscii(after), line);
+                    }
+                    self.emit_pops(size, line);
+                    jumps.push(self.emit_jump_instruction(Instruction::Jump(0xFF), line));
+                    self.patch_jump(false_jump);
+                }
+
+                for jump in jumps{
+                    self.patch_jump(jump);
+                }
+
+            },
             ty => todo!("Add support for {}.",ty)
         }
     }
