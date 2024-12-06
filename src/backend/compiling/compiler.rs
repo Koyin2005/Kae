@@ -893,29 +893,35 @@ impl Compiler{
                 }
             },
             TypedExprNodeKind::StructInit { kind,fields } => {
-                match kind{
-                    InitKind::Struct(_) => {
-                        self.emit_instruction(Instruction::StackAlloc(Some(self.get_size_in_stack_slots(&expr.ty))),expr.location.start_line);
-                        for (field_name,field_expr) in fields{
-                            let field_offset = self.get_field_offset(&expr.ty, &field_name);
-                            if field_offset >= u16::MAX as usize{
-                                todo!("Add support for wider fields")
-                            }
-                            self.compile_expr(field_expr);
-                            let size = self.get_size_in_stack_slots(&field_expr.ty);
-                            if size == 1{
-                                self.emit_instruction(Instruction::StoreField(field_offset as u16), field_expr.location.end_line);
-                            }
-                            else{
-                                self.emit_instruction(Instruction::StoreStructField(field_offset as u16,size), field_expr.location.end_line);
-                            }
-                        }
-                        self.emit_instruction(Instruction::Pop,expr.location.end_line);
-                    },
-                    InitKind::Variant(.. ) => {
-                        todo!()
+                let constructed_type = match kind{
+                    InitKind::Struct(_) => expr.ty.clone(),
+                    InitKind::Variant(_, index) => {
+                        let Type::Enum { generic_args, id, name } = expr.ty.clone() else {
+                            unreachable!("Can only produce variants of enums")
+                        };
+                        Type::EnumVariant { generic_args, id, name, variant_index: *index }
+                    }
+                };
+                self.emit_instruction(Instruction::StackAlloc(Some(self.get_size_in_stack_slots(&constructed_type))),expr.location.start_line);
+                if let InitKind::Variant(_, discriminant) = kind{
+                    self.load_size(*discriminant, expr.location.start_line);
+                    self.emit_instruction(Instruction::StoreField(0),expr.location.start_line);
+                }
+                for (field_name,field_expr) in fields{
+                    let field_offset = self.get_field_offset(&constructed_type, &field_name);
+                    if field_offset >= u16::MAX as usize{
+                        todo!("Add support for wider fields")
+                    }
+                    self.compile_expr(field_expr);
+                    let size = self.get_size_in_stack_slots(&field_expr.ty);
+                    if size == 1{
+                        self.emit_instruction(Instruction::StoreField(field_offset as u16), field_expr.location.end_line);
+                    }
+                    else{
+                        self.emit_instruction(Instruction::StoreStructField(field_offset as u16,size), field_expr.location.end_line);
                     }
                 }
+                self.emit_instruction(Instruction::Pop,expr.location.end_line);
             },
             TypedExprNodeKind::MethodCall { lhs, method, args } => {
                 self.load_name(&format!("{}::{}",lhs.ty,method.content), 1,lhs.location.start_line);
