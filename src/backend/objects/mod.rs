@@ -138,9 +138,17 @@ struct GcObject{
 }
 #[derive(Default)]
 pub struct Heap{
-    objects : Vec<Option<GcObject>>
+    objects : Vec<Option<GcObject>>,
+    data : Vec<Option<Value>>
 }
+
 impl Heap{
+
+    pub fn allocate(&mut self,size:usize)->usize{
+        let address = self.data.len();
+        self.data.extend(std::iter::repeat(Some(Value::Int(0))).take(size));
+        address
+    }
     pub fn get_object_mut(&mut self,object:Object)->&mut ObjectType{
         &mut self.objects[object.0].as_mut().unwrap().data
     }
