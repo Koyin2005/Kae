@@ -682,6 +682,9 @@ impl VM{
                             let value = self.pop();
                             self.heap.store(list + 1+i, value);
                         }
+                        //Pop index and list
+                        self.pop();
+                        self.pop();
                     }
                     else{
                         self.runtime_error(&format!("Index out of bounds : index was '{}', but len was '{}'.",index,len));
