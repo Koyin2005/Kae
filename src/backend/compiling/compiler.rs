@@ -748,16 +748,19 @@ impl Compiler{
             },
             TypedExprNodeKind::Print(args) => {
                 for (i,arg) in args.iter().enumerate(){
-                    let size = if !matches!(arg.ty,
+                    let size = if matches!(arg.ty,
                         Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Function {.. } ){
-                        self.compile_lvalue(arg);
-                        1
+                        self.compile_expr(arg);
+                        None
                     }
                     else{
-                        self.get_size_in_stack_slots(&arg.ty)
+                        self.compile_lvalue(arg);
+                        Some(self.get_size_in_stack_slots(&arg.ty))
                     };
                     self.compile_print(&arg.ty,if i<args.len()-1 {b' '} else{b'\n'},arg.location.end_line);
-                    self.emit_pops(size, arg.location.end_line);
+                    if let Some(size) = size{
+                        self.emit_pops(size, arg.location.end_line);
+                    }
                 }
                 self.emit_instruction(Instruction::LoadUnit,expr.location.end_line);
             },
