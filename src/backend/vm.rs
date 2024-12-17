@@ -403,11 +403,13 @@ impl VM{
                     let string =Value::String(Object::new_string(&mut self.heap, Rc::from(string)));
                     self.store_top(string);
                 }
-                Instruction::BuildList(elements) => {
-                    let mut elements = std::iter::repeat_with(|| self.pop()).take(elements as usize).collect::<Vec<_>>();
-                    elements.reverse();
-                    let tuple = Object::new_list(&mut self.heap, elements);
-                    self.push(Value::List(tuple))?;
+                Instruction::BuildList(size) => {
+                    let address = self.heap.allocate(size);
+                    for _ in (0..size).rev(){
+                        let value = self.pop();
+                        self.heap.store(address,value);
+                    }
+                    self.push(Value::HeapAddress(address))?;
                 }
                 Instruction::BuildTuple(elements) => {
                     let mut elements = std::iter::repeat_with(|| self.pop()).take(elements as usize).collect::<Box<[_]>>();

@@ -149,6 +149,9 @@ impl Heap{
         self.data.extend(std::iter::repeat(Some(Value::Int(0))).take(size));
         address
     }
+    pub fn store(&mut self,address:usize,value:Value){
+        self.data[address] = Some(value);
+    }
     pub fn get_object_mut(&mut self,object:Object)->&mut ObjectType{
         &mut self.objects[object.0].as_mut().unwrap().data
     }
