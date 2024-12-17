@@ -702,7 +702,7 @@ impl VM{
                         unreachable!()
                     };
                     if 0 <= index && index< len{
-                        self.push(Value::HeapAddress(list + index as usize * size))?;
+                        self.push(Value::HeapAddress(list + 1 + index as usize * size))?;
                     }
                     else{
                         self.runtime_error(&format!("Index out of bounds : index was '{}', but len was '{}'.",index,len));
