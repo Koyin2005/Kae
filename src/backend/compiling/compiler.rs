@@ -682,10 +682,7 @@ impl Compiler{
                 self.emit_instruction(Instruction::PrintValue(Some(after)), line);
             },
             ty => {
-                let size = self.get_size_in_stack_slots(ty);
-                self.emit_instruction(Instruction::LoadStackTopOffset(size), line);
                 compile_print_field(self, ty, after, line);
-                self.emit_pops(size, line);
             }
         }
     }
@@ -751,8 +748,16 @@ impl Compiler{
             },
             TypedExprNodeKind::Print(args) => {
                 for (i,arg) in args.iter().enumerate(){
-                    self.compile_expr(arg);
+                    let size = if !matches!(arg.ty,
+                        Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Function {.. } ){
+                        self.compile_lvalue(arg);
+                        1
+                    }
+                    else{
+                        self.get_size_in_stack_slots(&arg.ty)
+                    };
                     self.compile_print(&arg.ty,if i<args.len()-1 {b' '} else{b'\n'},arg.location.end_line);
+                    self.emit_pops(size, arg.location.end_line);
                 }
                 self.emit_instruction(Instruction::LoadUnit,expr.location.end_line);
             },

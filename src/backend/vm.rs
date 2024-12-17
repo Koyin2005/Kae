@@ -457,6 +457,9 @@ impl VM{
                         Value::GlobalAddress(address) => {
                             self.push(Value::GlobalAddress(address + field as usize))?;
                         },
+                        Value::HeapAddress(address) => {
+                            self.push(self.heap.load(address + field as usize))?;
+                        }
                         _ => {
                             panic!("Can't get field of non-record.")
                         }
@@ -682,9 +685,6 @@ impl VM{
                             let value = self.pop();
                             self.heap.store(list + 1+i, value);
                         }
-                        //Pop index and list
-                        self.pop();
-                        self.pop();
                     }
                     else{
                         self.runtime_error(&format!("Index out of bounds : index was '{}', but len was '{}'.",index,len));
