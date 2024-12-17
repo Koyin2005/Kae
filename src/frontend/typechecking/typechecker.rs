@@ -1357,18 +1357,6 @@ impl TypeChecker{
         self.environment.add_function("panic".to_string(), vec![Type::String], Type::Never, id);
         {
             let id = self.declare_new_function();
-            let param_type = Type::Param { name:"T".to_string(), index:0 };
-            self.environment.add_generic_function("push".to_string(), vec![Type::Array(Box::new(param_type.clone())),param_type.clone()], Type::Unit, id,
-                [param_type].into_iter());
-        }
-        {
-            let id = self.declare_new_function();
-            let param_type = Type::Param { name:"T".to_string(), index:0 };
-            self.environment.add_generic_function("pop".to_string(), vec![Type::Array(Box::new(param_type.clone()))], param_type.clone(), id,
-                [param_type].into_iter());
-        }
-        {
-            let id = self.declare_new_function();
             self.environment.add_function("parse_int".to_string(), vec![Type::String], 
                 substitute(option_type.clone(),&[Type::Int]), id);
         }

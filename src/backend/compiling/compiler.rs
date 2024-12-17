@@ -1,6 +1,6 @@
 use std::{rc::Rc, usize};
 
-use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, natives::{native_input, native_panic, native_parse_int, native_pop, native_push}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{Enum, EnumId, Struct, StructId, Type, TypeContext}}};
+use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, natives::{native_input, native_panic, native_parse_int}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{Enum, EnumId, Struct, StructId, Type, TypeContext}}};
 
 
 struct Local{
@@ -1140,19 +1140,6 @@ impl Compiler{
         })), 1);
         self.define_name("panic".to_string(), 1,1);
         
-        self.load_constant(Constant::NativeFunction(Rc::new(NativeFunction{
-            name : "push".to_string(),
-            function : native_push
-        })), 1);
-        self.define_name("push".to_string(), 1,1);
-
-        
-        self.load_constant(Constant::NativeFunction(Rc::new(NativeFunction{
-            name : "pop".to_string(),
-            function : native_pop
-        })), 1);
-        self.define_name("pop".to_string(), 1,1);
-
         
         self.load_constant(Constant::NativeFunction(Rc::new(NativeFunction{
             name : "parse_int".to_string(),

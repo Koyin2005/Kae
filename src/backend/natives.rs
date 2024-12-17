@@ -25,27 +25,6 @@ pub fn native_panic(vm:&mut VM,args:&[Value])->Result<Value,RuntimeError>{
 }
 
 
-pub fn native_push(vm:&mut VM,args:&[Value])->Result<Value,RuntimeError>{
-    let Value::List(list) = args[0] else {
-        panic!("Expected a list.")
-    };
-    list.as_list_mut(&mut vm.heap).push(args[1].clone());
-    Ok(Value::Unit)
-}
-
-pub fn native_pop(vm:&mut VM,args:&[Value])->Result<Value,RuntimeError>{
-    let Value::List(list) = args[0] else {
-        panic!("Expected a list.")
-    };
-    if let Some(value) = list.as_list_mut(&mut vm.heap).pop(){
-        Ok(value)
-    }
-    else{
-        vm.runtime_error("Can't pop from an empty list.");
-        Err(RuntimeError)
-    }
-}
-
 pub fn native_parse_int(vm:&mut VM,args:&[Value])->Result<Value,RuntimeError>{
     let Value::String(string) = args[0] else {
         panic!("Expected a string.")
