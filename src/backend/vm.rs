@@ -404,10 +404,11 @@ impl VM{
                     self.store_top(string);
                 }
                 Instruction::BuildArray(size) => {
-                    let address = self.heap.allocate(size);
-                    for _ in (0..size).rev(){
+                    let address = self.heap.allocate(size+1);
+                    self.heap.store(address,Value::Int(size as i64));
+                    for i in (1..size+1).rev(){
                         let value = self.pop();
-                        self.heap.store(address,value);
+                        self.heap.store(address+i,value);
                     }
                     self.push(Value::HeapAddress(address))?;
                 }
@@ -625,7 +626,7 @@ impl VM{
                     }
                     
                 }
-                Instruction::LoadIndex => {
+                Instruction::LoadIndex(size) => {
                     let Value::Int(index) = self.pop() else {
                         panic!("Expected an int.")
                     };
@@ -648,8 +649,7 @@ impl VM{
                     let tuple = tuple.as_tuple(&self.heap);
                     self.push(tuple[index as usize].clone())?;
                 }
-                Instruction::StoreIndex => {
-                    let value = self.pop();
+                Instruction::StoreIndex(size) => {
                     let Value::Int(index) = self.peek(0) else {
                         panic!("Expected an int.")
                     };
@@ -659,7 +659,6 @@ impl VM{
                     let len = list.as_list(&self.heap).len();
                     if 0 <= index && (index as usize)< len{
                         let list = list.as_list_mut(&mut self.heap);
-                        list[index as usize] = value;
                     }
                     else{
                         self.runtime_error(&format!("Index out of bounds : index was '{}', but len was '{}'.",index,len));

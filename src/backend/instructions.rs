@@ -65,8 +65,8 @@ pub enum Instruction {
     
     Concatenate,
 
-    LoadIndex,
-    StoreIndex,
+    LoadIndex(usize),
+    StoreIndex(usize),
 
     BuildRecord(u16),
     BuildCaseRecord(u16),
