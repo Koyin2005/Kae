@@ -512,7 +512,7 @@ impl Compiler{
                 for (i,pattern) in before.iter().enumerate(){
                     self.push_top_of_stack(pattern.location.start_line);
                     self.load_int(i as i64, pattern.location.start_line);
-                    self.emit_instruction(Instruction::LoadIndex, pattern.location.start_line);
+                    self.emit_instruction(Instruction::LoadIndex(todo!("REIMPLEMENT")), pattern.location.start_line);
                     self.compile_pattern_check(pattern,ty);
                     jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalseAndPop(0xFF), pattern.location.end_line));
                 }
@@ -531,7 +531,7 @@ impl Compiler{
                                 self.load_int(i as i64, pattern.location.start_line);
                                 self.emit_instruction(Instruction::AddInt, pattern.location.start_line);
                             }
-                            self.emit_instruction(Instruction::LoadIndex, pattern.location.start_line);
+                            self.emit_instruction(Instruction::LoadIndex(todo!("REIMPLEMENT")), pattern.location.start_line);
                             self.compile_pattern_check(pattern,ty);
                             let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalseAndPop(0xFF), pattern.location.end_line);
                             after_jumps.push(false_jump);
@@ -552,7 +552,7 @@ impl Compiler{
                     for (i,pattern) in after.iter().enumerate(){
                         self.push_top_of_stack(pattern.location.start_line);
                         self.load_int((i+before.len()) as i64, pattern.location.start_line);
-                        self.emit_instruction(Instruction::LoadIndex, pattern.location.start_line);
+                        self.emit_instruction(Instruction::LoadIndex(todo!("REIMPLEMENT")), pattern.location.start_line);
                         self.compile_pattern_check(pattern,ty);
                         let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), pattern.location.end_line);
                         self.emit_instruction(Instruction::Pop, pattern.location.end_line);
@@ -771,9 +771,10 @@ impl Compiler{
 
             },
             TypedExprNodeKind::Index { lhs, rhs } => {
+                let size = self.get_size_in_stack_slots(&expr.ty);
                 self.compile_expr(lhs);
                 self.compile_expr(rhs);
-                self.emit_instruction(Instruction::LoadIndex,rhs.location.end_line);
+                self.emit_instruction(Instruction::LoadIndex(size),rhs.location.end_line);
             },
             TypedExprNodeKind::Binary { op, left, right } => {
                 self.compile_expr(left);
@@ -872,11 +873,12 @@ impl Compiler{
 
                     },
                     TypedAssignmentTargetKind::Index { lhs, rhs:index } => {
+                        let size = self.get_size_in_stack_slots(&expr.ty);
                         self.compile_expr(lhs);
                         self.compile_expr(index);
                         self.compile_expr(rhs);
-                        self.emit_instruction(Instruction::StoreIndex, rhs.location.end_line);
-                        self.emit_instruction(Instruction::LoadIndex, rhs.location.end_line);
+                        self.emit_instruction(Instruction::StoreIndex(size), rhs.location.end_line);
+                        self.emit_instruction(Instruction::LoadIndex(size), rhs.location.end_line);
                     },
                     TypedAssignmentTargetKind::Field { lhs, name } => {
                         self.compile_lvalue(lhs);
