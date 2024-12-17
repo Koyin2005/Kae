@@ -689,10 +689,10 @@ impl VM{
                     }
                 },
                 Instruction::LoadIndexRef(size) => {
-                    let Value::Int(index) = self.peek(size) else {
+                    let Value::Int(index) = self.pop() else {
                         panic!("Expected an int.")
                     };
-                    let Value::HeapAddress(list) = self.peek(size+1) else{
+                    let Value::HeapAddress(list) = self.pop() else{
                         panic!("Expected a list.")
                     };
                     let Value::Int(len) = self.heap.load(list) else {
