@@ -68,6 +68,8 @@ pub enum Instruction {
     LoadIndex(usize),
     StoreIndex(usize),
 
+    LoadIndexRef(usize),
+
     BuildRecord(u16),
     BuildCaseRecord(u16),
     BuildTuple(u16),

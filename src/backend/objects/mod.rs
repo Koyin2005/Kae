@@ -152,7 +152,7 @@ impl Heap{
     pub fn store(&mut self,address:usize,value:Value){
         self.data[address] = Some(value);
     }
-    pub fn load(&mut self,address:usize)->Value{
+    pub fn load(&self,address:usize)->Value{
         self.data[address].clone().expect("Read from invalid address")
     }
     pub fn get_object_mut(&mut self,object:Object)->&mut ObjectType{

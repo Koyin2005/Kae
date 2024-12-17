@@ -707,7 +707,13 @@ impl Compiler{
                 self.compile_lvalue(lhs);
                 let field_offset = self.get_field_offset(&lhs.ty, &field.content);
                 self.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), field.location.end_line);
-            }
+            },
+            TypedExprNodeKind::Index { lhs, rhs } => {
+                let size = self.get_size_in_stack_slots(&expr.ty);
+                self.compile_expr(lhs);
+                self.compile_expr(rhs);
+                self.emit_instruction(Instruction::LoadIndexRef(size), rhs.location.end_line);
+            },
             _ => {
                 self.compile_expr(expr);
                 self.emit_instruction(Instruction::LoadStackTopOffset(self.get_size_in_stack_slots(&expr.ty)),expr.location.end_line);

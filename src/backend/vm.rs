@@ -469,10 +469,10 @@ impl VM{
                         },
                         Value::GlobalAddress(address) => {
                             self.push(self.globals[&(address + field as usize)].clone())?;
-                        }
-                        Value::Record(record)  => {
-                            self.push(record.as_record(&self.heap).fields[field as usize].clone())?;
                         },
+                        Value::HeapAddress(address) => {
+                            self.push(self.heap.load(address + field as usize))?;
+                        }
                         _ => {
                             panic!("Can't get field of non-record.")
                         }
@@ -490,11 +490,12 @@ impl VM{
                             for address in address..address + size{
                                 self.push(self.globals[&(address + field as usize)].clone())?;
                             }
-                        }
-                        Value::Record(record)  => {
-                            for i in 0..size{
-                                self.push(record.as_record(&self.heap).fields[field as usize + i].clone())?;
+                        },
+                        Value::HeapAddress(address) => {
+                            for address in address..address + size{
+                                self.push(self.heap.load(address + field as usize))?;
                             }
+
                         },
                         _ => {
                             panic!("Can't get field of non-record.")
@@ -512,6 +513,9 @@ impl VM{
                         },
                         Value::StackAddress(address) => {
                             self.stack[address + field as usize] = value;
+                        },
+                        Value::HeapAddress(address) => {
+                            self.heap.store(address + field as usize, value);
                         }
                         _ =>  panic!("Can't get field of non-record.")
                     }
@@ -535,7 +539,13 @@ impl VM{
                                 let value = self.pop();
                                 self.stack[address + field as usize] = value;
                             }
-                        }
+                        },
+                        Value::HeapAddress(address) => {
+                            for address in (address..address+size).rev(){
+                                let value = self.pop();
+                                self.heap.store(address + field as usize,value);
+                            }
+                        } 
                         _ =>  panic!("Can't get field of non-record.")
                     }
 
@@ -679,6 +689,24 @@ impl VM{
                         return Err(RuntimeError);
                     }
                 },
+                Instruction::LoadIndexRef(size) => {
+                    let Value::Int(index) = self.peek(size) else {
+                        panic!("Expected an int.")
+                    };
+                    let Value::HeapAddress(list) = self.peek(size+1) else{
+                        panic!("Expected a list.")
+                    };
+                    let Value::Int(len) = self.heap.load(list) else {
+                        unreachable!()
+                    };
+                    if 0 <= index && index< len{
+                        self.push(Value::HeapAddress(list + index as usize * size))?;
+                    }
+                    else{
+                        self.runtime_error(&format!("Index out of bounds : index was '{}', but len was '{}'.",index,len));
+                        return Err(RuntimeError);
+                    }
+                }
                 Instruction::UnpackTuple => {
                     let Value::Tuple(tuple) = self.pop() else{
                         panic!("Expected a tuple.")
