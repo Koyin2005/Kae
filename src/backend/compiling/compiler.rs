@@ -767,6 +767,7 @@ impl Compiler{
                     self.compile_expr(element);
                     size += self.get_size_in_stack_slots(&element.ty);
                 }
+                self.load_size(elements.len(), expr.location.end_line);
                 self.emit_instruction(Instruction::BuildArray(size),expr.location.end_line);
 
             },

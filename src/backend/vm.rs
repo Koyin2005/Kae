@@ -404,8 +404,11 @@ impl VM{
                     self.store_top(string);
                 }
                 Instruction::BuildArray(size) => {
+                    let Value::Int(elements) = self.pop() else{
+                        unreachable!()
+                    };
                     let address = self.heap.allocate(size+1);
-                    self.heap.store(address,Value::Int(size as i64));
+                    self.heap.store(address,Value::Int(elements as i64));
                     for i in (1..size+1).rev(){
                         let value = self.pop();
                         self.heap.store(address+i,value);
@@ -636,9 +639,10 @@ impl VM{
                     let Value::Int(len) = self.heap.load(list) else{
                         unreachable!()
                     };
-                    if 0 <= index && (index as usize)< len as usize{
+                    let offset = index as isize * size as isize;
+                    if 0 <= offset && (offset as usize)< len as usize{
                         for i in 0..size as usize{
-                            let value = self.heap.load(list+1+i);
+                            let value = self.heap.load(list+1+i + offset as usize);
                             self.push(value)?;
                         }
                     }
