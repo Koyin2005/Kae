@@ -551,11 +551,10 @@ impl VM{
 
                 }
                 Instruction::GetArrayLength => {
-                    let Value::List(list) = self.pop() else {
+                    let Value::HeapAddress(list) = self.pop() else {
                         panic!("Can't get length of non-list")
                     };
-                    let length = list.as_list(&self.heap).len();
-                    self.push(Value::Int(length as i64))?;
+                    self.push(self.heap.load(list))?;
                 },
                 Instruction::StoreLocal(local) => {
                     let value = self.pop();
