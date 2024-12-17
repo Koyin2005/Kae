@@ -767,7 +767,7 @@ impl Compiler{
                     self.compile_expr(element);
                     size += self.get_size_in_stack_slots(&element.ty);
                 }
-                self.emit_instruction(Instruction::BuildList(size),expr.location.end_line);
+                self.emit_instruction(Instruction::BuildArray(size),expr.location.end_line);
 
             },
             TypedExprNodeKind::Index { lhs, rhs } => {

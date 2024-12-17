@@ -403,7 +403,7 @@ impl VM{
                     let string =Value::String(Object::new_string(&mut self.heap, Rc::from(string)));
                     self.store_top(string);
                 }
-                Instruction::BuildList(size) => {
+                Instruction::BuildArray(size) => {
                     let address = self.heap.allocate(size);
                     for _ in (0..size).rev(){
                         let value = self.pop();
