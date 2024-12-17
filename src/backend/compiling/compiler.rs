@@ -762,10 +762,12 @@ impl Compiler{
                 self.end_scope(expr.location.end_line);
             },
             TypedExprNodeKind::Array(elements) => {
+                let mut size = 0;
                 for element in elements{
                     self.compile_expr(element);
+                    size += self.get_size_in_stack_slots(&element.ty);
                 }
-                self.emit_instruction(Instruction::BuildList(elements.len() as u16),expr.location.end_line);
+                self.emit_instruction(Instruction::BuildList(size),expr.location.end_line);
 
             },
             TypedExprNodeKind::Index { lhs, rhs } => {

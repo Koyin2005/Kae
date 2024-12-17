@@ -71,7 +71,7 @@ pub enum Instruction {
     BuildRecord(u16),
     BuildCaseRecord(u16),
     BuildTuple(u16),
-    BuildList(u16),
+    BuildList(usize),
 
     GetArrayLength,
     GetTupleElement(u16),
