@@ -630,15 +630,20 @@ impl VM{
                     let Value::Int(index) = self.pop() else {
                         panic!("Expected an int.")
                     };
-                    let Value::List(list) = self.pop() else{
+                    let Value::HeapAddress(list) = self.pop() else{
                         panic!("Expected a list.")
                     };
-                    let list = list.as_list(&self.heap);
-                    if 0 <= index && (index as usize)< list.len(){
-                        self.push(list[index as usize].clone())?;
+                    let Value::Int(len) = self.heap.load(list) else{
+                        unreachable!()
+                    };
+                    if 0 <= index && (index as usize)< len as usize{
+                        for i in 0..size as usize{
+                            let value = self.heap.load(list+1+i);
+                            self.push(value)?;
+                        }
                     }
                     else{
-                        self.runtime_error(&format!("Index out of bounds, index was '{}' but length was '{}'.",index,list.len()));
+                        self.runtime_error(&format!("Index out of bounds, index was '{}' but length was '{}'.",index,len as usize / size ));
                         return Err(RuntimeError);
                     }
                 },
