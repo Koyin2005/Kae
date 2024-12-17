@@ -367,26 +367,27 @@ impl Compiler{
         self.begin_scope();
         let params = function.signature.params.iter().enumerate().filter_map(|(i,(pattern,ty))|{
             let size = self.get_size_in_stack_slots(ty);
-            match &pattern.kind{
+            match &pattern.kind {
                 PatternNodeKind::Name(name) => {
                     self.declare_name(name.clone(),size);
                     None
 
                 },
-                PatternNodeKind::Tuple(elements) if elements.is_empty() => {
-                    self.declare_name(format!("*param_{}",i),size);
+                PatternNodeKind::Wildcard => {
                     None
                 },
-                _ => Some((self.declare_name(format!("*param_{}",i),size),pattern,ty))
+                _ => 
+                {
+                    self.declare_name(format!("{}",i), size);
+                    Some((i,pattern,ty,size))
+                }
             }
 
         }).collect::<Vec<_>>();
-
-        for (local_index,pattern,ty) in params{
-            self.emit_instruction(Instruction::LoadLocal(local_index as u16),pattern.location.start_line);
-            self.compile_pattern_assignment(pattern, ty,pattern.location.end_line);
+        for (param,pattern,ty,size) in params{
+            self.load_name(&format!("{}",param),size,pattern.location.end_line);
+            self.compile_pattern_destructure(pattern, ty,pattern.location.end_line);
         }
-
         self.compile_expr(&function.body);
         self.end_scope(function.body.location.end_line);
 
