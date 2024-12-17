@@ -659,15 +659,20 @@ impl VM{
                     self.push(tuple[index as usize].clone())?;
                 }
                 Instruction::StoreIndex(size) => {
-                    let Value::Int(index) = self.peek(0) else {
+                    let Value::Int(index) = self.peek(size) else {
                         panic!("Expected an int.")
                     };
-                    let Value::List(list) = self.peek(1) else{
+                    let Value::HeapAddress(list) = self.peek(size+1) else{
                         panic!("Expected a list.")
                     };
-                    let len = list.as_list(&self.heap).len();
-                    if 0 <= index && (index as usize)< len{
-                        let list = list.as_list_mut(&mut self.heap);
+                    let Value::Int(len) = self.heap.load(list) else {
+                        unreachable!()
+                    };
+                    if 0 <= index && index< len{
+                        for i in (0..size).rev(){
+                            let value = self.pop();
+                            self.heap.store(list + 1+i, value);
+                        }
                     }
                     else{
                         self.runtime_error(&format!("Index out of bounds : index was '{}', but len was '{}'.",index,len));
