@@ -995,7 +995,7 @@ impl TypeChecker{
                 },
                 type_name => {
                     if let Some(index) = this.generic_param_names.iter().rev().position(|name| name == type_name){
-                        Type::new_param_type(type_name.to_string(), index)
+                        Type::new_param_type(type_name.to_string(), this.generic_param_names.len() - index - 1)
                     }
                     else if let Some(ty) = this.environment.get_type(type_name){
                         ty.clone()
