@@ -639,8 +639,8 @@ impl VM{
                     let Value::Int(len) = self.heap.load(list) else{
                         unreachable!()
                     };
-                    let offset = index as isize * size as isize;
-                    if 0 <= offset && (offset as usize)< len as usize{
+                    if 0 <= index && (index as usize)< len as usize{
+                        let offset = index as isize * size as isize;
                         for i in 0..size as usize{
                             let value = self.heap.load(list+1+i + offset as usize);
                             self.push(value)?;
