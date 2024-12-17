@@ -40,6 +40,7 @@ pub enum Value{
     Bool(bool),
     StackAddress(usize),
     GlobalAddress(usize),
+    HeapAddress(usize),
     Unit,
     Record(Object),
     CaseRecord(Object),
@@ -163,12 +164,9 @@ impl Value{
             Value::NativeFunction(object) => {
                 format!("native<{}>",object.as_native_function(heap).name)
             },
-            Value::StackAddress(address) => {
+            Value::StackAddress(address) | Value::HeapAddress(address) | Value::GlobalAddress(address) => {
                 format!("*{}",address)
             },
-            Value::GlobalAddress(address) => {
-                format!("*{}",address)
-            }
         }
     }
     pub fn print(&self,heap:&Heap){
