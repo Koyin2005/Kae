@@ -647,7 +647,7 @@ impl VM{
                         }
                     }
                     else{
-                        self.runtime_error(&format!("Index out of bounds, index was '{}' but length was '{}'.",index,len as usize / size ));
+                        self.runtime_error(&format!("Index out of bounds, index was '{}' but length was '{}'.",index,len as usize));
                         return Err(RuntimeError);
                     }
                 },
