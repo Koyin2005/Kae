@@ -575,130 +575,124 @@ impl Compiler{
             
         }
     }
-    fn compile_print(&mut self,ty:&Type,after:u8,line:u32){
-        fn compile_print_field(this:&mut Compiler,ty: &Type,after: u8,line: u32){
-            match ty{
-                Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Function {.. } => {
-                    this.emit_load_field(0, 1, line);
-                    this.emit_instruction(Instruction::PrintValue(Some(after)), line);
-                },
-                Type::Struct { id,.. } => {
-                    let field_count = this.get_struct_info(id).fields.len();
-                    let has_fields = field_count>0;
-                    this.load_string(format!("{}",ty), line);
-                    this.emit_instruction(Instruction::PrintValue(Some(if !has_fields {after} else {b'{'})), line);
-                    if has_fields{
-                        for (i,(field_name,field_type)) in this.get_fields(ty).into_iter().enumerate(){
-                            this.push_top_of_stack(line);
-                            let field_offset = this.get_field_offset(ty, &field_name);
-                            this.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), line);
-                            this.compile_print(&field_type, if i < field_count-1 { b','} else { b'}'} , line);
-                        }
-                        this.emit_instruction(Instruction::PrintAscii(after), line);
+    fn compile_print_field(&mut self,ty: &Type,after: u8,line: u32){
+        match ty{
+            Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Function {.. } => {
+                self.emit_load_field(0, 1, line);
+                self.emit_instruction(Instruction::PrintValue(Some(after)), line);
+            },
+            Type::Struct { id,.. } => {
+                let field_count = self.get_struct_info(id).fields.len();
+                let has_fields = field_count>0;
+                self.load_string(format!("{}",ty), line);
+                self.emit_instruction(Instruction::PrintValue(Some(if !has_fields {after} else {b'{'})), line);
+                if has_fields{
+                    for (i,(field_name,field_type)) in self.get_fields(ty).into_iter().enumerate(){
+                        self.push_top_of_stack(line);
+                        let field_offset = self.get_field_offset(ty, &field_name);
+                        self.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), line);
+                        self.compile_print_field(&field_type, if i < field_count-1 { b','} else { b'}'} , line);
                     }
-                },
-                Type::Tuple(elements) => {
-                    this.emit_instruction(Instruction::PrintAscii('(' as u8), line);
-                    let mut field_offset = 0;
-                    for (i,element) in elements.iter().enumerate(){
-                        this.push_top_of_stack(line);
-                        let element_size = this.get_size_in_stack_slots(element);
-                        this.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), line);
-                        compile_print_field(this,&element, if i < elements.len()-1 { b','} else { b')'} , line);
-                        field_offset += element_size;
+                    self.emit_instruction(Instruction::PrintAscii(after), line);
+                }
+            },
+            Type::Tuple(elements) => {
+                self.emit_instruction(Instruction::PrintAscii('(' as u8), line);
+                let mut field_offset = 0;
+                for (i,element) in elements.iter().enumerate(){
+                    self.push_top_of_stack(line);
+                    let element_size = self.get_size_in_stack_slots(element);
+                    self.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), line);
+                    self.compile_print_field(&element, if i < elements.len()-1 { b','} else { b')'} , line);
+                    field_offset += element_size;
+                }
+                self.emit_instruction(Instruction::PrintAscii(after), line);
+            },
+            Type::Never | Type::Unknown => {},
+            Type::Param { .. } => unreachable!("All values that get printed should be fully substituted!"),
+            Type::Enum { generic_args, id, .. } => {
+                if self.get_enum_info(id).variants.is_empty(){
+                    return;
+                }
+                let mut jumps = Vec::new();
+                if self.get_enum_info(id).variants.iter().all(|variant| variant.fields.is_empty()){
+                    for i in 0..self.get_enum_info(id).variants.len(){
+                        self.push_top_of_stack(line);
+                        self.load_size(i, line);
+                        self.emit_instruction(Instruction::Equals, line);
+                        let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), line);
+                        self.load_string(self.get_enum_info(id).variants[i].name.clone(), line);
+                        self.emit_instruction(Instruction::PrintValue(Some(after)), line);
+                        jumps.push(self.emit_jump_instruction(Instruction::Jump(0xFF), line));
+                        self.patch_jump(false_jump);
                     }
-                    this.emit_instruction(Instruction::PrintAscii(after), line);
-                },
-                Type::Never | Type::Unknown => {},
-                Type::Param { .. } => unreachable!("All values that get printed should be fully substituted!"),
-                Type::Enum { generic_args, id, .. } => {
-                    if this.get_enum_info(id).variants.is_empty(){
-                        return;
-                    }
-                    let mut jumps = Vec::new();
-                    if this.get_enum_info(id).variants.iter().all(|variant| variant.fields.is_empty()){
-                        for i in 0..this.get_enum_info(id).variants.len(){
-                            this.push_top_of_stack(line);
-                            this.load_size(i, line);
-                            this.emit_instruction(Instruction::Equals, line);
-                            let false_jump = this.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), line);
-                            this.load_string(this.get_enum_info(id).variants[i].name.clone(), line);
-                            this.emit_instruction(Instruction::PrintValue(Some(after)), line);
-                            jumps.push(this.emit_jump_instruction(Instruction::Jump(0xFF), line));
-                            this.patch_jump(false_jump);
-                        }
-                    }
-                    else{
-                        for variant in 0..this.get_enum_info(id).variants.len(){
-                            this.push_top_of_stack(line);
-                            this.emit_instruction(Instruction::LoadField(0), line);
-                            this.load_size(variant, line);
-                            this.emit_instruction(Instruction::Equals, line);
-                            let false_jump = this.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), line);
-                            let variant_name = this.get_enum_info(id).variants[variant].name.clone();
-                            let ty = Type::EnumVariant { generic_args:generic_args.clone(), id:*id, name:variant_name.clone(), variant_index: variant };
-                            let variant_fields = this.get_fields(&ty);
-                            this.load_string(variant_name, line);
-                            this.emit_instruction(Instruction::PrintValue(if !variant_fields.is_empty() {  Some('{' as u8)} else { Some(after) }), line);
-                            if !variant_fields.is_empty(){
-                                let field_count = variant_fields.len();
-                                for (i,(field_name,field_type)) in variant_fields.into_iter().enumerate(){
-                                    this.push_top_of_stack(line);
-                                    let field_offset = this.get_field_offset(&ty, &field_name);
-                                    this.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), line);
-                                    compile_print_field(this,&field_type, if i < field_count - 1 as usize { b','} else { b'}'} , line);
-                                }
-                                this.emit_instruction(Instruction::PrintAscii(after), line);
+                }
+                else{
+                    for variant in 0..self.get_enum_info(id).variants.len(){
+                        self.push_top_of_stack(line);
+                        self.emit_instruction(Instruction::LoadField(0), line);
+                        self.load_size(variant, line);
+                        self.emit_instruction(Instruction::Equals, line);
+                        let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), line);
+                        let variant_name = self.get_enum_info(id).variants[variant].name.clone();
+                        let ty = Type::EnumVariant { generic_args:generic_args.clone(), id:*id, name:variant_name.clone(), variant_index: variant };
+                        let variant_fields = self.get_fields(&ty);
+                        self.load_string(variant_name, line);
+                        self.emit_instruction(Instruction::PrintValue(if !variant_fields.is_empty() {  Some('{' as u8)} else { Some(after) }), line);
+                        if !variant_fields.is_empty(){
+                            let field_count = variant_fields.len();
+                            for (i,(field_name,field_type)) in variant_fields.into_iter().enumerate(){
+                                self.push_top_of_stack(line);
+                                let field_offset = self.get_field_offset(&ty, &field_name);
+                                self.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), line);
+                                self.compile_print_field(&field_type, if i < field_count - 1 as usize { b','} else { b'}'} , line);
                             }
-                            jumps.push(this.emit_jump_instruction(Instruction::Jump(0xFF), line));
-                            this.patch_jump(false_jump);
+                            self.emit_instruction(Instruction::PrintAscii(after), line);
                         }
+                        jumps.push(self.emit_jump_instruction(Instruction::Jump(0xFF), line));
+                        self.patch_jump(false_jump);
                     }
-                    for jump in jumps{
-                        this.patch_jump(jump);
-                    }
+                }
+                for jump in jumps{
+                    self.patch_jump(jump);
+                }
 
-                },
-                Type::EnumVariant { id, variant_index,.. } => {
-                    let variant_name = this.get_enum_info(id).variants[*variant_index].name.clone();
-                    let variant_fields = this.get_fields(&ty);
-                    this.load_string(variant_name, line);
-                    this.emit_instruction(Instruction::PrintValue(if !variant_fields.is_empty() {  Some('{' as u8)} else { Some(after) }), line);
-                    if !variant_fields.is_empty(){
-                        let field_count = variant_fields.len();
-                        for (i,(field_name,field_type)) in variant_fields.into_iter().enumerate(){
-                            this.push_top_of_stack(line);
-                            let field_offset = this.get_field_offset(&ty, &field_name);
-                            this.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), line);
-                            compile_print_field(this,&field_type, if i < field_count - 1 as usize { b','} else { b'}'} , line);
-                        }
-                        this.emit_instruction(Instruction::PrintAscii(after), line);
+            },
+            Type::EnumVariant { id, variant_index,.. } => {
+                let variant_name = self.get_enum_info(id).variants[*variant_index].name.clone();
+                let variant_fields = self.get_fields(&ty);
+                self.load_string(variant_name, line);
+                self.emit_instruction(Instruction::PrintValue(if !variant_fields.is_empty() {  Some('{' as u8)} else { Some(after) }), line);
+                if !variant_fields.is_empty(){
+                    let field_count = variant_fields.len();
+                    for (i,(field_name,field_type)) in variant_fields.into_iter().enumerate(){
+                        self.push_top_of_stack(line);
+                        let field_offset = self.get_field_offset(&ty, &field_name);
+                        self.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), line);
+                        self.compile_print_field(&field_type, if i < field_count - 1 as usize { b','} else { b'}'} , line);
                     }
+                    self.emit_instruction(Instruction::PrintAscii(after), line);
                 }
             }
         }
-        match ty{
-            Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Function {.. } => {
-                self.emit_instruction(Instruction::PrintValue(Some(after)), line);
-            },
-            ty => {
-                compile_print_field(self, ty, after, line);
-            }
+    }
+    fn load_name_ref(&mut self,name:&str,line:u32){
+
+        if let Some(local) = self.get_local(name){
+            self.emit_instruction(Instruction::LoadLocalRef(local as u16), line);
+        }
+        else if let Some(global) = self.get_global(name){
+            self.emit_instruction(Instruction::LoadGlobalRef(global as u16), line);
+        }
+        else{
+            let _upvalue = self.resolve_upvalue(name);
+            todo!("UPVALUE REFS")
         }
     }
     fn compile_lvalue(&mut self,expr:&TypedExprNode){
         match &expr.kind{
             TypedExprNodeKind::Get(name) => {
-                if let Some(local) = self.get_local(name){
-                    self.emit_instruction(Instruction::LoadLocalRef(local as u16), expr.location.end_line);
-                }
-                else if let Some(global) = self.get_global(name){
-                    self.emit_instruction(Instruction::LoadGlobalRef(global as u16), expr.location.end_line);
-                }
-                else{
-                    let _upvalue = self.resolve_upvalue(name);
-                    todo!("UPVALUE REFS")
-                }
+                self.load_name_ref(name, expr.location.end_line);
             },
             TypedExprNodeKind::Field(lhs, field) => {
                 self.compile_lvalue(lhs);
@@ -747,21 +741,24 @@ impl Compiler{
                 self.load_name(name,self.get_size_in_stack_slots(&expr.ty),expr.location.end_line);
             },
             TypedExprNodeKind::Print(args) => {
+                self.begin_scope();
                 for (i,arg) in args.iter().enumerate(){
-                    let size = if matches!(arg.ty,
-                        Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Function {.. } ){
-                        self.compile_expr(arg);
-                        None
-                    }
-                    else{
-                        self.compile_lvalue(arg);
-                        Some(self.get_size_in_stack_slots(&arg.ty))
-                    };
-                    self.compile_print(&arg.ty,if i<args.len()-1 {b' '} else{b'\n'},arg.location.end_line);
-                    if let Some(size) = size{
-                        self.emit_pops(size, arg.location.end_line);
+                    self.compile_expr(arg);
+                    self.define_name(format!("*print_param_{}",i),self.get_size_in_stack_slots(&arg.ty), arg.location.end_line);
+                }
+                for (i,arg) in args.iter().enumerate(){
+                    let after = if i < args.len() - 1 { ' ' as u8} else {'\n' as u8};
+                    match &arg.ty{
+                        Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Function {.. } => {
+                            self.emit_instruction(Instruction::PrintValue(Some(after)), expr.location.end_line);
+                        },
+                        ty => {
+                            self.load_name_ref(&format!("*print_param_{}",i), expr.location.end_line);
+                            self.compile_print_field(ty, after, expr.location.end_line);
+                        }
                     }
                 }
+                self.end_scope(expr.location.end_line);
                 self.emit_instruction(Instruction::LoadUnit,expr.location.end_line);
             },
             TypedExprNodeKind::Block { stmts, expr:result_expr } => {
