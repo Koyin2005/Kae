@@ -748,8 +748,10 @@ impl Compiler{
                 }
                 for (i,arg) in args.iter().enumerate(){
                     let after = if i < args.len() - 1 { ' ' as u8} else {'\n' as u8};
+                    let name = &format!("*print_param_{}",i);
                     match &arg.ty{
                         Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Function {.. } => {
+                            self.load_name(name, 1, expr.location.end_line);
                             self.emit_instruction(Instruction::PrintValue(Some(after)), expr.location.end_line);
                         },
                         ty => {
