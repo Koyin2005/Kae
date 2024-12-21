@@ -391,7 +391,17 @@ impl VM{
                     self.store_top(Value::Bool(!a.is_equal(&b, &self.heap)));
                 }
                 Instruction::Concatenate => {
-                    todo!("FIX");
+                    let Value::HeapAddress(b) = self.pop() else {
+                        panic!("Expected a string")
+                    };
+                    let Value::HeapAddress(a) = self.peek(0) else {
+                        panic!("Expected a string")
+                    };
+
+                    let mut a = self.heap.read_string(a);
+                    a.push_str(& self.heap.read_string(b));
+                    let address = self.heap.new_string(&a);
+                    self.store_top(Value::HeapAddress(address));
                     
                 }
                 Instruction::BuildArray(size) => {
