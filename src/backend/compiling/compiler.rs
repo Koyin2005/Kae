@@ -475,7 +475,6 @@ impl Compiler{
                 let mut jumps = Vec::new();
                 for (i,element) in  elements.iter().enumerate(){
                     self.push_top_of_stack(element.location.start_line);
-                    self.emit_instruction(Instruction::GetTupleElement(i as u16), element.location.start_line);
                     self.compile_pattern_check(element,ty);
                     jumps.push(self.emit_jump_instruction(Instruction::JumpIfFalseAndPop(0xFF), element.location.end_line));
                 }

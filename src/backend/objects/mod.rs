@@ -143,7 +143,31 @@ pub struct Heap{
 }
 
 impl Heap{
-
+    pub fn new_string(&mut self,string:&str)->usize{
+        
+        let chars = string.chars().into_iter().collect::<Vec<_>>();
+        let address = self.allocate(chars.len()+1);
+        self.store(address, Value::Int(chars.len() as i64));
+        for (i,value) in chars.into_iter().enumerate(){
+            self.store(address+1+i, Value::Int(value as i64));
+        }
+        address
+    }
+    pub fn read_string(&self,address:usize)->String{
+        
+        let Value::Int(length) = self.load(address) else {
+            panic!("Expected a valid length")
+        };
+        let length = length as usize;
+        let mut string = String::new();
+        for i in 0..length{
+            let Value::Int(char) = self.load(address+1+i) else {
+                panic!("Expected an int")
+            };
+            string.push(char::from_u32(char as u32).expect("Should only have valid chars"));
+        }
+        string
+    }
     pub fn allocate(&mut self,size:usize)->usize{
         let address = self.data.len();
         self.data.extend(std::iter::repeat(Some(Value::Int(0))).take(size));

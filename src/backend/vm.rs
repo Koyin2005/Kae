@@ -106,13 +106,7 @@ impl VM{
         match self.constants[index].clone(){
             Constant::Int(int) => Value::Int(int),
             Constant::String(string) => {
-                let chars = string.chars().into_iter().collect::<Vec<_>>();
-                let address = self.heap.allocate(chars.len()+1);
-                self.heap.store(address, Value::Int(chars.len() as i64));
-                for (i,value) in chars.into_iter().enumerate(){
-                    self.heap.store(address+1+i, Value::Int(value as i64));
-                }
-                Value::HeapAddress(address)
+                Value::HeapAddress(self.heap.new_string(&string))
             },
             Constant::Float(float) => Value::Float(float),
             Constant::Function(function) => Value::Function(Object::new_function(&mut self.heap, function)),
@@ -397,19 +391,8 @@ impl VM{
                     self.store_top(Value::Bool(!a.is_equal(&b, &self.heap)));
                 }
                 Instruction::Concatenate => {
-                    let Value::String(b) = self.pop() else {
-                        panic!("Expected a string.")
-                    };
-                    let Value::String(a) = self.peek(0) else {
-                        panic!("Expected a string.")
-                    };
-                    let b = b.as_string(&self.heap);
-                    let a = a.as_string(&self.heap);
-                    let mut string = String::with_capacity(a.len() + b.len());
-                    string.push_str(a);
-                    string.push_str(b);
-                    let string =Value::String(Object::new_string(&mut self.heap, Rc::from(string)));
-                    self.store_top(string);
+                    todo!("FIX");
+                    
                 }
                 Instruction::BuildArray(size) => {
                     let Value::Int(elements) = self.pop() else{
@@ -423,40 +406,6 @@ impl VM{
                     }
                     self.push(Value::HeapAddress(address))?;
                 }
-                Instruction::BuildTuple(elements) => {
-                    let mut elements = std::iter::repeat_with(|| self.pop()).take(elements as usize).collect::<Box<[_]>>();
-                    elements.reverse();
-                    let tuple = Object::new_tuple(&mut self.heap, &elements);
-                    self.push(Value::Tuple(tuple))?;
-                },
-                Instruction::BuildCaseRecord(fields) => {
-                    let Value::Int(field_count) = self.pop() else {
-                        panic!("Expected an int for variant field count")
-                    };
-                    let variant_tag = self.pop();
-                    let Value::String(name) = self.pop() else {
-                        panic!("Expectd a string")
-                    };
-                    let field_count = field_count as usize;
-                    let mut fields = (0..fields).map(|_| Value::Int(0)).collect::<Box<[Value]>>();
-                    fields[0] = variant_tag;
-                    let record_object = Object::new_case_record(&mut self.heap, Record{
-                        fields,
-                        name
-                    },field_count);
-                    self.push(Value::CaseRecord(record_object))?;
-                },
-                Instruction::BuildRecord(fields) => {
-                    let Value::String(name) = self.pop() else {
-                        panic!("Expectd a string")
-                    };
-                    let record = Record{
-                        fields:(0..fields).map(|_| Value::Int(0)).collect(),
-                        name
-                    };
-                    let record = Value::Record(Object::new_record(&mut self.heap, record));
-                    self.push(record)?;
-                },
                 Instruction::LoadFieldRef(field) => {
                     match self.pop(){
                         Value::StackAddress(address) => {
@@ -516,9 +465,6 @@ impl VM{
                 Instruction::StoreField(field) => {
                     let value = self.pop();
                     match self.peek(0){
-                        Value::Record(record) => {
-                            record.get_record_fields_mut(&mut self.heap)[field as usize] = value;
-                        },
                         Value::GlobalAddress(address) => {
                             self.globals.insert(address + field as usize,value);
                         },
@@ -533,12 +479,6 @@ impl VM{
                 },
                 Instruction::StoreStructField(field,size) => {
                     match self.peek(size){
-                        Value::Record(record) => {
-                            for field in (field as usize..field as usize+size).rev(){
-                                let value = self.pop();
-                                record.get_record_fields_mut(&mut self.heap)[field] = value;
-                            }
-                        },
                         Value::GlobalAddress(address) => {
                             for address in (address..address+size).rev(){
                                 let value = self.pop();
@@ -671,13 +611,6 @@ impl VM{
                         return Err(RuntimeError);
                     }
                 },
-                Instruction::GetTupleElement(index) => {
-                    let Value::Tuple(tuple) = self.pop() else{
-                        panic!("Expected a tuple.")
-                    };
-                    let tuple = tuple.as_tuple(&self.heap);
-                    self.push(tuple[index as usize].clone())?;
-                }
                 Instruction::StoreIndex(size) => {
                     let Value::Int(index) = self.peek(size) else {
                         panic!("Expected an int.")
@@ -717,15 +650,6 @@ impl VM{
                         return Err(RuntimeError);
                     }
                 }
-                Instruction::UnpackTuple => {
-                    let Value::Tuple(tuple) = self.pop() else{
-                        panic!("Expected a tuple.")
-                    };
-                    let tuple = tuple.as_tuple(&self.heap);
-                    for element in tuple.iter().rev().cloned().collect::<Vec<Value>>(){
-                        self.push(element)?;
-                    }
-                },
                 Instruction::Loop(offset) => {
                     self.current_frame_mut().ip -= offset as usize;
                 },
@@ -898,29 +822,3 @@ impl VM{
 
 }
 
-#[cfg(test)]
-mod vm_tests{
-
-    use crate::backend::instructions::{Chunk, Instruction, Program};
-
-    use super::VM;
-
-    #[test]
-    pub fn test_record(){
-        let mut vm = VM::new(Program{ chunk:Chunk{
-            code : vec![
-                Instruction::BuildRecord(2),
-                Instruction::LoadInt(5),
-                Instruction::StoreField(0),
-                Instruction::LoadInt(10),
-                Instruction::StoreField(1),
-            ],
-            lines : vec![1;5],
-            ..Default::default()
-        },names:vec![],constants:vec![]});
-        let _ = vm.run();
-        for value in vm.stack.iter(){
-            value.println(&vm.heap);
-        }
-    }
-}

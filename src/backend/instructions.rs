@@ -37,9 +37,6 @@ pub enum Instruction {
     
     StoreUpvalue(u16),
     StoreUpvalueStruct(u16,usize),
-
-    UnpackTuple,
-
     AddInt,
     SubtractInt,
     MultiplyInt,
@@ -69,14 +66,9 @@ pub enum Instruction {
     StoreIndex(usize),
 
     LoadIndexRef(usize),
-
-    BuildRecord(u16),
-    BuildCaseRecord(u16),
-    BuildTuple(u16),
     BuildArray(usize),
 
     GetArrayLength,
-    GetTupleElement(u16),
     
     Jump(u16),
     Loop(u16),
