@@ -1,6 +1,6 @@
 use std::{rc::Rc, usize};
 
-use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, natives::{native_input, native_panic, native_parse_int}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{Enum, EnumId, Struct, StructId, Type, TypeContext}}};
+use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, natives::{native_input, native_panic, native_print_string}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{Enum, EnumId, Struct, StructId, Type, TypeContext}}};
 
 
 struct Local{
@@ -577,9 +577,18 @@ impl Compiler{
     }
     fn compile_print_field(&mut self,ty: &Type,after: u8,line: u32){
         match ty{
-            Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Function {.. } => {
+            Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::Function {.. } => {
                 self.emit_load_field(0, 1, line);
                 self.emit_instruction(Instruction::PrintValue(Some(after)), line);
+            },
+            Type::String => {
+                self.emit_load_field(0, 1, line);
+                self.load_constant(Constant::NativeFunction(Rc::new(NativeFunction { name: "native_print".to_string(), function: native_print_string })), line);
+                self.emit_instruction(Instruction::Rotate(2), line);
+                self.emit_instruction(Instruction::Call(1), line);
+                self.emit_instruction(Instruction::Pop, line);
+                self.emit_instruction(Instruction::PrintAscii(after), line);
+                
             },
             Type::Struct { id,.. } => {
                 let field_count = self.get_struct_info(id).fields.len();
@@ -750,7 +759,7 @@ impl Compiler{
                     let after = if i < args.len() - 1 { ' ' as u8} else {'\n' as u8};
                     let name = &format!("*print_param_{}",i);
                     match &arg.ty{
-                        Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::String|Type::Function {.. } => {
+                        Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::Function {.. } => {
                             self.load_name(name, 1, expr.location.end_line);
                             self.emit_instruction(Instruction::PrintValue(Some(after)), expr.location.end_line);
                         },
@@ -1156,12 +1165,6 @@ impl Compiler{
         })), 1);
         self.define_name("panic".to_string(), 1,1);
         
-        
-        self.load_constant(Constant::NativeFunction(Rc::new(NativeFunction{
-            name : "parse_int".to_string(),
-            function : native_parse_int
-        })), 1);
-        self.define_name("parse_int".to_string(), 1,1);
         self.compile_stmts(&stmts);
         let last_line = self.current_chunk.lines.last().copied().unwrap_or(1);
         self.emit_instruction(Instruction::LoadUnit,last_line);

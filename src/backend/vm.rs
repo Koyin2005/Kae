@@ -105,7 +105,15 @@ impl VM{
     fn load_constant(&mut self,index: usize)-> Value{
         match self.constants[index].clone(){
             Constant::Int(int) => Value::Int(int),
-            Constant::String(string) => Value::String(Object::new_string(&mut self.heap, string)),
+            Constant::String(string) => {
+                let chars = string.chars().into_iter().collect::<Vec<_>>();
+                let address = self.heap.allocate(chars.len()+1);
+                self.heap.store(address, Value::Int(chars.len() as i64));
+                for (i,value) in chars.into_iter().enumerate(){
+                    self.heap.store(address+1+i, Value::Int(value as i64));
+                }
+                Value::HeapAddress(address)
+            },
             Constant::Float(float) => Value::Float(float),
             Constant::Function(function) => Value::Function(Object::new_function(&mut self.heap, function)),
             Constant::NativeFunction(function) => Value::NativeFunction(Object::new_native_function(&mut self.heap, function))

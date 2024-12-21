@@ -25,17 +25,23 @@ pub fn native_panic(vm:&mut VM,args:&[Value])->Result<Value,RuntimeError>{
 }
 
 
-pub fn native_parse_int(vm:&mut VM,args:&[Value])->Result<Value,RuntimeError>{
-    let Value::String(string) = args[0] else {
-        panic!("Expected a string.")
+pub fn native_print_string(vm:&mut VM,args:&[Value])->Result<Value,RuntimeError>{
+    let Value::HeapAddress(string_address) = args[0] else {
+        panic!("Expected an address")
     };
-    let number = string.as_string(&vm.heap).parse().ok();
-    let (variant_name,variant_tag,fields) = if let Some(int) = number{
-        ("Some",0,vec![Value::Int(int)])
+
+    let Value::Int(length) = vm.heap.load(string_address) else {
+        panic!("Expected a valid length")
+    };
+    let length = length as usize;
+    let mut string = String::new();
+    for i in 0..length{
+        let Value::Int(char) = vm.heap.load(string_address+1+i) else {
+            panic!("Expected an int")
+        };
+        string.push(char::from_u32(char as u32).expect("Should only have valid chars"));
     }
-    else{
-        ("None",1,vec![])
-    };
-    Ok(Value::make_case_record(&mut vm.heap, variant_name, variant_tag,&fields , 2))
+    print!("{}",string);
+    Ok(Value::Unit)
     
 }

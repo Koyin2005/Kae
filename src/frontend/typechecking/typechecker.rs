@@ -1331,35 +1331,10 @@ impl TypeChecker{
 
     }
     pub fn check(mut self,stmts:Vec<StmtNode>)->Result<(TypeContext,Vec<TypedStmtNode>),TypeCheckFailed>{
-        let option_type = {
-            let generic_parameter_type = Type::Param { name: "T".to_string(), index: 0 };
-            let option_id = self.type_context.enums.define_enum("Option".to_string(),vec![
-                EnumVariant{
-                    discrim:0,
-                    name : "Some".to_string(),
-                    fields : vec![
-                        ("val".to_string(),generic_parameter_type.clone())
-                    ]
-                },
-                EnumVariant{
-                    discrim:1,
-                    name: "None".to_string(),
-                    fields: Vec::new()
-                }
-            ]);
-            let option_type = Type::Enum { generic_args: vec![generic_parameter_type], id: option_id, name: "Option".to_string() };
-            self.environment.add_type("Option".to_string(),option_type.clone() );
-            option_type
-        };
         let id = self.declare_new_function();
         self.environment.add_function("input".to_string(), Vec::new(), Type::String, id);
         let id = self.declare_new_function();
         self.environment.add_function("panic".to_string(), vec![Type::String], Type::Never, id);
-        {
-            let id = self.declare_new_function();
-            self.environment.add_function("parse_int".to_string(), vec![Type::String], 
-                substitute(option_type.clone(),&[Type::Int]), id);
-        }
         self.check_stmts(&stmts).map (|stmts| (self.type_context,stmts))
     }
 }
