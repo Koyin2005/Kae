@@ -22,7 +22,7 @@ pub struct Closure{
 }
 #[derive(Debug,Clone,PartialEq)]
 pub struct Record{
-    pub name : Object,
+    pub name : String,
     pub fields : Box<[Value]>
 }
 
@@ -39,13 +39,20 @@ pub enum Value{
     Float(f64),
     Bool(bool),
     Tuple(Box<[Value]>),
+    Record(Box<Record>),
     StackAddress(usize),
     GlobalAddress(usize),
     HeapAddress(usize),
+    FieldRef(Box<FieldRef>),
     Unit,
     Function(Object),
     Closure(Object),
     NativeFunction(Object)
+}
+#[derive(Clone,Debug,PartialEq)]
+pub struct FieldRef{
+    pub base_ref : Value,
+    pub field_offset : usize
 }
 impl Value{
     pub fn is_equal(&self,other:&Value,heap:&Heap)->bool{
@@ -65,6 +72,9 @@ impl Value{
     }
     pub fn format(& self,heap:&Heap,seen_values : &mut Vec<&Value>)->String{
         match self{
+            Value::FieldRef(..) => {
+                String::from("*ptr")
+            }
             Value::Bool(bool) => {
                 format!("{}",*bool)
             },
@@ -89,6 +99,17 @@ impl Value{
                     result.push_str(&element.format(heap, seen_values));
                 }
                 result.push(')');
+                result
+            },
+            Value::Record(record) => {
+                let mut result = format!("{}{{",record.name);
+                for (i,element) in record.fields.iter().enumerate(){
+                    if i>0{
+                        result.push(',');
+                    }
+                    result.push_str(&element.format(heap, seen_values));
+                }
+                result.push('}');
                 result
             },
             Value::Function(object) => {

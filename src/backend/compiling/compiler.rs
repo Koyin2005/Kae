@@ -1,6 +1,6 @@
 use std::{rc::Rc, usize};
 
-use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program}, natives::{native_input, native_panic, native_print_string}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{Enum, EnumId, Struct, StructId, Type, TypeContext}}};
+use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program, StructInfo}, natives::{native_input, native_panic, native_print_string}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{Enum, EnumId, Struct, StructId, Type, TypeContext}}};
 
 
 struct Local{
@@ -35,6 +35,7 @@ pub struct CompileFailed;
 pub struct Compiler{
     current_chunk : Chunk,
     constants : Vec<Constant>,
+    struct_info : Vec<StructInfo>,
     names : Vec<String>,
     globals : Vec<Global>,
     next_global:usize,
@@ -51,30 +52,7 @@ impl Compiler{
         matches!(ty,Type::Array(_)|Type::String|Type::Function { .. }) 
     }
     fn get_field_offset(&self,base_ty:&Type,name:&str)->usize{
-        let field_index = base_ty.get_field_index(name, &self.type_context).expect("Should have checked all fields");
-        let mut field_offset = self.get_fields(base_ty).iter().take(if field_index > 0 { field_index} else { 0}).map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum();
-        if let Type::EnumVariant {id,.. } = base_ty{
-            if !self.get_enum_info(id).variants.is_empty(){
-                field_offset += 1;
-            }
-        }
-        field_offset
-    }
-    fn get_size_in_stack_slots(&self,ty:&Type)->usize{
-        match ty{
-            Type::Struct {.. } => self.get_fields(ty).iter().map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum(),
-            Type::Tuple(..) => 1,
-            Type::Enum { generic_args, id, name } => {
-                let max_variant_size = self.get_enum_info(id).variants.iter().map(|variant| {
-                    self.get_fields(&Type::EnumVariant { generic_args: generic_args.clone(), id: *id, name: name.clone(), variant_index: variant.discrim }).iter().map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum::<usize>()
-                }).max();
-                max_variant_size.map_or(0,|size| size + 1)
-            },
-            Type::EnumVariant { generic_args,id,name,.. } => {
-                self.get_size_in_stack_slots(&Type::Enum { generic_args: generic_args.clone(), id: *id, name: name.clone() })
-            }
-            _ => 1
-        }
+        base_ty.get_field_index(name, &self.type_context).expect("Should have checked all fields")
     }
     fn get_fields(&self,ty:&Type)->Vec<(String,Type)>{
         let (generic_args,fields_iter):(&[Type],_) = match ty{
@@ -138,22 +116,12 @@ impl Compiler{
     fn get_local(&self,name:&str)->Option<usize>{
         self.functions.last().unwrap().locals.iter().rev().find(|local| local.name == name).map(|local| local.index)
     }
-    fn emit_define_instruction(&mut self,index:usize,size:usize,line:u32){
+    fn emit_define_instruction(&mut self,index:usize,line:u32){
         if self.scope_depth == 0{
-            if size == 1{
-                self.emit_instruction(Instruction::StoreGlobal(index as u16),line);
-            }
-            else{
-                self.emit_instruction(Instruction::StoreGlobalStruct(index as u16,size),line);
-            }
+            self.emit_instruction(Instruction::StoreGlobal(index as u16),line);
         }
         else{
-            if size == 1{
-                self.emit_instruction(Instruction::StoreLocal(index as u16),line);
-            }
-            else{
-                self.emit_instruction(Instruction::StoreLocalStruct(index as u16,size),line);
-            }
+            self.emit_instruction(Instruction::StoreLocal(index as u16),line);
         }
 
     }
@@ -174,9 +142,9 @@ impl Compiler{
     fn load_bool(&mut self,bool:bool,line:u32){
         self.emit_instruction(Instruction::LoadBool(bool), line);
     }
-    fn define_name(&mut self,name:String,size:usize,line:u32){
-        let index = self.declare_name(name,size);
-        self.emit_define_instruction(index, size,line);
+    fn define_name(&mut self,name:String,line:u32){
+        let index = self.declare_name(name);
+        self.emit_define_instruction(index,line);
     }
     fn resolve_upvalue(&mut self,name:&str)->usize{
         fn add_upvalue(function :&mut CompiledFunction,new_upvalue:Upvalue)->usize{
@@ -209,73 +177,42 @@ impl Compiler{
         }
         upvalue.unwrap()
     }
-    fn load_name(&mut self,name:&str,size:usize,line:u32){
+    fn load_name(&mut self,name:&str,line:u32){
         let instruction = if let Some(index) = self.get_local(name){
-            if size==1{
-                Instruction::LoadLocal(index as u16)
-            }
-            else{
-                Instruction::LoadLocalStruct(index as u16,size)
-            }
+            Instruction::LoadLocal(index as u16)
         }
         else if let Some(global) =  self.get_global(name){
-            if size==1{
-                Instruction::LoadGlobal(global as u16)
-            }
-            else{
-                Instruction::LoadGlobalStruct(global as u16,size)
-            }
+            Instruction::LoadGlobal(global as u16)
         }
         else{
             let upvalue = self.resolve_upvalue(name);
-            if size == 1{
-                Instruction::LoadUpvalue(upvalue as u16)
-            }
-            else{
-                Instruction::LoadUpvalueStruct(upvalue as u16,size)
-
-            }
+            Instruction::LoadUpvalue(upvalue as u16)
         };
         self.emit_instruction(instruction, line);
 
     }
-    fn store_name(&mut self,name:&str,size:usize,line:u32){
+    fn store_name(&mut self,name:&str,line:u32){
         let instruction = if let Some(index) = self.get_local(name){
-            if size == 1{
-                Instruction::StoreLocal(index as u16)
-            }
-            else{
-                Instruction::StoreLocalStruct(index as u16,size)
-            }
+            Instruction::StoreLocal(index as u16)
         }
         else if let Some(global) = self.get_global(name){
-            if size == 1 {
-                Instruction::StoreGlobal(global as u16)
-            }
-            else {
-                Instruction::StoreGlobalStruct(global as u16,size)
-            }
+            Instruction::StoreGlobal(global as u16)
         }
         else{
             let upvalue = self.resolve_upvalue(name);
-            if size == 1{
-                Instruction::StoreUpvalue(upvalue as u16)
-            }
-            else{
-                Instruction::StoreUpvalueStruct(upvalue as u16,size)
-            }
+            Instruction::StoreUpvalue(upvalue as u16)
         };
         self.emit_instruction(instruction,line);
     }
-    fn declare_name(&mut self,name:String,size:usize)->usize{
+    fn declare_name(&mut self,name:String)->usize{
         if self.scope_depth == 0{
             self.globals.push(Global { name,index:self.next_global});
             let global_index = self.next_global;
-            self.next_global += size;
+            self.next_global += 1;
             global_index
         }else{
             let local_index = self.next_local;
-            self.next_local+=size;
+            self.next_local+=1;
             self.functions.last_mut().unwrap().locals.push(Local { name,index: local_index, depth: self.scope_depth ,is_captured:false});
             self.current_chunk.locals = self.current_chunk.locals.max(self.next_local);
             local_index
@@ -304,21 +241,25 @@ impl Compiler{
         self.current_chunk.code.push(instruction);
         self.current_chunk.lines.push(line);
     }
+    fn emit_pop(&mut self,line:u32){
+        self.emit_instruction(Instruction::Pop, line);
+    }
     fn emit_pops(&mut self,n:usize,line:u32){
         if n>1{
-            self.emit_instruction(Instruction::PopStruct(n), line);
+            self.emit_instruction(Instruction::PopN(n), line);
         }
         else if n==1{
             self.emit_instruction(Instruction::Pop, line);
         }
     }
-    fn emit_load_field(&mut self,field_offset:usize,field_size:usize,line:u32){
-        if field_size == 1{
-            self.emit_instruction(Instruction::LoadField(field_offset as u16), line);
-        }
-        else{
-            self.emit_instruction(Instruction::LoadStructField(field_offset as u16,field_size), line);
-        }
+    fn add_struct_metadata(&mut self,struct_id : StructId,name:String)-> usize{
+        let struct_ = self.get_struct_info(&struct_id);
+        self.struct_info.push(StructInfo { name, field_count: struct_.fields.len() });
+        self.struct_info.len() - 1
+    }
+
+    fn emit_load_field(&mut self,field_offset:usize,line:u32){
+        self.emit_instruction(Instruction::LoadField(field_offset as u16), line);
     }
     fn add_constant(&mut self,constant:Constant)->usize{
         self.constants.iter().position(|current_constant|{
@@ -366,10 +307,9 @@ impl Compiler{
         
         self.begin_scope();
         let params = function.signature.params.iter().enumerate().filter_map(|(i,(pattern,ty))|{
-            let size = self.get_size_in_stack_slots(ty);
             match &pattern.kind {
                 PatternNodeKind::Name(name) => {
-                    self.declare_name(name.clone(),size);
+                    self.declare_name(name.clone());
                     None
 
                 },
@@ -378,27 +318,21 @@ impl Compiler{
                 },
                 _ => 
                 {
-                    self.declare_name(format!("{}",i), size);
-                    Some((i,pattern,ty,size))
+                    self.declare_name(format!("{}",i));
+                    Some((i,pattern,ty))
                 }
             }
 
         }).collect::<Vec<_>>();
-        for (param,pattern,ty,size) in params{
-            self.load_name(&format!("{}",param),size,pattern.location.end_line);
+        for (param,pattern,ty) in params{
+            self.load_name(&format!("{}",param),pattern.location.end_line);
             self.compile_pattern_destructure(pattern, ty,pattern.location.end_line);
         }
         self.compile_expr(&function.body);
         self.end_scope(function.body.location.end_line);
 
         if function.body.ty != Type::Never{
-            let size = self.get_size_in_stack_slots(&function.body.ty);
-            if size == 1{
-                self.emit_instruction(Instruction::Return, function.body.location.end_line);
-            }
-            else{
-                self.emit_instruction(Instruction::ReturnStruct(size), function.body.location.end_line);
-            }
+            self.emit_instruction(Instruction::Return, function.body.location.end_line);
         }
         disassemble(&function_name, &self.current_chunk,&self.constants);
         let compiled_function = self.functions.pop().expect("Function should still be around");
@@ -453,17 +387,15 @@ impl Compiler{
                 self.load_bool(true, pattern.location.end_line);
             },
             PatternNodeKind::Name(name) => {
-                let size = self.get_size_in_stack_slots(ty);
                 self.push_top_of_stack(pattern.location.start_line);
-                self.define_name(name.clone(), size,pattern.location.end_line);
+                self.define_name(name.clone(),pattern.location.end_line);
                 self.load_bool(true, pattern.location.end_line);
             },
             PatternNodeKind::Is(name,right_pattern) => {
-                let size = self.get_size_in_stack_slots(ty);
-                self.push_values_on_top_of_stack(size,right_pattern.location.start_line);
+                self.push_top_of_stack(right_pattern.location.start_line);
                 self.compile_pattern_check(right_pattern,ty);
                 let false_jump = self.emit_jump_instruction(Instruction::JumpIfFalse(0xFF), right_pattern.location.end_line);
-                self.define_name(name.content.clone(), size,right_pattern.location.end_line);
+                self.define_name(name.content.clone(),right_pattern.location.end_line);
                 self.load_bool(true, right_pattern.location.end_line);
                 let true_jump = self.emit_jump_instruction(Instruction::Jump(0xFF), right_pattern.location.end_line);
                 self.patch_jump(false_jump);
@@ -488,7 +420,6 @@ impl Compiler{
 
             },
             PatternNodeKind::Struct { ty, fields } => {
-                let size = self.get_size_in_stack_slots(ty);
                 for (field_name,field_pattern) in fields{
 
                 }
@@ -576,33 +507,18 @@ impl Compiler{
     }
     fn compile_print_field(&mut self,ty: &Type,after: u8,line: u32){
         match ty{
-            Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::Function {.. }|Type::Tuple(..) => {
-                self.emit_load_field(0, 1, line);
+            Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::Function {.. }|Type::Tuple(..)|Type::Struct { .. } => {
+                self.emit_load_field(0, line);
                 self.emit_instruction(Instruction::PrintValue(Some(after)), line);
             },
             Type::String => {
-                self.emit_load_field(0, 1, line);
+                self.emit_load_field(0, line);
                 self.load_constant(Constant::NativeFunction(Rc::new(NativeFunction { name: "native_print".to_string(), function: native_print_string })), line);
                 self.emit_instruction(Instruction::Rotate(2), line);
                 self.emit_instruction(Instruction::Call(1), line);
                 self.emit_instruction(Instruction::Pop, line);
                 self.emit_instruction(Instruction::PrintAscii(after), line);
                 
-            },
-            Type::Struct { id,.. } => {
-                let field_count = self.get_struct_info(id).fields.len();
-                let has_fields = field_count>0;
-                self.load_string(format!("{}",ty), line);
-                self.emit_instruction(Instruction::PrintValue(Some(if !has_fields {after} else {b'{'})), line);
-                if has_fields{
-                    for (i,(field_name,field_type)) in self.get_fields(ty).into_iter().enumerate(){
-                        self.push_top_of_stack(line);
-                        let field_offset = self.get_field_offset(ty, &field_name);
-                        self.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), line);
-                        self.compile_print_field(&field_type, if i < field_count-1 { b','} else { b'}'} , line);
-                    }
-                    self.emit_instruction(Instruction::PrintAscii(after), line);
-                }
             },
             Type::Never | Type::Unknown => {},
             Type::Param { .. } => unreachable!("All values that get printed should be fully substituted!"),
@@ -696,14 +612,13 @@ impl Compiler{
                 self.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), field.location.end_line);
             },
             TypedExprNodeKind::Index { lhs, rhs } => {
-                let size = self.get_size_in_stack_slots(&expr.ty);
                 self.compile_expr(lhs);
                 self.compile_expr(rhs);
-                self.emit_instruction(Instruction::LoadIndexRef(size), rhs.location.end_line);
+                self.emit_instruction(Instruction::LoadIndexRef(todo!("REIMPLEMENT INDEX REF")), rhs.location.end_line);
             },
             _ => {
                 self.compile_expr(expr);
-                self.emit_instruction(Instruction::LoadStackTopOffset(self.get_size_in_stack_slots(&expr.ty)),expr.location.end_line);
+                self.emit_instruction(Instruction::LoadStackTopOffset(1),expr.location.end_line);
             }
         }
     }
@@ -735,20 +650,20 @@ impl Compiler{
                 self.emit_instruction(Instruction::BuildTuple(elements.len()),expr.location.end_line);
             },
             TypedExprNodeKind::Get(name) => {
-                self.load_name(name,self.get_size_in_stack_slots(&expr.ty),expr.location.end_line);
+                self.load_name(name,expr.location.end_line);
             },
             TypedExprNodeKind::Print(args) => {
                 self.begin_scope();
                 for (i,arg) in args.iter().enumerate(){
                     self.compile_expr(arg);
-                    self.define_name(format!("*print_param_{}",i),self.get_size_in_stack_slots(&arg.ty), arg.location.end_line);
+                    self.define_name(format!("*print_param_{}",i), arg.location.end_line);
                 }
                 for (i,arg) in args.iter().enumerate(){
                     let after = if i < args.len() - 1 { ' ' as u8} else {'\n' as u8};
                     let name = &format!("*print_param_{}",i);
                     match &arg.ty{
-                        Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::Function {.. }|Type::Tuple(..) => {
-                            self.load_name(name, 1, expr.location.end_line);
+                        Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::Function {.. }|Type::Tuple(..)|Type::Struct { .. } => {
+                            self.load_name(name, expr.location.end_line);
                             self.emit_instruction(Instruction::PrintValue(Some(after)), expr.location.end_line);
                         },
                         ty => {
@@ -772,20 +687,17 @@ impl Compiler{
                 self.end_scope(expr.location.end_line);
             },
             TypedExprNodeKind::Array(elements) => {
-                let mut size = 0;
                 for element in elements{
                     self.compile_expr(element);
-                    size += self.get_size_in_stack_slots(&element.ty);
                 }
                 self.load_size(elements.len(), expr.location.end_line);
-                self.emit_instruction(Instruction::BuildArray(size),expr.location.end_line);
+                self.emit_instruction(Instruction::BuildArray(elements.len()),expr.location.end_line);
 
             },
             TypedExprNodeKind::Index { lhs, rhs } => {
-                let size = self.get_size_in_stack_slots(&expr.ty);
                 self.compile_expr(lhs);
                 self.compile_expr(rhs);
-                self.emit_instruction(Instruction::LoadIndex(size),rhs.location.end_line);
+                self.emit_instruction(Instruction::LoadIndex(todo!("LOAD INDEX")),rhs.location.end_line);
             },
             TypedExprNodeKind::Binary { op, left, right } => {
                 self.compile_expr(left);
@@ -873,37 +785,25 @@ impl Compiler{
                 self.emit_instruction(Instruction::LoadUnit,body.location.end_line);
             },
             TypedExprNodeKind::Assign { lhs, rhs } => {
-                let size = self.get_size_in_stack_slots(&rhs.ty);
                 match &lhs.kind{
                     TypedAssignmentTargetKind::Name(name) => {
                         self.compile_expr(rhs);
-                        for _ in 0..size{
-                            self.push_slots_below_to_top(size as u16, rhs.location.end_line);
-                        }
-                        self.store_name(name, size,rhs.location.end_line);
+                        self.store_name(name,rhs.location.end_line);
 
                     },
                     TypedAssignmentTargetKind::Index { lhs, rhs:index } => {
-                        let size = self.get_size_in_stack_slots(&expr.ty);
                         self.compile_expr(lhs);
                         self.compile_expr(index);
                         self.compile_expr(rhs);
-                        self.emit_instruction(Instruction::StoreIndex(size), rhs.location.end_line);
-                        self.emit_instruction(Instruction::LoadIndex(size), rhs.location.end_line);
+                        self.emit_instruction(Instruction::StoreIndex(todo!()), rhs.location.end_line);
+                        self.emit_instruction(Instruction::LoadIndex(todo!()), rhs.location.end_line);
                     },
                     TypedAssignmentTargetKind::Field { lhs, name } => {
                         self.compile_lvalue(lhs);
                         self.compile_expr(rhs);
                         let field_index= self.get_field_offset(&lhs.ty,&name.content);
-                        if size == 1{
-                            self.emit_instruction(Instruction::StoreField(field_index as u16), rhs.location.end_line);
-                            self.emit_instruction(Instruction::LoadField(field_index as u16), rhs.location.end_line);
-                        }
-                        else{
-                            self.emit_instruction(Instruction::StoreStructField(field_index as u16,size), rhs.location.end_line);
-                            self.emit_instruction(Instruction::LoadStructField(field_index as u16,size), rhs.location.end_line);
-
-                        }
+                        self.emit_instruction(Instruction::StoreField(field_index as u16), rhs.location.end_line);
+                        self.emit_instruction(Instruction::LoadField(field_index as u16), rhs.location.end_line);
                     }
                 }
 
@@ -916,28 +816,21 @@ impl Compiler{
                 for arg in args{
                     self.compile_expr(arg);
                 }
-                self.emit_instruction(Instruction::Call(args.iter().map(|arg| self.get_size_in_stack_slots(&arg.ty)).sum::<usize>() as u16),expr.location.end_line);
+                self.emit_instruction(Instruction::Call(args.len() as u16),expr.location.end_line);
             },
             TypedExprNodeKind::Return { expr:return_expr } => {
                 if let Some(expr) = return_expr.as_ref(){
                     self.compile_expr(expr);
-                    let size = self.get_size_in_stack_slots(&expr.ty);
-                    if size == 1{
-                        self.emit_instruction(Instruction::Return, expr.location.end_line);
-                    }
-                    else {
-                        self.emit_instruction(Instruction::ReturnStruct(size), expr.location.end_line);
-                    }
                 }
                 else{
                     self.emit_instruction(Instruction::LoadUnit, expr.location.end_line);
-                    self.emit_instruction(Instruction::Return, expr.location.end_line);
                 }
+                self.emit_instruction(Instruction::Return, expr.location.end_line);
             },
             TypedExprNodeKind::GetGeneric { name, args } => {
                 let Some((index,generic_function)) = self.generic_functions.iter().enumerate().rev()
                     .find(|(_,generic_function)| &generic_function.name == name) else {
-                        self.load_name(name, 1,expr.location.end_line);
+                        self.load_name(name,expr.location.end_line);
                         return;
                     };
 
@@ -968,50 +861,29 @@ impl Compiler{
                     (ty @ (Type::Struct {.. }|Type::EnumVariant { .. }),field) => {
                         self.compile_lvalue(lhs);
                         let field = self.get_field_offset(ty, field);
-                        let field_size = self.get_size_in_stack_slots(&expr.ty);
-                        if field_size == 1{
-                            self.emit_instruction(Instruction::LoadField(field as u16),field_name.location.end_line);
-                        }
-                        else{
-                            self.emit_instruction(Instruction::LoadStructField(field as u16,field_size),field_name.location.end_line); 
-                        }
+                        self.emit_instruction(Instruction::LoadField(field as u16),field_name.location.end_line);
                     }
                     _ => unreachable!("{:?}",lhs.ty)
                 }
             },
             TypedExprNodeKind::StructInit { kind,fields } => {
-                let (constructed_type,size) = match kind{
-                    InitKind::Struct(_) => (expr.ty.clone(),self.get_size_in_stack_slots(&expr.ty)),
-                    InitKind::Variant(_, index) => {
-                        let Type::Enum { generic_args, id, name } = expr.ty.clone() else {
-                            unreachable!("Can only produce variants of enums")
-                        };
-                        (Type::EnumVariant { generic_args, id, name, variant_index: *index },self.get_size_in_stack_slots(&expr.ty))
-                    }
-                };
-                self.emit_instruction(Instruction::StackAlloc(Some(size)),expr.location.start_line);
-                if let InitKind::Variant(_, discriminant) = kind{
-                    self.load_size(*discriminant, expr.location.start_line);
-                    self.emit_instruction(Instruction::StoreField(0),expr.location.start_line);
-                }
-                for (field_name,field_expr) in fields{
-                    let field_offset = self.get_field_offset(&constructed_type, &field_name);
-                    if field_offset >= u16::MAX as usize{
-                        todo!("Add support for wider fields")
-                    }
-                    self.compile_expr(field_expr);
-                    let size = self.get_size_in_stack_slots(&field_expr.ty);
-                    if size == 1{
-                        self.emit_instruction(Instruction::StoreField(field_offset as u16), field_expr.location.end_line);
-                    }
-                    else{
-                        self.emit_instruction(Instruction::StoreStructField(field_offset as u16,size), field_expr.location.end_line);
+                match kind{
+                    InitKind::Struct(struct_id) => {
+                        let struct_metadata = self.add_struct_metadata(*struct_id, format!("{}",expr.ty));
+                        self.emit_instruction(Instruction::BuildRecord(struct_metadata),expr.location.start_line);
+                        for (field_name,field_expr) in fields{
+                            let field_offset = self.get_field_offset(&expr.ty, &field_name);
+                            self.compile_expr(field_expr);
+                            self.emit_instruction(Instruction::StoreField(field_offset as u16), expr.location.end_line);
+                        }
+                    },
+                    InitKind::Variant(..) => {
+                        todo!("ADD SUPPORT FOR THIS")
                     }
                 }
-                self.emit_instruction(Instruction::Pop,expr.location.end_line);
             },
             TypedExprNodeKind::MethodCall { lhs, method, args } => {
-                self.load_name(&format!("{}::{}",lhs.ty,method.content), 1,lhs.location.start_line);
+                self.load_name(&format!("{}::{}",lhs.ty,method.content), lhs.location.start_line);
                 self.compile_expr(lhs);
                 for arg in args{
                     self.compile_expr(arg);
@@ -1019,18 +891,17 @@ impl Compiler{
                 self.emit_instruction(Instruction::Call((args.len()+1) as u16), expr.location.end_line);
             },
             TypedExprNodeKind::GetMethod { ty, method } => {
-                self.load_name(&format!("{}::{}",ty,method.content),1,method.location.end_line);
+                self.load_name(&format!("{}::{}",ty,method.content),method.location.end_line);
             }
         }
     }
     fn compile_pattern_destructure(&mut self,pattern:&PatternNode,ty:&Type,line:u32){
-        let size = self.get_size_in_stack_slots(ty);
         match &pattern.kind{
             PatternNodeKind::Name(name) =>{
-                self.define_name(name.to_string(), size,line);
+                self.define_name(name.to_string(), line);
             },
             PatternNodeKind::Wildcard  =>{
-                self.emit_pops(size,line);
+                self.emit_pop(line);
             },
             PatternNodeKind::Tuple(elements) => {
                 self.emit_instruction(Instruction::UnpackTuple, line);
@@ -1039,18 +910,17 @@ impl Compiler{
                 }
             },
             _ => {
-                self.emit_instruction(Instruction::LoadStackTopOffset(size),line);
+                self.emit_instruction(Instruction::LoadStackTopOffset(1),line);
                 self.compile_pattern_assignment(pattern, ty,line);
-                self.emit_pops(size,line);
+                self.emit_pop(line);
             }
         }
     }
     fn compile_pattern_assignment(&mut self,pattern:&PatternNode,ty:&Type,line:u32){
         match &pattern.kind{
             PatternNodeKind::Name(name) => {
-                let size = self.get_size_in_stack_slots(ty);
-                self.emit_load_field(0, size, line);
-                self.define_name(name.clone(),size,line);
+                self.emit_load_field(0, line);
+                self.define_name(name.clone(),line);
             },
             PatternNodeKind::Tuple(patterns) => {
                 if !patterns.is_empty(){
@@ -1060,10 +930,9 @@ impl Compiler{
                     let mut field_offset = 0;
                     for (pattern,ty) in patterns.iter().zip(elements.iter()){
                         self.push_top_of_stack(line);
-                        let field_size = self.get_size_in_stack_slots(ty);
                         self.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), line);
                         self.compile_pattern_assignment(pattern, ty,line);
-                        field_offset += field_size;
+                        field_offset += 1;
                     }
                 }
                 self.emit_instruction(Instruction::Pop,line)
@@ -1081,16 +950,15 @@ impl Compiler{
                 self.emit_instruction(Instruction::Pop,line)
             },
             PatternNodeKind::Wildcard => {
-                self.emit_pops(1, line);
+                self.emit_pop(line);
             },
             PatternNodeKind::Array(before, ignore, after) if before.is_empty() && after.is_empty() && ignore.is_some() => {
                 self.emit_instruction(Instruction::Pop, line);
             },
             PatternNodeKind::Is(name, right_pattern) => {
                 self.push_top_of_stack(line);
-                let size = self.get_size_in_stack_slots(ty);
-                self.emit_load_field(0, size, line);
-                self.define_name(name.content.clone(), size, line);
+                self.emit_load_field(0, line);
+                self.define_name(name.content.clone(), line);
                 self.compile_pattern_assignment(right_pattern, ty, line);
             }
             _ => {}
@@ -1101,13 +969,13 @@ impl Compiler{
             TypedStmtNode::Expr(expr) => {
                 self.compile_expr(expr);
                 if expr.ty == Type::Unit{
-                    self.emit_pops(self.get_size_in_stack_slots(&expr.ty), expr.location.end_line);
+                    self.emit_pop(expr.location.end_line);
                 }
             },
             TypedStmtNode::ExprWithSemi(expr) => {
                 self.compile_expr(expr);
                 if expr.ty != Type::Never{
-                    self.emit_pops(self.get_size_in_stack_slots(&expr.ty), expr.location.end_line);
+                    self.emit_pop(expr.location.end_line);
                 }
             },
             TypedStmtNode::Let { pattern, expr } => {
@@ -1116,9 +984,9 @@ impl Compiler{
             },
             TypedStmtNode::Fun { name, function} => {
                 let name = name.content.clone();
-                let index = self.declare_name(name.clone(),1);
+                let index = self.declare_name(name.clone());
                 self.compile_function(function,name.clone(),None);
-                self.emit_define_instruction(index,1,function.body.location.end_line);
+                self.emit_define_instruction(index,function.body.location.end_line);
             },
             TypedStmtNode::GenericFunction {function,name,.. } => {
                 self.generic_functions.push(GenericFunction { name: name.content.clone(),
@@ -1133,7 +1001,7 @@ impl Compiler{
                 for method in methods{
                     let method_name = format!("{}::{}",ty,method.name.content);
                     self.compile_function(&method.function, method_name.clone(), None);
-                    self.define_name(method_name, 1,method.function.body.location.end_line);
+                    self.define_name(method_name, method.function.body.location.end_line);
                 }
             }
         }
@@ -1148,19 +1016,19 @@ impl Compiler{
             name : "input".to_string(),
             function : native_input
         })), 1);
-        self.define_name("input".to_string(), 1,1);
+        self.define_name("input".to_string(),1);
 
         self.load_constant(Constant::NativeFunction(Rc::new(NativeFunction{
             name : "panic".to_string(),
             function : native_panic
         })), 1);
-        self.define_name("panic".to_string(), 1,1);
+        self.define_name("panic".to_string(),1);
         
         self.compile_stmts(&stmts);
         let last_line = self.current_chunk.lines.last().copied().unwrap_or(1);
         self.emit_instruction(Instruction::LoadUnit,last_line);
         self.emit_instruction(Instruction::Return,last_line);
         disassemble("<main>", &self.current_chunk,&self.constants);
-        Ok(Program{constants:self.constants,chunk:self.current_chunk,names:self.names.into_iter().map(|name| name.into()).collect()})
+        Ok(Program{constants:self.constants,chunk:self.current_chunk,names:self.names.into_iter().map(|name| name.into()).collect(),metadata:self.struct_info})
     }
 }

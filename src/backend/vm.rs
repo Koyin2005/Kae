@@ -4,7 +4,7 @@ use fxhash::FxHashMap;
 
 use crate::backend::disassembly::disassemble_instruction;
 
-use super::{instructions::{Chunk, Constant, Instruction, Program}, objects::{Heap, Object}, values::{Closure, Function, Record, Upvalue, Value}};
+use super::{instructions::{Chunk, Constant, Instruction, Program, StructInfo}, objects::{Heap, Object}, values::{Closure, FieldRef, Function, Record, Upvalue, Value}};
 
 pub const DEBUG_TRACE_EXEC : bool = false;
 pub const MAX_STACK_SIZE : usize = 255;
@@ -22,6 +22,7 @@ pub struct VM{
     names : Vec<Rc<str>>,
     stack : Vec<Value>,
     constants : Box<[Constant]>,
+    metadata : Box<[StructInfo]>,
     frames : Vec<CallFrame>,
     globals : FxHashMap<usize,Value>,
     open_upvalues : Vec<Object>,
@@ -46,7 +47,8 @@ impl VM{
                 ip : 0,
                 bp : 0
             }],
-            globals : FxHashMap::default()
+            globals : FxHashMap::default(),
+            metadata:program.metadata.into()
         }
     }
     fn push(&mut self,value:Value)->Result<(),RuntimeError>{
@@ -73,6 +75,13 @@ impl VM{
     }
     fn peek(&self,offset:usize)->Value{
         self.stack[self.stack.len() - offset - 1].clone()
+    }
+    fn peek_ref(&self,offset:usize)->Value{
+        self.stack[self.stack.len() - offset - 1].clone()
+    }
+    fn peek_mut(&mut self,offset:usize)->&mut Value{
+        let index = self.stack.len() - offset - 1;
+        &mut self.stack[index]
     }
     fn current_chunk(&self)->&Chunk{
         let index = self.frames.len()-1;
@@ -160,6 +169,36 @@ impl VM{
                     i+=1;
                 }
             }
+        }
+    }
+    fn get_ref_mut(&mut self,reference:Value)->&mut Value{
+        match reference{
+            Value::GlobalAddress(global) => {
+                self.globals.get_mut(&global).expect("Should be a valid global")
+            },
+            Value::StackAddress(..)|Value::HeapAddress(..) => todo!("STACK AND HEAP ADDRESSES"),
+            Value::FieldRef(field_ref) => {
+                let Value::Record(record) = self.get_ref_mut(field_ref.base_ref) else {
+                    panic!("Expect a valid record")
+                };
+                &mut record.fields[field_ref.field_offset]
+            },
+            _ => panic!("Cannot get a reference")
+        }
+    }
+    fn get_ref(&self,reference:&Value)->&Value{
+        match reference{
+            Value::GlobalAddress(global) => {
+                self.globals.get(global).expect("Should be a valid global")
+            },
+            Value::StackAddress(..)|Value::HeapAddress(..) => todo!("STACK AND HEAP ADDRESSES"),
+            Value::FieldRef(field_ref) => {
+                let Value::Record(record) = self.get_ref(&field_ref.base_ref) else {
+                    panic!("Expect a valid record")
+                };
+                &record.fields[field_ref.field_offset]
+            },
+            _ => panic!("Cannot get a reference")
         }
     }
     pub fn runtime_error(&self,message:&str){
@@ -417,100 +456,42 @@ impl VM{
                     self.push(Value::HeapAddress(address))?;
                 }
                 Instruction::LoadFieldRef(field) => {
-                    match self.pop(){
-                        Value::StackAddress(address) => {
-                            self.push(Value::StackAddress(address + field as usize))?;
-                        },
-                        Value::GlobalAddress(address) => {
-                            self.push(Value::GlobalAddress(address + field as usize))?;
-                        },
-                        Value::HeapAddress(address) => {
-                            self.push(self.heap.load(address + field as usize))?;
-                        }
-                        _ => {
-                            panic!("Can't get field of non-record.")
-                        }
-                    }
+                    let base_ref = self.pop();
+                    self.push(Value::FieldRef(Box::new(FieldRef{
+                        base_ref,
+                        field_offset:field as usize
+                    })))?;
                 }
                 Instruction::LoadField(field) => {
                     match self.pop(){
-                        Value::StackAddress(address) => {
-                            self.push(self.stack[address + field as usize].clone())?;
+                        Value::Record(record) => {
+                            let field_value = record.fields.to_vec().swap_remove(field as usize);
+                            self.push(field_value)?;
                         },
-                        Value::GlobalAddress(address) => {
-                            self.push(self.globals[&(address + field as usize)].clone())?;
+                        reference => {
+                            let Value::Record(record) = self.get_ref(&reference) else {
+                                unreachable!("Expected a record.")
+                            };
+                            self.push(record.fields[field as usize].clone())?;
                         },
-                        Value::HeapAddress(address) => {
-                            self.push(self.heap.load(address + field as usize))?;
-                        }
-                        _ => {
-                            panic!("Can't get field of non-record.")
-                        }
                     }
 
                 },
-                Instruction::LoadStructField(field,size) => {
-                    match self.pop(){
-                        Value::StackAddress(address) => {
-                            for address in address..address + size{
-                                self.push(self.stack[address + field as usize].clone())?;
-                            }
-                        },
-                        Value::GlobalAddress(address) => {
-                            for address in address..address + size{
-                                self.push(self.globals[&(address + field as usize)].clone())?;
-                            }
-                        },
-                        Value::HeapAddress(address) => {
-                            for address in address..address + size{
-                                self.push(self.heap.load(address + field as usize))?;
-                            }
-
-                        },
-                        _ => {
-                            panic!("Can't get field of non-record.")
-                        }
-                    }
-                }
                 Instruction::StoreField(field) => {
                     let value = self.pop();
-                    match self.peek(0){
-                        Value::GlobalAddress(address) => {
-                            self.globals.insert(address + field as usize,value);
+                    match self.peek_mut(0){
+                        Value::Record(record) => {
+                            record.fields[field as usize] = value;
                         },
-                        Value::StackAddress(address) => {
-                            self.stack[address + field as usize] = value;
-                        },
-                        Value::HeapAddress(address) => {
-                            self.heap.store(address + field as usize, value);
+                        reference => {
+                            let reference = reference.clone();
+                            let Value::Record(record) = self.get_ref_mut(reference) else {
+                                panic!("Expected a valid record.")
+                            };
+                            record.fields[field as usize] = value;
                         }
-                        _ =>  panic!("Can't get field of non-record.")
                     }
                 },
-                Instruction::StoreStructField(field,size) => {
-                    match self.peek(size){
-                        Value::GlobalAddress(address) => {
-                            for address in (address..address+size).rev(){
-                                let value = self.pop();
-                                self.globals.insert(address + field as usize,value);
-                            }
-                        },
-                        Value::StackAddress(address) => {
-                            for address in (address..address+size).rev(){
-                                let value = self.pop();
-                                self.stack[address + field as usize] = value;
-                            }
-                        },
-                        Value::HeapAddress(address) => {
-                            for address in (address..address+size).rev(){
-                                let value = self.pop();
-                                self.heap.store(address + field as usize,value);
-                            }
-                        } 
-                        _ =>  panic!("Can't get field of non-record.")
-                    }
-
-                }
                 Instruction::GetArrayLength => {
                     let Value::HeapAddress(list) = self.pop() else {
                         panic!("Can't get length of non-list")
@@ -522,32 +503,15 @@ impl VM{
                     let location = local as usize + self.current_frame().bp;
                     self.stack[location] = value;
                 },
-                Instruction::StoreLocalStruct(local,size) => {
-                    let location = local as usize + self.current_frame().bp;
-                    for offset in (0..size).rev(){
-                        self.stack[location + offset] = self.pop();
-                    }
-                },
                 Instruction::LoadLocal(local) => {
                     let location = local as usize + self.current_frame().bp;
                     self.push(self.stack[location].clone())?;
-                },
-                Instruction::LoadLocalStruct(local,size) => {
-                    let location = local as usize + self.current_frame().bp;
-                    for offset in 0..size{
-                        self.push(self.stack[location + offset].clone())?;
-                    }
                 },
                 Instruction::LoadLocalRef(local) => {
                     self.push(Value::StackAddress(self.current_frame().bp + local as usize))?;
                 },
                 Instruction::LoadGlobal(global) => {
                     self.push(self.globals[&(global as usize)].clone())?;
-                },
-                Instruction::LoadGlobalStruct(global,size) => {
-                    for global in global as usize..global as usize + size{
-                        self.push(self.globals[&(global as usize)].clone())?;
-                    }
                 },
                 Instruction::LoadGlobalRef(global) => {
                     self.push(Value::GlobalAddress(global as usize))?;
@@ -556,12 +520,6 @@ impl VM{
                     let value = self.pop();
                     self.globals.insert(global as usize, value);
                 },
-                Instruction::StoreGlobalStruct(global,size) => {
-                    for i in (0..size).rev(){
-                        let value = self.pop();
-                        self.globals.insert(global as usize + i, value);
-                    }
-                }
                 Instruction::LoadUpvalue(upvalue) => {
                     let upvalue = self.current_frame().closure.expect("Can only use upvalues with closure").as_closure(&self.heap).upvalues[upvalue as usize].as_upvalue(&self.heap);
                    
@@ -569,16 +527,6 @@ impl VM{
                         Upvalue::Closed(value) => value,
                         Upvalue::Open { location } => self.stack[location].clone()
                     })?;
-                },
-                Instruction::LoadUpvalueStruct(upvalue,size) => {
-                    for upvalue in upvalue as usize..upvalue as usize + size{
-                        let upvalue = self.current_frame().closure.expect("Can only use upvalues with closure").as_closure(&self.heap).upvalues[upvalue as usize].as_upvalue(&self.heap);
-                    
-                        self.push(match upvalue {
-                            Upvalue::Closed(value) => value,
-                            Upvalue::Open { location } => self.stack[location].clone()
-                        })?;
-                    }
                 },
                 Instruction::StoreUpvalue(upvalue) => {
                     let value = self.pop();
@@ -588,17 +536,6 @@ impl VM{
                         Upvalue::Open { location } => self.stack[*location] = value
                     }
                 },
-                Instruction::StoreUpvalueStruct(upvalue,size) => {
-                    for upvalue in (upvalue as usize..upvalue as usize + size).rev(){
-                        let value = self.pop();
-                        let upvalue = self.current_frame().closure.expect("Can only use upvalues with closure").as_closure(&self.heap).upvalues[upvalue as usize].as_upvalue_mut(&mut self.heap);
-                        match upvalue{
-                            Upvalue::Closed(closed) => *closed = value,
-                            Upvalue::Open { location } => self.stack[*location] = value
-                        }
-                    }
-                    
-                }
                 Instruction::LoadIndex(size) => {
                     let Value::Int(index) = self.pop() else {
                         panic!("Expected an int.")
@@ -793,33 +730,10 @@ impl VM{
                         break;
                     }
                 },
-                Instruction::ReturnStruct(size) => {
-                    let values = self.pop_values(size);
-                    if let Some(frame) = self.frames.pop(){
-                        self.close_upvalues(frame.bp);
-                        self.stack.truncate(frame.bp);
-                        for value in values{
-                            self.push(value)?;
-                        }
-                    }
-                    if self.frames.is_empty(){
-                        break;
-                    }
-
-                }
-                Instruction::StackAlloc(size) => {
-                    let size = size.unwrap_or_else(|| self.pop_size());
-                    let address = self.stack.len();
-                    for _ in 0..size{
-                        self.stack.push(Value::Int(0));
-                    }
-                    self.stack.push(Value::StackAddress(address))
-                },
-                Instruction::PopStruct(size) => {
-                    for _ in 0..size{
+                Instruction::PopN(n) => {
+                    for _ in 0..n{
                         self.pop();
                     }
-
                 },
                 Instruction::LoadStackTopOffset(size) => {
                     self.push(Value::StackAddress(self.stack.len() - size))?;
@@ -828,6 +742,14 @@ impl VM{
                     let elements = &self.stack[self.stack.len()-elements..];
                     let elements:Box<[Value]> = Box::from(elements);
                     self.push(Value::Tuple(elements))?;
+                },
+                Instruction::BuildRecord(struct_metadata) => {
+                    let name = self.metadata[struct_metadata].name.clone();
+                    let fields = self.metadata[struct_metadata].field_count;
+                    self.push(Value::Record(Box::new(Record{
+                        name,
+                        fields:std::iter::repeat(Value::Int(0)).take(fields).collect()
+                    })))?;
                 },
                 Instruction::UnpackTuple => {
                     let Value::Tuple(elements) = self.pop() else {

@@ -13,30 +13,22 @@ pub enum Instruction {
     CloseUpvalue(u16),
 
     LoadLocal(u16),
-    LoadLocalStruct(u16,usize),
     LoadLocalRef(u16),
 
     StoreLocal(u16),
-    StoreLocalStruct(u16,usize),
     
     StoreGlobal(u16),
-    StoreGlobalStruct(u16,usize),
 
     LoadGlobal(u16),
-    LoadGlobalStruct(u16,usize),
     LoadGlobalRef(u16),
 
     LoadField(u16),
-    LoadStructField(u16,usize),
     LoadFieldRef(u16),
     StoreField(u16),
-    StoreStructField(u16,usize),
 
     LoadUpvalue(u16),
-    LoadUpvalueStruct(u16,usize),
     
     StoreUpvalue(u16),
-    StoreUpvalueStruct(u16,usize),
     AddInt,
     SubtractInt,
     MultiplyInt,
@@ -86,15 +78,16 @@ pub enum Instruction {
     Call(u16),
 
     LoadStackTopOffset(usize),
-    StackAlloc(Option<usize>),
-    ReturnStruct(usize),
     Return,
     Pop,
-    PopStruct(usize),
+    PopN(usize),
     Copy(u16),
 
     BuildTuple(usize),
     UnpackTuple,
+
+    BuildRecord(usize),
+
 }
 #[derive(Clone,Debug,PartialEq)]
 pub enum Constant{
@@ -131,6 +124,7 @@ impl Display for Constant{
 pub struct Program{
     pub constants : Vec<Constant>,
     pub names : Vec<Rc<str>>,
+    pub metadata : Vec<StructInfo>,
     pub chunk : Chunk
 }
 #[derive(Default,Clone,Debug,PartialEq)]
@@ -139,4 +133,11 @@ pub struct Chunk{
     pub lines : Vec<u32>,
     pub locals : usize
 
+}
+
+
+#[derive(Default,Clone,Debug,PartialEq)]
+pub struct StructInfo{
+    pub name : String,
+    pub field_count : usize
 }
