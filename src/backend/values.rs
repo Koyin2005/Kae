@@ -47,7 +47,8 @@ pub enum Value{
     Unit,
     Function(Object),
     Closure(Object),
-    NativeFunction(Object)
+    NativeFunction(Object),
+    String(Object),
 }
 #[derive(Clone,Debug,PartialEq)]
 pub struct FieldRef{
@@ -67,6 +68,7 @@ impl Value{
             (Self::StackAddress(address),Self::StackAddress(other)) => address == other,
             (Self::GlobalAddress(address),Self::GlobalAddress(other)) => address == other,
             (Self::Tuple(elements),Self::Tuple(other)) => elements.iter().zip(other.iter()).all(|(element,other)| element == other),
+            (Self::String(string),Self::String(other)) => string.as_string(heap) == other.as_string(heap),
             _ => false
         }
     }
@@ -121,6 +123,9 @@ impl Value{
             Value::StackAddress(address) | Value::HeapAddress(address) | Value::GlobalAddress(address) => {
                 format!("*{}",address)
             },
+            Value::String(string) => {
+                format!("{}",string.as_string(heap))
+            }
         }
     }
     pub fn print(&self,heap:&Heap){

@@ -115,7 +115,7 @@ impl VM{
         match self.constants[index].clone(){
             Constant::Int(int) => Value::Int(int),
             Constant::String(string) => {
-                Value::HeapAddress(self.heap.new_string(&string))
+                Value::String(Object::new_string(&mut self.heap, string.into()))
             },
             Constant::Float(float) => Value::Float(float),
             Constant::Function(function) => Value::Function(Object::new_function(&mut self.heap, function)),
@@ -430,30 +430,21 @@ impl VM{
                     self.store_top(Value::Bool(!a.is_equal(&b, &self.heap)));
                 }
                 Instruction::Concatenate => {
-                    let Value::HeapAddress(b) = self.pop() else {
-                        panic!("Expected a string")
+                    let Value::String(b) = self.pop() else {
+                        unreachable!("Expected a string.")
                     };
-                    let Value::HeapAddress(a) = self.peek(0) else {
-                        panic!("Expected a string")
-                    };
-
-                    let mut a = self.heap.read_string(a);
-                    a.push_str(& self.heap.read_string(b));
-                    let address = self.heap.new_string(&a);
-                    self.store_top(Value::HeapAddress(address));
-                    
+                    let Value::String(a) = self.pop() else {
+                        unreachable!("Expected a string.")
+                    }; 
+                    let b = b.as_string(&self.heap);
+                    let a  = a.as_string(&self.heap);
+                    let mut result = String::from(a);
+                    result.push_str(b);
+                    let result = Object::new_string(&mut self.heap,result.into());
+                    self.push(Value::String(result))?;
                 }
-                Instruction::BuildArray(size) => {
-                    let Value::Int(elements) = self.pop() else{
-                        unreachable!()
-                    };
-                    let address = self.heap.allocate(size+1);
-                    self.heap.store(address,Value::Int(elements as i64));
-                    for i in (1..size+1).rev(){
-                        let value = self.pop();
-                        self.heap.store(address+i,value);
-                    }
-                    self.push(Value::HeapAddress(address))?;
+                Instruction::BuildArray(elements) => {
+                    todo!("REIMPLEMENT BUILD ARRAY")
                 }
                 Instruction::LoadFieldRef(field) => {
                     let base_ref = self.pop();
@@ -493,10 +484,7 @@ impl VM{
                     }
                 },
                 Instruction::GetArrayLength => {
-                    let Value::HeapAddress(list) = self.pop() else {
-                        panic!("Can't get length of non-list")
-                    };
-                    self.push(self.heap.load(list))?;
+                    todo!("REIMPLEMENT GET ARRAY LENGTH")
                 },
                 Instruction::StoreLocal(local) => {
                     let value = self.pop();
@@ -543,20 +531,7 @@ impl VM{
                     let Value::HeapAddress(list) = self.pop() else{
                         panic!("Expected a list.")
                     };
-                    let Value::Int(len) = self.heap.load(list) else{
-                        unreachable!()
-                    };
-                    if 0 <= index && (index as usize)< len as usize{
-                        let offset = index as isize * size as isize;
-                        for i in 0..size as usize{
-                            let value = self.heap.load(list+1+i + offset as usize);
-                            self.push(value)?;
-                        }
-                    }
-                    else{
-                        self.runtime_error(&format!("Index out of bounds, index was '{}' but length was '{}'.",index,len as usize));
-                        return Err(RuntimeError);
-                    }
+                    todo!("REIMPLEMENT LOAD INDEX ");
                 },
                 Instruction::StoreIndex(size) => {
                     let Value::Int(index) = self.peek(size) else {
@@ -565,19 +540,7 @@ impl VM{
                     let Value::HeapAddress(list) = self.peek(size+1) else{
                         panic!("Expected a list.")
                     };
-                    let Value::Int(len) = self.heap.load(list) else {
-                        unreachable!()
-                    };
-                    if 0 <= index && index< len{
-                        for i in (0..size).rev(){
-                            let value = self.pop();
-                            self.heap.store(list + 1+i, value);
-                        }
-                    }
-                    else{
-                        self.runtime_error(&format!("Index out of bounds : index was '{}', but len was '{}'.",index,len));
-                        return Err(RuntimeError);
-                    }
+                    todo!("REIMPLEMENT STORE INDEX ");
                 },
                 Instruction::LoadIndexRef(size) => {
                     let Value::Int(index) = self.pop() else {
@@ -586,16 +549,7 @@ impl VM{
                     let Value::HeapAddress(list) = self.pop() else{
                         panic!("Expected a list.")
                     };
-                    let Value::Int(len) = self.heap.load(list) else {
-                        unreachable!()
-                    };
-                    if 0 <= index && index< len{
-                        self.push(Value::HeapAddress(list + 1 + index as usize * size))?;
-                    }
-                    else{
-                        self.runtime_error(&format!("Index out of bounds : index was '{}', but len was '{}'.",index,len));
-                        return Err(RuntimeError);
-                    }
+                    todo!("REIMPLEMENT LOAD INDEX REF ");
                 }
                 Instruction::Loop(offset) => {
                     self.current_frame_mut().ip -= offset as usize;

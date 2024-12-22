@@ -138,57 +138,18 @@ struct GcObject{
 }
 #[derive(Default)]
 pub struct Heap{
-    objects : Vec<Option<GcObject>>,
-    data : Vec<Option<Value>>
+    data : Vec<Option<GcObject>>,
 }
 
 impl Heap{
-    pub fn new_string(&mut self,string:&str)->usize{
-        
-        let chars = string.chars().into_iter().collect::<Vec<_>>();
-        let address = self.allocate(chars.len()+1);
-        self.store(address, Value::Int(chars.len() as i64));
-        for (i,value) in chars.into_iter().enumerate(){
-            self.store(address+1+i, Value::Int(value as i64));
-        }
-        address
-    }
-    pub fn read_string(&self,address:usize)->String{
-        
-        let Value::Int(length) = self.load(address) else {
-            panic!("Expected a valid length")
-        };
-        let length = length as usize;
-        let mut string = String::new();
-        for i in 0..length{
-            let Value::Int(char) = self.load(address+1+i) else {
-                panic!("Expected an int")
-            };
-            string.push(char::from_u32(char as u32).expect("Should only have valid chars"));
-        }
-        string
-    }
-    pub fn allocate(&mut self,size:usize)->usize{
-        let address = self.data.len();
-        self.data.extend(std::iter::repeat(Some(Value::Int(0))).take(size));
-        address
-    }
-    pub fn store(&mut self,address:usize,value:Value){
-        self.data[address] = Some(value);
-    }
-    pub fn load(&self,address:usize)->Value{
-        self.data[address].clone().expect("Read from invalid address")
-    }
     pub fn get_object_mut(&mut self,object:Object)->&mut ObjectType{
-        &mut self.objects[object.0].as_mut().unwrap().data
+        &mut self.data[object.0].as_mut().unwrap().data
     }
     pub fn get_object(&self,object:Object)->&ObjectType{
-        &self.objects[object.0].as_ref().unwrap().data
+        &self.data[object.0].as_ref().unwrap().data
     }
-
-
     pub fn alloc(&mut self,object:ObjectType)->Object{
-        self.objects.push(Some(GcObject{_is_marked:false,data:object}));
-        Object(self.objects.len()-1)
+        self.data.push(Some(GcObject{_is_marked:false,data:object}));
+        Object(self.data.len()-1)
     }
 }
