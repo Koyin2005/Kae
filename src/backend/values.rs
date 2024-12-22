@@ -38,6 +38,7 @@ pub enum Value{
     Int(i64),
     Float(f64),
     Bool(bool),
+    Tuple(Box<[Value]>),
     StackAddress(usize),
     GlobalAddress(usize),
     HeapAddress(usize),
@@ -58,6 +59,7 @@ impl Value{
             (Self::Closure(object),Self::Closure(other)) => object == other,
             (Self::StackAddress(address),Self::StackAddress(other)) => address == other,
             (Self::GlobalAddress(address),Self::GlobalAddress(other)) => address == other,
+            (Self::Tuple(elements),Self::Tuple(other)) => elements.iter().zip(other.iter()).all(|(element,other)| element == other),
             _ => false
         }
     }
@@ -77,6 +79,17 @@ impl Value{
             },
             Value::Unit => {
                 "()".to_string()
+            },
+            Value::Tuple(elements) => {
+                let mut result = String::from("(");
+                for (i,element) in elements.iter().enumerate(){
+                    if i>0{
+                        result.push(',');
+                    }
+                    result.push_str(&element.format(heap, seen_values));
+                }
+                result.push(')');
+                result
             },
             Value::Function(object) => {
                 format!("fn<{}>",object.as_function(heap).name)

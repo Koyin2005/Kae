@@ -91,7 +91,10 @@ pub enum Instruction {
     Return,
     Pop,
     PopStruct(usize),
-    Copy(u16)
+    Copy(u16),
+
+    BuildTuple(usize),
+    UnpackTuple,
 }
 #[derive(Clone,Debug,PartialEq)]
 pub enum Constant{

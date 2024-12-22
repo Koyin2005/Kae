@@ -63,7 +63,7 @@ impl Compiler{
     fn get_size_in_stack_slots(&self,ty:&Type)->usize{
         match ty{
             Type::Struct {.. } => self.get_fields(ty).iter().map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum(),
-            Type::Tuple(elements) => elements.iter().map(|ty| self.get_size_in_stack_slots(ty)).sum(),
+            Type::Tuple(..) => 1,
             Type::Enum { generic_args, id, name } => {
                 let max_variant_size = self.get_enum_info(id).variants.iter().map(|variant| {
                     self.get_fields(&Type::EnumVariant { generic_args: generic_args.clone(), id: *id, name: name.clone(), variant_index: variant.discrim }).iter().map(|(_,ty)| self.get_size_in_stack_slots(ty)).sum::<usize>()
@@ -576,7 +576,7 @@ impl Compiler{
     }
     fn compile_print_field(&mut self,ty: &Type,after: u8,line: u32){
         match ty{
-            Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::Function {.. } => {
+            Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::Function {.. }|Type::Tuple(..) => {
                 self.emit_load_field(0, 1, line);
                 self.emit_instruction(Instruction::PrintValue(Some(after)), line);
             },
@@ -603,18 +603,6 @@ impl Compiler{
                     }
                     self.emit_instruction(Instruction::PrintAscii(after), line);
                 }
-            },
-            Type::Tuple(elements) => {
-                self.emit_instruction(Instruction::PrintAscii('(' as u8), line);
-                let mut field_offset = 0;
-                for (i,element) in elements.iter().enumerate(){
-                    self.push_top_of_stack(line);
-                    let element_size = self.get_size_in_stack_slots(element);
-                    self.emit_instruction(Instruction::LoadFieldRef(field_offset as u16), line);
-                    self.compile_print_field(&element, if i < elements.len()-1 { b','} else { b')'} , line);
-                    field_offset += element_size;
-                }
-                self.emit_instruction(Instruction::PrintAscii(after), line);
             },
             Type::Never | Type::Unknown => {},
             Type::Param { .. } => unreachable!("All values that get printed should be fully substituted!"),
@@ -744,6 +732,7 @@ impl Compiler{
                 for element in elements{
                     self.compile_expr(element);
                 }
+                self.emit_instruction(Instruction::BuildTuple(elements.len()),expr.location.end_line);
             },
             TypedExprNodeKind::Get(name) => {
                 self.load_name(name,self.get_size_in_stack_slots(&expr.ty),expr.location.end_line);
@@ -758,7 +747,7 @@ impl Compiler{
                     let after = if i < args.len() - 1 { ' ' as u8} else {'\n' as u8};
                     let name = &format!("*print_param_{}",i);
                     match &arg.ty{
-                        Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::Function {.. } => {
+                        Type::Unit|Type::Bool|Type::Int|Type::Float|Type::Array(_)|Type::Function {.. }|Type::Tuple(..) => {
                             self.load_name(name, 1, expr.location.end_line);
                             self.emit_instruction(Instruction::PrintValue(Some(after)), expr.location.end_line);
                         },
@@ -1043,8 +1032,11 @@ impl Compiler{
             PatternNodeKind::Wildcard  =>{
                 self.emit_pops(size,line);
             },
-            PatternNodeKind::Tuple(elements) if elements.is_empty() => {
-                self.emit_pops(size, line);
+            PatternNodeKind::Tuple(elements) => {
+                self.emit_instruction(Instruction::UnpackTuple, line);
+                for element in elements{
+                    self.compile_pattern_destructure(element, ty, line);
+                }
             },
             _ => {
                 self.emit_instruction(Instruction::LoadStackTopOffset(size),line);

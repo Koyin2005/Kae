@@ -824,6 +824,19 @@ impl VM{
                 Instruction::LoadStackTopOffset(size) => {
                     self.push(Value::StackAddress(self.stack.len() - size))?;
                 },
+                Instruction::BuildTuple(elements) => {
+                    let elements = &self.stack[self.stack.len()-elements..];
+                    let elements:Box<[Value]> = Box::from(elements);
+                    self.push(Value::Tuple(elements))?;
+                },
+                Instruction::UnpackTuple => {
+                    let Value::Tuple(elements) = self.pop() else {
+                        unreachable!("Expected a tuple")
+                    };
+                    for element in elements.into_vec().into_iter().rev(){
+                        self.push(element)?;
+                    }
+                }
             }
         }
         Ok(())
