@@ -65,6 +65,9 @@ impl VM{
         };
         size as usize
     }
+    fn pop_n(&mut self,n:usize){
+        self.stack.truncate(self.stack.len() - n);
+    }
     fn pop(&mut self)->Value{
         self.stack.pop().unwrap()
     }
@@ -183,6 +186,12 @@ impl VM{
                 };
                 &mut record.fields[field_ref.field_offset]
             },
+            Value::IndexRef(index_ref) => {
+                let Value::Array(array) = index_ref.base_ref else {
+                    panic!("Expect valid array")
+                };
+                &mut array.as_array_mut(&mut self.heap)[index_ref.field_offset]
+            },
             _ => panic!("Cannot get a reference")
         }
     }
@@ -198,7 +207,13 @@ impl VM{
                 };
                 &record.fields[field_ref.field_offset]
             },
-            _ => panic!("Cannot get a reference")
+            Value::IndexRef(index_ref) => {
+                let Value::Array(array) = index_ref.base_ref else {
+                    panic!("Expect valid array")
+                };
+                &array.as_array(&self.heap)[index_ref.field_offset]
+            },
+            _ => panic!("Cannot get a reference got {:?}",reference)
         }
     }
     pub fn runtime_error(&self,message:&str){
@@ -212,11 +227,11 @@ impl VM{
         while self.current_frame().ip < self.current_chunk().code.len(){
             if DEBUG_TRACE_EXEC{
                 for value in self.stack.iter(){
-                    print!("[{}] ",value.format(&self.heap,&mut Vec::new()));
+                    print!("[{}] ",value.format(&self.heap));
                 }
                 println!();
                 for value in self.stack.iter(){
-                    print!("[{}] ",value.format(&self.heap,&mut Vec::new()));
+                    print!("[{}] ",value.format(&self.heap));
                 }
                 println!();
                 if let Some(debug_buffer) = debug_buffer.as_ref(){
@@ -444,7 +459,9 @@ impl VM{
                     self.push(Value::String(result))?;
                 }
                 Instruction::BuildArray(elements) => {
-                    todo!("REIMPLEMENT BUILD ARRAY")
+                    let elements = self.pop_values(elements);
+                    let array = Object::new_array(&mut self.heap, elements);
+                    self.push(Value::Array(array))?;
                 }
                 Instruction::LoadFieldRef(field) => {
                     let base_ref = self.pop();
@@ -460,7 +477,7 @@ impl VM{
                             self.push(field_value)?;
                         },
                         reference => {
-                            let Value::Record(record) = self.get_ref(&reference) else {
+                             let Value::Record(record) = self.get_ref(&reference) else {
                                 unreachable!("Expected a record.")
                             };
                             self.push(record.fields[field as usize].clone())?;
@@ -524,32 +541,57 @@ impl VM{
                         Upvalue::Open { location } => self.stack[*location] = value
                     }
                 },
-                Instruction::LoadIndex(size) => {
+                Instruction::LoadIndex => {
                     let Value::Int(index) = self.pop() else {
                         panic!("Expected an int.")
                     };
-                    let Value::HeapAddress(list) = self.pop() else{
+                    let Value::Array(array) = self.pop() else{
                         panic!("Expected a list.")
                     };
-                    todo!("REIMPLEMENT LOAD INDEX ");
+                    let array = array.as_array_mut(&mut self.heap);
+                    let len = array.len();
+                    if index >= 0 && (index as usize) < len {
+                        let value = array[index as usize].clone();
+                        self.push(value)?;
+                    }
+                    else{
+                        self.runtime_error(&format!("Index out of range, index was {} but len was {}.",index,len));
+                        return Err(RuntimeError);
+                    }
                 },
-                Instruction::StoreIndex(size) => {
-                    let Value::Int(index) = self.peek(size) else {
+                Instruction::StoreIndex => {
+                    let value = self.pop();
+                    let Value::Int(index) = self.peek(0) else {
                         panic!("Expected an int.")
                     };
-                    let Value::HeapAddress(list) = self.peek(size+1) else{
+                    let Value::Array(array) = self.peek(1) else{
                         panic!("Expected a list.")
                     };
-                    todo!("REIMPLEMENT STORE INDEX ");
+                    let array = array.as_array_mut(&mut self.heap);
+                    let len = array.len();
+                    if index >= 0 && (index as usize) < len {
+                        array[index as usize] = value;
+                    }
+                    else{
+                        self.runtime_error(&format!("Index out of range, index was {} but len was {}.",index,len));
+                        return Err(RuntimeError);
+                    }
                 },
-                Instruction::LoadIndexRef(size) => {
+                Instruction::LoadIndexRef => {
                     let Value::Int(index) = self.pop() else {
                         panic!("Expected an int.")
                     };
-                    let Value::HeapAddress(list) = self.pop() else{
+                    let Value::Array(array) = self.pop() else{
                         panic!("Expected a list.")
                     };
-                    todo!("REIMPLEMENT LOAD INDEX REF ");
+                    let len = array.as_array(&self.heap).len();
+                    if index >= 0 && (index as usize) < len {
+                        self.push(Value::IndexRef(Box::new(FieldRef { base_ref: Value::Array(array), field_offset: index as usize })))?;
+                    }
+                    else{
+                        self.runtime_error(&format!("Index out of range, index was {} but len was {}.",index,len));
+                        return Err(RuntimeError);
+                    }
                 }
                 Instruction::Loop(offset) => {
                     self.current_frame_mut().ip -= offset as usize;
@@ -616,7 +658,7 @@ impl VM{
                 Instruction::PrintValue(after) => {
                     let value = self.pop();
                     if let Some(buffer) = debug_buffer.as_mut(){
-                        buffer.push_str(&value.format(&self.heap, &mut Vec::new()));
+                        buffer.push_str(&value.format(&self.heap));
                         if let Some(after) = after{
                             let after = after as char;
                             if after == '\n'{
@@ -668,7 +710,7 @@ impl VM{
                             self.push_frame(function.as_function(&self.heap), arg_count, None)?;
                         },
                         value => {
-                            panic!("Expect function got {}.",value.format(&self.heap, &mut Vec::new()))
+                            panic!("Expect function got {}.",value.format(&self.heap))
                         }
                     }
 
@@ -692,9 +734,10 @@ impl VM{
                 Instruction::LoadStackTopOffset(size) => {
                     self.push(Value::StackAddress(self.stack.len() - size))?;
                 },
-                Instruction::BuildTuple(elements) => {
-                    let elements = &self.stack[self.stack.len()-elements..];
+                Instruction::BuildTuple(element_count) => {
+                    let elements = &self.stack[self.stack.len()-element_count..];
                     let elements:Box<[Value]> = Box::from(elements);
+                    self.pop_n(element_count);
                     self.push(Value::Tuple(elements))?;
                 },
                 Instruction::BuildRecord(struct_metadata) => {

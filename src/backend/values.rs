@@ -1,5 +1,7 @@
 use std::{fmt::Display, rc::Rc};
 
+use fxhash::FxHashSet;
+
 use super::{instructions::Chunk, objects::{Heap, Object}, vm::{RuntimeError, VM}};
 #[derive(Clone,Debug,PartialEq,Default)]
 pub struct Function{
@@ -44,11 +46,13 @@ pub enum Value{
     GlobalAddress(usize),
     HeapAddress(usize),
     FieldRef(Box<FieldRef>),
+    IndexRef(Box<FieldRef>),
     Unit,
     Function(Object),
     Closure(Object),
     NativeFunction(Object),
     String(Object),
+    Array(Object)
 }
 #[derive(Clone,Debug,PartialEq)]
 pub struct FieldRef{
@@ -72,11 +76,18 @@ impl Value{
             _ => false
         }
     }
-    pub fn format(& self,heap:&Heap,seen_values : &mut Vec<&Value>)->String{
+
+    pub fn format(&self,heap:&Heap)->String{
+        self.format_recursive(heap, &mut FxHashSet::default())
+    }
+    fn format_recursive(& self,heap:&Heap, seen_objects : &mut FxHashSet<Object>)->String{
         match self{
             Value::FieldRef(..) => {
-                String::from("*ptr")
-            }
+                String::from("*field_ref")
+            },
+            Value::IndexRef(..) => {
+                String::from("*index_ref")
+            },
             Value::Bool(bool) => {
                 format!("{}",*bool)
             },
@@ -98,7 +109,7 @@ impl Value{
                     if i>0{
                         result.push(',');
                     }
-                    result.push_str(&element.format(heap, seen_values));
+                    result.push_str(&&element.format_recursive(heap, seen_objects));
                 }
                 result.push(')');
                 result
@@ -109,7 +120,7 @@ impl Value{
                     if i>0{
                         result.push(',');
                     }
-                    result.push_str(&element.format(heap, seen_values));
+                    result.push_str(&element.format_recursive(heap, seen_objects));
                 }
                 result.push('}');
                 result
@@ -126,13 +137,32 @@ impl Value{
             Value::String(string) => {
                 format!("{}",string.as_string(heap))
             }
+            Value::Array(array_object) => {
+                let mut result = String::from("[");
+                let is_recursive = seen_objects.contains(array_object);
+                let elements = array_object.as_array(heap);
+                seen_objects.insert(*array_object);
+                if !is_recursive{
+                    for (i,element) in elements.into_iter().enumerate(){
+                        if i>0{
+                            result.push(',');
+                        }
+                        result.push_str(&element.format_recursive(heap, seen_objects));
+                    }
+                }
+                else{
+                    result.push_str("...");
+                }
+                result.push(']');
+                result
+            },
         }
     }
     pub fn print(&self,heap:&Heap){
-        print!("{}",self.format(heap,&mut Vec::new()))
+        print!("{}",self.format_recursive(heap,&mut FxHashSet::default()))
     }
     pub fn println(&self,heap:&Heap){
-        println!("{}",self.format(heap,&mut Vec::new()))
+        println!("{}",self.format_recursive(heap,&mut FxHashSet::default()))
     }
 
 }

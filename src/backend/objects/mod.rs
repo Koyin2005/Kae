@@ -67,14 +67,14 @@ impl Object{
         };
         tuple
     }
-    pub fn as_list_mut(self,heap:&mut Heap)->&mut Vec<Value>{
-        let ObjectType::List(list) = heap.get_object_mut(self) else{
+    pub fn as_array_mut(self,heap:&mut Heap)->&mut[Value]{
+        let ObjectType::Array(list) = heap.get_object_mut(self) else{
             panic!("Can't use object as list")
         };
         list
     }
-    pub fn as_list(self,heap:& Heap)->&[Value]{
-        let ObjectType::List(list) = heap.get_object(self) else{
+    pub fn as_array(self,heap:& Heap)->&[Value]{
+        let ObjectType::Array(list) = heap.get_object(self) else{
             panic!("Can't use object as list")
         };
         list
@@ -109,8 +109,8 @@ impl Object{
     pub fn new_tuple(heap:&mut Heap,values:&[Value]) -> Self{
         heap.alloc(ObjectType::Tuple(values.to_vec().into_boxed_slice()))
     }
-    pub fn new_list(heap:&mut Heap,values:Vec<Value>) -> Self{
-        heap.alloc(ObjectType::List(values))
+    pub fn new_array(heap:&mut Heap,values:Vec<Value>) -> Self{
+        heap.alloc(ObjectType::Array(values.into()))
     }
     pub fn new_closure(heap:&mut Heap,closure:Closure)->Self{
         heap.alloc(ObjectType::Closure(closure))
@@ -124,7 +124,7 @@ pub enum ObjectType{
     CaseRecord(usize,Record),
     String(Rc<str>),
     Tuple(Box<[Value]>),
-    List(Vec<Value>),
+    Array(Box<[Value]>),
     Function(Rc<Function>),
     NativeFunction(Rc<NativeFunction>),
     Closure(Closure),
