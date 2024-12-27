@@ -502,7 +502,7 @@ impl VM{
                 },
                 Instruction::GetArrayLength => {
                     let Value::Array(array) = self.peek_ref(0) else {
-                        unreachable!("Expected an int")
+                        unreachable!("Expected an array got {}",self.peek_ref(0).format(&self.heap))
                     };
                     let length = array.as_array(&self.heap).len();
                     self.push(Value::Int(length as i64))?;
