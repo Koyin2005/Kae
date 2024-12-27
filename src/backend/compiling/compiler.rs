@@ -562,18 +562,7 @@ impl Compiler{
                 self.load_name(name,expr.location.end_line);
             },
             TypedExprNodeKind::Print(args) => {
-                self.begin_scope();
-                for (i,arg) in args.iter().enumerate(){
-                    self.compile_expr(arg);
-                    self.define_name(format!("*print_param_{}",i), arg.location.end_line);
-                }
-                for i in 0..args.len(){
-                    let after = if i < args.len() - 1 { ' ' as u8} else {'\n' as u8};
-                    let name = &format!("*print_param_{}",i);
-                    self.load_name(name, expr.location.end_line);
-                    self.emit_instruction(Instruction::PrintValue(Some(after)), expr.location.end_line);
-                }
-                self.end_scope(expr.location.end_line);
+                self.emit_instruction(Instruction::Print(args.len() as u16), expr.location.end_line);
                 self.emit_instruction(Instruction::LoadUnit,expr.location.end_line);
             },
             TypedExprNodeKind::Block { stmts, expr:result_expr } => {
