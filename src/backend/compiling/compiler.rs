@@ -689,6 +689,7 @@ impl Compiler{
                     TypedAssignmentTargetKind::Name(name) => {
                         self.compile_expr(rhs);
                         self.store_name(name,rhs.location.end_line);
+                        self.load_name(&name, rhs.location.end_line );
 
                     },
                     TypedAssignmentTargetKind::Index { lhs, rhs:index } => {
