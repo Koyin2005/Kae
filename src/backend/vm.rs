@@ -79,8 +79,8 @@ impl VM{
     fn peek(&self,offset:usize)->Value{
         self.stack[self.stack.len() - offset - 1].clone()
     }
-    fn peek_ref(&self,offset:usize)->Value{
-        self.stack[self.stack.len() - offset - 1].clone()
+    fn peek_ref(&self,offset:usize)->&Value{
+        &self.stack[self.stack.len() - offset - 1]
     }
     fn peek_mut(&mut self,offset:usize)->&mut Value{
         let index = self.stack.len() - offset - 1;
