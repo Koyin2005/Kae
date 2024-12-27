@@ -54,10 +54,10 @@ pub enum Instruction {
     
     Concatenate,
 
-    LoadIndex(usize),
-    StoreIndex(usize),
+    LoadIndex,
+    StoreIndex,
 
-    LoadIndexRef(usize),
+    LoadIndexRef,
     BuildArray(usize),
 
     GetArrayLength,
