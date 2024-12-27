@@ -501,7 +501,11 @@ impl VM{
                     }
                 },
                 Instruction::GetArrayLength => {
-                    todo!("REIMPLEMENT GET ARRAY LENGTH")
+                    let Value::Array(array) = self.peek_ref(0) else {
+                        unreachable!("Expected an int")
+                    };
+                    let length = array.as_array(&self.heap).len();
+                    self.push(Value::Int(length as i64))?;
                 },
                 Instruction::StoreLocal(local) => {
                     let value = self.pop();
