@@ -652,12 +652,28 @@ impl VM{
                 Instruction::Print(args) => {
                     for offset in (0..args).rev(){
                         if args - offset  -1 > 0{
-                            print!(" ");
+                            if let Some(debug_buffer) = debug_buffer.as_mut(){
+                                debug_buffer.push(' ');
+                            }
+                            else{
+                                print!(" ");
+                            }
                         }
-                        self.peek(offset as usize).print(&self.heap);
+                        if let Some(debug_buffer) = debug_buffer.as_mut(){
+                            debug_buffer.push_str(&self.peek(offset as usize).format(&self.heap));
+                        }
+                        else{
+                            self.peek(offset as usize).print(&self.heap);
+                        }
                     }
                     self.stack.truncate(self.stack.len() - args as usize);
-                    println!();
+                    if let Some(debug_buffer)  = debug_buffer.as_mut(){
+                        println!("{}",debug_buffer);
+                        debug_buffer.clear();
+                    }
+                    else{
+                        println!();
+                    }
                 },
                 Instruction::PrintValue(after) => {
                     let value = self.pop();
