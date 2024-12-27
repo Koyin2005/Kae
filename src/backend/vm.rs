@@ -651,7 +651,7 @@ impl VM{
                 },
                 Instruction::Print(args) => {
                     for offset in (0..args).rev(){
-                        if args - offset  -1 > 0{
+                        if offset > 0{
                             if let Some(debug_buffer) = debug_buffer.as_mut(){
                                 debug_buffer.push(' ');
                             }
