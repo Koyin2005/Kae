@@ -123,7 +123,11 @@ impl<'a> Parser<'a>{
         Ok(ExprNode { location:SourceLocation::new(start_line,end_line), kind})
     }
     fn int(&mut self)->Result<ExprNode,ParsingFailed>{
-        Ok(ExprNode { location:SourceLocation::one_line(self.prev_token.line), kind: ExprNodeKind::Literal(LiteralKind::Int(self.prev_token.lexeme.parse().expect("Can only have valid ints"))) })
+        let value = self.prev_token.lexeme.parse().or_else(|_|{
+            self.error("Int literal is too big.");
+            Err(ParsingFailed)
+        })?;
+        Ok(ExprNode { location:SourceLocation::one_line(self.prev_token.line), kind: ExprNodeKind::Literal(LiteralKind::Int(value)) })
     }
     fn float(&mut self)->Result<ExprNode,ParsingFailed>{
 
