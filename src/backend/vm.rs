@@ -179,7 +179,9 @@ impl VM{
             Value::GlobalAddress(global) => {
                 self.globals.get_mut(&global).expect("Should be a valid global")
             },
-            Value::StackAddress(..)|Value::HeapAddress(..) => todo!("STACK AND HEAP ADDRESSES"),
+            Value::StackAddress(address)=> {
+                self.stack.get_mut(address).expect("Should be a valid stack address")
+            },
             Value::FieldRef(field_ref) => {
                 let Value::Record(record) = self.get_ref_mut(field_ref.base_ref) else {
                     panic!("Expect a valid record")
@@ -200,7 +202,9 @@ impl VM{
             Value::GlobalAddress(global) => {
                 self.globals.get(global).expect("Should be a valid global")
             },
-            Value::StackAddress(..)|Value::HeapAddress(..) => todo!("STACK AND HEAP ADDRESSES"),
+            Value::StackAddress(address) => {
+                self.stack.get(*address).expect("Should be a valid stack address")
+            },
             Value::FieldRef(field_ref) => {
                 let Value::Record(record) = self.get_ref(&field_ref.base_ref) else {
                     panic!("Expect a valid record")

@@ -44,7 +44,6 @@ pub enum Value{
     Record(Box<Record>),
     StackAddress(usize),
     GlobalAddress(usize),
-    HeapAddress(usize),
     FieldRef(Box<FieldRef>),
     IndexRef(Box<FieldRef>),
     Unit,
@@ -131,7 +130,7 @@ impl Value{
             Value::NativeFunction(object) => {
                 format!("native<{}>",object.as_native_function(heap).name)
             },
-            Value::StackAddress(address) | Value::HeapAddress(address) | Value::GlobalAddress(address) => {
+            Value::StackAddress(address) | Value::GlobalAddress(address) => {
                 format!("*{}",address)
             },
             Value::String(string) => {
