@@ -878,48 +878,86 @@ impl<'a> Parser<'a>{
         let function = self.parse_function_body_and_params()?;
         Ok(StmtNode::Fun { name,generic_params, function })
     }
-    fn impl_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
-        fn parse_method(this:&mut Parser)->Result<(Symbol,Option<ParsedGenericParams>,bool,ParsedFunction),ParsingFailed>{
-            let name = this.parse_identifer("Expected a method name.");
-            let generic_params = this.optional_generic_params()?;
-            this.expect(TokenKind::LeftParen, "Expect '(' after method name.");
-            let mut params = Vec::new();
-            let mut has_self = false;
-            while !this.check(TokenKind::RightParen) && !this.is_at_end(){
-                let param = if this.matches(TokenKind::LowerSelf){
-                    if params.len() > 1 {
-                        this.error("Can only have 1 'self' parameter as first parameter.");
-                        return Err(ParsingFailed);
-                    }
-                    has_self = true;
-                    let self_name = Symbol{content:this.prev_token.lexeme.to_string(),location:SourceLocation::one_line(this.prev_token.line)};
-                    ParsedParam{
-                        pattern:
-                            ParsedPatternNode{
-                                location: self_name.location,
-                                kind : ParsedPatternNodeKind::Name(self_name.content.clone())
-                            },
-                        ty : ParsedType::Path(ParsedPath{head:PathSegment { name: Symbol { content: "Self".to_string(), location: self_name.location }, location: self_name.location},generic_args:None,segments:Vec::new(),location:name.location})
-                    }
+    fn parse_method(&mut self)->Result<(Symbol,Option<ParsedGenericParams>,bool,ParsedFunction),ParsingFailed>{
+        enum SelfParam{
+            ByRef,
+            ByValue
+        }
+        let name = self.parse_identifer("Expected a method name.");
+        let generic_params = self.optional_generic_params()?;
+        self.expect(TokenKind::LeftParen, "Expect '(' after method name.");
+        let mut params = Vec::new();
+        let mut has_self = false;
+        while !self.check(TokenKind::RightParen) && !self.is_at_end(){
+
+            let self_param = if self.matches(TokenKind::Ref){
+                self.expect(TokenKind::LowerSelf, "Expected 'self' parameter after 'ref'.");
+                Some(SelfParam::ByRef)
+            }
+            else { 
+                self.matches(TokenKind::LowerSelf).then(|| SelfParam::ByValue)
+            };
+            let param = if let Some(self_param) = self_param{
+                if params.len() > 1 {
+                    self.error("Can only have 1 'self' parameter as first parameter.");
+                    return Err(ParsingFailed);
                 }
-                else{
-                    this.parse_function_param()?
+                has_self = true;
+                let self_name = Symbol{content:self.prev_token.lexeme.to_string(),location:SourceLocation::one_line(self.prev_token.line)};
+                let self_type = match self_param{
+                    SelfParam::ByRef => {
+                        ParsedType::Ref(Box::new(ParsedType::Path(ParsedPath{
+                            head: PathSegment{
+                               name: Symbol { 
+                                   content: "Self".to_string(), 
+                                   location: self_name.location 
+                               },
+                               location: self_name.location
+                           },
+                           generic_args:None,segments:Vec::new(),location:name.location}
+                       )))
+                    },
+                    SelfParam::ByValue => {
+                        ParsedType::Path(ParsedPath{
+                             head: PathSegment{
+                                name: Symbol { 
+                                    content: "Self".to_string(), 
+                                    location: self_name.location 
+                                },
+                                location: self_name.location
+                            },
+                            generic_args:None,segments:Vec::new(),location:name.location}
+                        )
+                    }
                 };
-                params.push(param);
-                if !this.matches(TokenKind::Coma){
-                    break;
+                ParsedParam{
+                    pattern:
+                        ParsedPatternNode{
+                            location: self_name.location,
+                            kind : ParsedPatternNodeKind::Name(self_name.content.clone())
+                        },
+                    ty :self_type
                 }
             }
-            this.expect(TokenKind::RightParen, "Expect ')'.");
-            let (return_type,body) = this.parse_function_return_type_and_body()?;
-            Ok((name,generic_params,has_self,ParsedFunction { params, return_type, body }))
+            else{
+                self.parse_function_param()?
+            };
+            params.push(param);
+            if !self.matches(TokenKind::Coma){
+                break;
+            }
         }
+        self.expect(TokenKind::RightParen, "Expect ')'.");
+        let (return_type,body) = self.parse_function_return_type_and_body()?;
+        Ok((name,generic_params,has_self,ParsedFunction { params, return_type, body }))
+    }
+    fn impl_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
         let ty = self.parse_type()?;
         self.expect(TokenKind::LeftBrace, "Expect '{' after impl type.");
         let mut methods = Vec::new();
         while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
             self.expect(TokenKind::Fun, "Expected 'fun'.");
-            let (method_name,generic_params,has_receiver,method) = parse_method(self)?;
+            let (method_name,generic_params,has_receiver,method) = self.parse_method()?;
             methods.push(ParsedMethod{name:method_name,has_receiver,generic_params,function:method});
         }
         self.expect(TokenKind::RightBrace, "Expect '}'.");
