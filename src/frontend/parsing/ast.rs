@@ -222,6 +222,7 @@ pub struct Symbol{
 
 #[derive(Clone)]
 pub enum ParsedType{
+    Ref(Box<ParsedType>),
     Path(ParsedPath),
     Array(Box<ParsedType>),
     Tuple(Vec<ParsedType>),

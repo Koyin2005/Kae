@@ -1014,6 +1014,9 @@ impl TypeChecker{
             ParsedType::Array(element_type) => {
                 Type::Array(Box::new(self.check_type(element_type)?))
             },
+            ParsedType::Ref(ty) => {
+                Type::Reference(Box::new(self.check_type(ty)?))  
+            },
             ParsedType::Tuple(elements) => {
                 if elements.is_empty(){
                     Type::Unit
