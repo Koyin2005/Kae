@@ -160,6 +160,7 @@ impl<'src> Scanner<'src>{
             "impl" => TokenKind::Impl,
             "self" => TokenKind::LowerSelf,
             "Self" => TokenKind::UpperSelf,
+            "ref" => TokenKind::Ref,
             _ => TokenKind::Identifier
         })
     }

@@ -40,6 +40,7 @@ pub enum TokenKind{
     Float,
     String,
 
+    Ref,
     Match,
     If, 
     While,
