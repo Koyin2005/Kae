@@ -702,17 +702,17 @@ impl TypeChecker{
             ExprNodeKind::MethodCall { receiver, method, args } => {
                 let receiver = self.infer_expr_type(receiver)?;
                 
-                let (arg_types,return_type,field_ty) = 
+                let (arg_types,return_type,field_ty,by_ref) = 
                 if let Some(method_info) = self.environment.get_method(&receiver.ty, &method.content){
                     let mut params = method_info.param_types.clone();
-                    if method_info.has_self_param{
-                        params.remove(0);
+                    let by_ref = if method_info.has_self_param{
+                        matches!(params.remove(0),Type::Reference(_))
                     }
                     else{
                         self.error(format!("Cannot call method '{}' with no self parameter on type \"{}\".",method_info.name,receiver.ty), method.location.start_line);
                         return Err(TypeCheckFailed);
-                    }
-                    (params,method_info.return_type.clone(),None)
+                    };
+                    (params,method_info.return_type.clone(),None,by_ref)
                 }
                 else if let Some(field) = receiver.ty.get_field(&method.content, &self.type_context){
 
@@ -725,7 +725,7 @@ impl TypeChecker{
                             return Err(TypeCheckFailed);
                         }
                     };
-                    (arg_types.clone(),*return_type.clone(),Some(field))
+                    (arg_types.clone(),*return_type.clone(),Some(field),false)
                 }
                 else {
                     self.error(format!("\"{}\" has no method or field '{}'.",receiver.ty,method.content), method.location.start_line);
@@ -749,7 +749,7 @@ impl TypeChecker{
                         }), args } 
                     } 
                     else {
-                         TypedExprNodeKind::MethodCall { lhs:Box::new(receiver),method:method.clone(), args }
+                         TypedExprNodeKind::MethodCall { lhs:Box::new(receiver),method:method.clone(), args, by_ref}
                     };
                 (return_type,kind)
                 

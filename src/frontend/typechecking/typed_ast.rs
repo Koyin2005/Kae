@@ -169,6 +169,7 @@ pub enum TypedExprNodeKind{
         fields : Vec<(String,TypedExprNode)>
     },
     MethodCall{
+        by_ref : bool,
         lhs : Box<TypedExprNode>,
         method : Symbol,
         args : Vec<TypedExprNode>

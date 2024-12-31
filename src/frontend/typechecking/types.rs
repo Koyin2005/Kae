@@ -163,7 +163,8 @@ impl Type{
             (Type::EnumVariant { id,  variant_index,.. },field_name) => {
                 type_context.enums.get_enum(*id).variants[*variant_index].fields.iter().position(|(field,_)| field ==  field_name).map(|index| index)
                     
-            }
+            },
+            (Type::Reference(ty),field_name) => ty.get_field_index(field_name, type_context),
             _ => None
         }
 

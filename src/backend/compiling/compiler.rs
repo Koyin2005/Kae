@@ -513,7 +513,12 @@ impl Compiler{
     fn compile_lvalue(&mut self,expr:&TypedExprNode){
         match &expr.kind{
             TypedExprNodeKind::Get(name) => {
-                self.load_name_ref(name, expr.location.end_line);
+                if let Type::Reference(_) = expr.ty{
+                    self.load_name(&name, expr.location.end_line);
+                }
+                else{
+                    self.load_name_ref(name, expr.location.end_line);
+                }
             },
             TypedExprNodeKind::Field(lhs, field) => {
                 self.compile_lvalue(lhs);
@@ -564,6 +569,8 @@ impl Compiler{
             TypedExprNodeKind::Print(args) => {
                 for arg in args{
                     self.compile_expr(arg);
+                    if let Type::Reference(arg) = &arg.ty{
+                    }
                 }
                 self.emit_instruction(Instruction::Print(args.len() as u16), expr.location.end_line);
                 self.emit_instruction(Instruction::LoadUnit,expr.location.end_line);
@@ -755,7 +762,12 @@ impl Compiler{
                         self.compile_lvalue(lhs);
                         let field = self.get_field_offset(ty, field);
                         self.emit_instruction(Instruction::LoadField(field as u16),field_name.location.end_line);
-                    }
+                    },
+                    (Type::Reference(reference),field) => {
+                        self.compile_expr(&lhs);
+                        let field = self.get_field_offset(&reference, field);
+                        self.emit_instruction(Instruction::LoadField(field as u16),field_name.location.end_line);
+                    },
                     _ => unreachable!("{:?}",lhs.ty)
                 }
             },
@@ -775,9 +787,14 @@ impl Compiler{
                     }
                 }
             },
-            TypedExprNodeKind::MethodCall { lhs, method, args } => {
+            TypedExprNodeKind::MethodCall { lhs, method, args ,by_ref} => {
                 self.load_name(&format!("{}::{}",lhs.ty,method.content), lhs.location.start_line);
-                self.compile_expr(lhs);
+                if *by_ref{
+                    self.compile_lvalue(lhs);
+                }
+                else{
+                    self.compile_expr(lhs);
+                }
                 for arg in args{
                     self.compile_expr(arg);
                 }
