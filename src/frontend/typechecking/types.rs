@@ -184,7 +184,8 @@ impl Type{
                    if !generic_args.is_empty() {substitute(ty.clone(), generic_args)} else { ty.clone()}
                 })
                     
-            }
+            },
+            (Type::Reference(ty),field_name) => ty.get_field(field_name, type_context),
             _ => None
         }
     }
