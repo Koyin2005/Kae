@@ -513,12 +513,7 @@ impl Compiler{
     fn compile_lvalue(&mut self,expr:&TypedExprNode){
         match &expr.kind{
             TypedExprNodeKind::Get(name) => {
-                if let Type::Reference(_) = expr.ty{
-                    self.load_name(&name, expr.location.end_line);
-                }
-                else{
-                    self.load_name_ref(name, expr.location.end_line);
-                }
+                self.load_name_ref(name, expr.location.end_line);
             },
             TypedExprNodeKind::Field(lhs, field) => {
                 self.compile_lvalue(lhs);
@@ -569,8 +564,6 @@ impl Compiler{
             TypedExprNodeKind::Print(args) => {
                 for arg in args{
                     self.compile_expr(arg);
-                    if let Type::Reference(arg) = &arg.ty{
-                    }
                 }
                 self.emit_instruction(Instruction::Print(args.len() as u16), expr.location.end_line);
                 self.emit_instruction(Instruction::LoadUnit,expr.location.end_line);
@@ -761,11 +754,6 @@ impl Compiler{
                     (ty @ (Type::Struct {.. }|Type::EnumVariant { .. }),field) => {
                         self.compile_lvalue(lhs);
                         let field = self.get_field_offset(ty, field);
-                        self.emit_instruction(Instruction::LoadField(field as u16),field_name.location.end_line);
-                    },
-                    (Type::Reference(reference),field) => {
-                        self.compile_expr(&lhs);
-                        let field = self.get_field_offset(&reference, field);
                         self.emit_instruction(Instruction::LoadField(field as u16),field_name.location.end_line);
                     },
                     _ => unreachable!("{:?}",lhs.ty)

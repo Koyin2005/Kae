@@ -706,7 +706,7 @@ impl TypeChecker{
                 if let Some(method_info) = self.environment.get_method(&receiver.ty, &method.content){
                     let mut params = method_info.param_types.clone();
                     let by_ref = if method_info.has_self_param{
-                        matches!(params.remove(0),Type::Reference(_))
+                        false
                     }
                     else{
                         self.error(format!("Cannot call method '{}' with no self parameter on type \"{}\".",method_info.name,receiver.ty), method.location.start_line);
@@ -1013,9 +1013,6 @@ impl TypeChecker{
             },
             ParsedType::Array(element_type) => {
                 Type::Array(Box::new(self.check_type(element_type)?))
-            },
-            ParsedType::Ref(ty) => {
-                Type::Reference(Box::new(self.check_type(ty)?))  
             },
             ParsedType::Tuple(elements) => {
                 if elements.is_empty(){

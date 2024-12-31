@@ -222,7 +222,6 @@ pub struct Symbol{
 
 #[derive(Clone)]
 pub enum ParsedType{
-    Ref(Box<ParsedType>),
     Path(ParsedPath),
     Array(Box<ParsedType>),
     Tuple(Vec<ParsedType>),
@@ -231,7 +230,8 @@ pub enum ParsedType{
 
 pub struct ParsedParam{
     pub pattern : ParsedPatternNode,
-    pub ty : ParsedType
+    pub ty : ParsedType,
+    pub by_ref : bool,
 }
 
 pub struct ParsedMethod{

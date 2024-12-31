@@ -363,7 +363,8 @@ impl<'a> Parser<'a>{
         let param_ty = self.parse_type()?;
         Ok(ParsedParam{
             pattern:param_pattern,
-            ty:param_ty
+            ty:param_ty,
+            by_ref : false
         })
     }
     fn parse_function_return_type_and_body(&mut self)->Result<(Option<ParsedType>,ExprNode),ParsingFailed>{
@@ -879,6 +880,7 @@ impl<'a> Parser<'a>{
         Ok(StmtNode::Fun { name,generic_params, function })
     }
     fn parse_method(&mut self)->Result<(Symbol,Option<ParsedGenericParams>,bool,ParsedFunction),ParsingFailed>{
+        #[derive(Clone, Copy,PartialEq, Eq)]
         enum SelfParam{
             ByRef,
             ByValue
@@ -904,39 +906,23 @@ impl<'a> Parser<'a>{
                 }
                 has_self = true;
                 let self_name = Symbol{content:self.prev_token.lexeme.to_string(),location:SourceLocation::one_line(self.prev_token.line)};
-                let self_type = match self_param{
-                    SelfParam::ByRef => {
-                        ParsedType::Ref(Box::new(ParsedType::Path(ParsedPath{
-                            head: PathSegment{
-                               name: Symbol { 
-                                   content: "Self".to_string(), 
-                                   location: self_name.location 
-                               },
-                               location: self_name.location
-                           },
-                           generic_args:None,segments:Vec::new(),location:name.location}
-                       )))
-                    },
-                    SelfParam::ByValue => {
-                        ParsedType::Path(ParsedPath{
-                             head: PathSegment{
-                                name: Symbol { 
-                                    content: "Self".to_string(), 
-                                    location: self_name.location 
-                                },
-                                location: self_name.location
-                            },
-                            generic_args:None,segments:Vec::new(),location:name.location}
-                        )
-                    }
-                };
                 ParsedParam{
                     pattern:
                         ParsedPatternNode{
                             location: self_name.location,
                             kind : ParsedPatternNodeKind::Name(self_name.content.clone())
                         },
-                    ty :self_type
+                    ty : ParsedType::Path(ParsedPath{
+                        head: PathSegment{
+                           name: Symbol { 
+                               content: "Self".to_string(), 
+                               location: self_name.location 
+                           },
+                           location: self_name.location
+                       },
+                       generic_args:None,segments:Vec::new(),location:name.location}
+                   ),
+                   by_ref : self_param == SelfParam::ByRef
                 }
             }
             else{

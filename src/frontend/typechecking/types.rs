@@ -112,7 +112,6 @@ pub enum Type {
     Unit,
     Array(Box<Type>),
     Tuple(Vec<Type>),
-    Reference(Box<Type>),
     Function{
         generic_args : Vec<Type>,
         params : Vec<Type>, 
@@ -164,7 +163,6 @@ impl Type{
                 type_context.enums.get_enum(*id).variants[*variant_index].fields.iter().position(|(field,_)| field ==  field_name).map(|index| index)
                     
             },
-            (Type::Reference(ty),field_name) => ty.get_field_index(field_name, type_context),
             _ => None
         }
 
@@ -186,7 +184,6 @@ impl Type{
                 })
                     
             },
-            (Type::Reference(ty),field_name) => ty.get_field(field_name, type_context),
             _ => None
         }
     }
@@ -249,7 +246,6 @@ impl Display for Type{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self{
             Type::Int => write!(f,"int"),
-            Type::Reference(ty) => write!(f,"ref {}",ty),
             Type::Float => write!(f,"float"),
             Type::String => write!(f,"string"),
             Type::Bool => write!(f,"bool"),
