@@ -112,6 +112,7 @@ pub enum Type {
     Unit,
     Array(Box<Type>),
     Tuple(Vec<Type>),
+    Reference(Box<Type>),
     Function{
         generic_args : Vec<Type>,
         params : Vec<Type>, 
@@ -246,6 +247,7 @@ impl Display for Type{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self{
             Type::Int => write!(f,"int"),
+            Type::Reference(ty) => write!(f,"ref {}",ty),
             Type::Float => write!(f,"float"),
             Type::String => write!(f,"string"),
             Type::Bool => write!(f,"bool"),
