@@ -1,13 +1,14 @@
 use std::{rc::Rc, usize};
 
-use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program, StructInfo}, natives::{native_input, native_panic}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedStmtNode, UnaryOp}, types::{Enum, EnumId, Struct, StructId, Type, TypeContext}}};
+use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program, StructInfo}, natives::{native_input, native_panic}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedMethod, TypedStmtNode, UnaryOp}, types::{Enum, EnumId, Struct, StructId, Type, TypeContext}}};
 
 
 struct Local{
     name : String,
     index : usize,
     depth : usize,
-    is_captured : bool
+    is_captured : bool,
+    by_ref : bool,
 }
 #[derive(Clone, Copy,PartialEq)]
 enum Upvalue{
@@ -38,9 +39,7 @@ pub struct Compiler{
     struct_info : Vec<StructInfo>,
     names : Vec<String>,
     globals : Vec<Global>,
-    next_global:usize,
     generic_functions : Vec<GenericFunction>,
-    next_local:usize,
     functions : Vec<CompiledFunction>,
     scope_depth : usize,
     type_context : TypeContext,
@@ -110,8 +109,8 @@ impl Compiler{
     fn get_global(&self,name:&str)->Option<usize>{
        self.globals.iter().rev().find(|global| global.name == name).map(|global| global.index)
     }
-    fn get_local(&self,name:&str)->Option<usize>{
-        self.functions.last().unwrap().locals.iter().rev().find(|local| local.name == name).map(|local| local.index)
+    fn get_local(&self,name:&str)->Option<&Local>{
+        self.functions.last().unwrap().locals.iter().rev().find(|local| local.name == name).map(|local| local)
     }
     fn emit_define_instruction(&mut self,index:usize,line:u32){
         if self.scope_depth == 0{
@@ -135,7 +134,7 @@ impl Compiler{
         self.emit_instruction(Instruction::LoadBool(bool), line);
     }
     fn define_name(&mut self,name:String,line:u32){
-        let index = self.declare_name(name);
+        let index = self.declare_name(name,false);
         self.emit_define_instruction(index,line);
     }
     fn resolve_upvalue(&mut self,name:&str)->usize{
@@ -170,43 +169,50 @@ impl Compiler{
         upvalue.unwrap()
     }
     fn load_name(&mut self,name:&str,line:u32){
-        let instruction = if let Some(index) = self.get_local(name){
-            Instruction::LoadLocal(index as u16)
+        if let Some(local) = self.get_local(name){
+            let (index,by_ref) = (local.index,local.by_ref);
+            self.emit_instruction(Instruction::LoadLocal(index as u16), line);
+            if by_ref{
+                self.emit_instruction(Instruction::LoadIndirect, line);
+            }
         }
         else if let Some(global) =  self.get_global(name){
-            Instruction::LoadGlobal(global as u16)
+            self.emit_instruction(Instruction::LoadGlobal(global as u16), line);
         }
         else{
             let upvalue = self.resolve_upvalue(name);
-            Instruction::LoadUpvalue(upvalue as u16)
+            self.emit_instruction(Instruction::LoadUpvalue(upvalue as u16), line);
         };
-        self.emit_instruction(instruction, line);
 
     }
     fn store_name(&mut self,name:&str,line:u32){
-        let instruction = if let Some(index) = self.get_local(name){
-            Instruction::StoreLocal(index as u16)
+        if let Some(local) = self.get_local(name){
+            let by_ref = local.by_ref;
+            if by_ref{
+                self.emit_instruction(Instruction::StoreIndirect,line);
+            }
+            else{
+                self.emit_instruction(Instruction::StoreLocal(local.index as u16),line);
+            }
         }
         else if let Some(global) = self.get_global(name){
-            Instruction::StoreGlobal(global as u16)
+            self.emit_instruction(Instruction::StoreGlobal(global as u16),line);
         }
         else{
             let upvalue = self.resolve_upvalue(name);
-            Instruction::StoreUpvalue(upvalue as u16)
+            self.emit_instruction(Instruction::StoreUpvalue(upvalue as u16),line);
         };
-        self.emit_instruction(instruction,line);
     }
-    fn declare_name(&mut self,name:String)->usize{
+    
+    fn declare_name(&mut self,name:String,by_ref:bool)->usize{
         if self.scope_depth == 0{
-            self.globals.push(Global { name,index:self.next_global});
-            let global_index = self.next_global;
-            self.next_global += 1;
-            global_index
+            let next_global = self.globals.len();
+            self.globals.push(Global { name,index:next_global});
+            next_global
         }else{
-            let local_index = self.next_local;
-            self.next_local+=1;
-            self.functions.last_mut().unwrap().locals.push(Local { name,index: local_index, depth: self.scope_depth ,is_captured:false});
-            self.current_chunk.locals = self.current_chunk.locals.max(self.next_local);
+            let local_index = self.functions.last().unwrap().locals.len();
+            self.functions.last_mut().unwrap().locals.push(Local { name,index: local_index, depth: self.scope_depth ,is_captured:false,by_ref});
+            self.current_chunk.locals = self.current_chunk.locals.max(local_index+1);
             local_index
         }
     }
@@ -293,7 +299,7 @@ impl Compiler{
         }
 
     }
-    fn compile_function(&mut self,function:&TypedFunction,function_name:String,constant_index : Option<usize>){
+    fn compile_function(&mut self,function:&TypedFunction,function_name:String,constant_index : Option<usize>,method_info : Option<&TypedMethod>){
         self.functions.push(CompiledFunction::default());
         let old_chunk = std::mem::take(&mut self.current_chunk);
         
@@ -301,7 +307,7 @@ impl Compiler{
         let params = function.signature.params.iter().enumerate().filter_map(|(i,(pattern,ty))|{
             match &pattern.kind {
                 PatternNodeKind::Name(name) => {
-                    self.declare_name(name.clone());
+                    self.declare_name(name.clone(),i == 0 && method_info.is_some_and(|info| info.receiver_info.is_some_and(|by_ref| by_ref)));
                     None
 
                 },
@@ -310,7 +316,7 @@ impl Compiler{
                 },
                 _ => 
                 {
-                    self.declare_name(format!("{}",i));
+                    self.declare_name(format!("{}",i),false);
                     Some((i,pattern,ty))
                 }
             }
@@ -500,7 +506,7 @@ impl Compiler{
     fn load_name_ref(&mut self,name:&str,line:u32){
 
         if let Some(local) = self.get_local(name){
-            self.emit_instruction(Instruction::LoadLocalRef(local as u16), line);
+            self.emit_instruction(if local.by_ref { Instruction::LoadLocal(local.index as u16)} else{Instruction::LoadLocalRef(local.index as u16)}, line);
         }
         else if let Some(global) = self.get_global(name){
             self.emit_instruction(Instruction::LoadGlobalRef(global as u16), line);
@@ -679,6 +685,9 @@ impl Compiler{
             TypedExprNodeKind::Assign { lhs, rhs } => {
                 match &lhs.kind{
                     TypedAssignmentTargetKind::Name(name) => {
+                        if let Some(&Local {  index, by_ref:true,.. }) = self.get_local(&name){
+                            self.emit_instruction(Instruction::LoadLocal(index as u16),lhs.location.start_line);
+                        }
                         self.compile_expr(rhs);
                         self.store_name(name,rhs.location.end_line);
                         self.load_name(&name, rhs.location.end_line );
@@ -702,7 +711,7 @@ impl Compiler{
 
             },
             TypedExprNodeKind::Function (function) => {
-                self.compile_function(function, "anonymous".to_string(),None);
+                self.compile_function(function, "anonymous".to_string(),None,None);
             },
             TypedExprNodeKind::Call { callee, args } => {
                 self.compile_expr(callee);
@@ -739,7 +748,7 @@ impl Compiler{
                     let  function_placeholder = Function { name: mono_name, ..Default::default()};
                     let function_constant_index = self.add_constant(Constant::Function(Rc::new(function_placeholder)));
                     self.generic_functions[index].monos.push((name.clone(),function_constant_index));
-                    self.compile_function(&monoed_function, name,Some(function_constant_index));
+                    self.compile_function(&monoed_function, name,Some(function_constant_index),None);
                 }
             },
             TypedExprNodeKind::TypenameOf(ty) => {
@@ -882,8 +891,8 @@ impl Compiler{
             },
             TypedStmtNode::Fun { name, function} => {
                 let name = name.content.clone();
-                let index = self.declare_name(name.clone());
-                self.compile_function(function,name.clone(),None);
+                let index = self.declare_name(name.clone(),false);
+                self.compile_function(function,name.clone(),None,None);
                 self.emit_define_instruction(index,function.body.location.end_line);
             },
             TypedStmtNode::GenericFunction {function,name,.. } => {
@@ -898,7 +907,7 @@ impl Compiler{
             TypedStmtNode::Impl { ty, methods } => {
                 for method in methods{
                     let method_name = format!("{}::{}",ty,method.name.content);
-                    self.compile_function(&method.function, method_name.clone(), None);
+                    self.compile_function(&method.function, method_name.clone(), None,Some(method));
                     self.define_name(method_name, method.function.body.location.end_line);
                 }
             }

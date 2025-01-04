@@ -10,7 +10,8 @@ pub enum ValueKind{
 }
 #[derive(Clone)]
 struct Variable{
-    ty : Type
+    ty : Type,
+    by_ref : bool
 }
 #[derive(Clone)]
 struct Function{
@@ -19,10 +20,22 @@ struct Function{
     param_types : Vec<Type>,
     return_type : Type
 }
+pub struct Parameter{
+    pub is_by_ref : bool,
+    pub ty : Type
+}
+
+#[derive(Clone)]
+pub struct FunctionSignature{
+    pub generic_types : Vec<Type>,
+    pub param_types : Vec<Type>,
+    pub return_type : Type
+}
+
 #[derive(Clone)]
 pub struct Method{
     pub name : String,
-    pub has_self_param : bool,
+    pub self_param_info : Option<bool>,
     pub generic_types : Vec<Type>,
     pub param_types : Vec<Type>,
     pub return_type : Type
@@ -51,13 +64,13 @@ impl Environment{
         self.current_functions.push(IndexMap::new());
         self.current_associations.push(IndexMap::new());
     }
-    pub fn add_variable(&mut self,name:String,ty:Type){
-         self.current_variables.last_mut().unwrap().insert(name, Variable{ty});
+    pub fn add_variable(&mut self,name:String,ty:Type,by_ref : bool){
+         self.current_variables.last_mut().unwrap().insert(name, Variable{ty,by_ref});
     }
 
     pub fn add_variables(&mut self,variables : impl Iterator<Item = (String,Type)>){
         for (name,ty) in variables{
-            self.add_variable(name, ty);
+            self.add_variable(name, ty,false);
         }
     }
 
@@ -96,13 +109,13 @@ impl Environment{
         self.current_types.last().is_some_and(|types| types.contains_key(name))
     }
 
-    pub fn add_method(&mut self,ty:Type,name:String,has_self_param:bool,param_types:Vec<Type>,return_type : Type)->bool{
+    pub fn add_method(&mut self,ty:Type,name:String,self_param_info:Option<bool>,param_types:Vec<Type>,return_type : Type)->bool{
         let methods = self.current_associations.last_mut().unwrap();
         if !methods.contains_key(&ty){
             methods.insert(ty.clone(), HashMap::new());
         }
         let methods = methods.get_mut(&ty).unwrap();
-        methods.insert(name.clone(),Method{name,has_self_param,generic_types:Vec::new(),param_types,return_type}).is_none()
+        methods.insert(name.clone(),Method{name,self_param_info,generic_types:Vec::new(),param_types,return_type}).is_none()
     }
 
     pub fn get_method(&self,ty:&Type,name:&str)->Option<&Method>{

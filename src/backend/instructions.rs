@@ -29,6 +29,8 @@ pub enum Instruction {
     LoadUpvalue(u16),
     
     StoreUpvalue(u16),
+    LoadIndirect,
+    StoreIndirect,
     AddInt,
     SubtractInt,
     MultiplyInt,

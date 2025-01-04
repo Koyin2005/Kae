@@ -252,6 +252,7 @@ pub struct TypedEnumVariant{
 
 #[derive(Clone,Debug)]
 pub struct TypedMethod{
+    pub receiver_info : Option<bool>,
     pub name : Symbol,
     pub function : TypedFunction
 }

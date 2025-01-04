@@ -705,8 +705,9 @@ impl TypeChecker{
                 let (arg_types,return_type,field_ty,by_ref) = 
                 if let Some(method_info) = self.environment.get_method(&receiver.ty, &method.content){
                     let mut params = method_info.param_types.clone();
-                    let by_ref = if method_info.has_self_param{
-                        false
+                    let by_ref = if let Some(by_ref) = method_info.self_param_info{
+                        params.remove(0);
+                        by_ref
                     }
                     else{
                         self.error(format!("Cannot call method '{}' with no self parameter on type \"{}\".",method_info.name,receiver.ty), method.location.start_line);
@@ -1299,12 +1300,17 @@ impl TypeChecker{
                 self.self_type = Some(self_type.clone());
                 let Ok(methods) = methods.iter().map(|method|{
                     let signature = self.check_signature(&method.function)?;
-                    if !self.environment.add_method(self_type.clone(),method.name.content.clone(),method.has_receiver ,signature.params.clone().into_iter().map(|(_,ty)| ty).collect(), signature.return_type.clone()){
+                    let receiver_info = method.has_receiver.then(||{
+                        method.function.params.first().unwrap().by_ref
+                    });
+                    let is_repeated = !self.environment.add_method(self_type.clone(),method.name.content.clone(),receiver_info,
+                    signature.params.clone().into_iter().map(|(_,ty)| ty).collect(), signature.return_type.clone());
+                    if is_repeated{
                         self.error(format!("There is already a method with name '{}' for type \"{}\".",method.name.content,self_type), method.name.location.start_line);
                         return Err(TypeCheckFailed);
                     }
                     let method_function = self.check_function(&method.function, signature.clone())?;
-                    Ok(TypedMethod{name:method.name.clone(),function:method_function})
+                    Ok(TypedMethod{name:method.name.clone(),function:method_function,receiver_info})
                 }).collect::<Result<Vec<_>,TypeCheckFailed>>() else{
                     self.self_type = old_type;
                     return Err(TypeCheckFailed);

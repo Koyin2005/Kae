@@ -504,6 +504,15 @@ impl VM{
                         }
                     }
                 },
+                Instruction::LoadIndirect => {
+                    let reference = self.pop();
+                    self.push(self.get_ref(&reference).clone())?;
+                },
+                Instruction::StoreIndirect => {
+                    let value = self.pop();
+                    let address = self.peek(0);
+                    *self.get_ref_mut(address) = value;
+                },  
                 Instruction::GetArrayLength => {
                     let Value::Array(array) = self.peek_ref(0) else {
                         unreachable!("Expected an array got {}",self.peek_ref(0).format(&self.heap))
