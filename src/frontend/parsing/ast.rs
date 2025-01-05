@@ -255,12 +255,12 @@ pub struct ParsedGenericArgs{
 #[derive(Clone)]
 pub struct PathSegment{
     pub name : Symbol,
+    pub generic_args : Option<ParsedGenericArgs>,
     pub location : SourceLocation
 }
 #[derive(Clone)]
 pub struct ParsedPath{
     pub head : PathSegment,
-    pub generic_args : Option<ParsedGenericArgs>,
     pub segments : Vec<PathSegment>,
     pub location : SourceLocation
 }

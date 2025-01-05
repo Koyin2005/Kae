@@ -2,9 +2,16 @@ use std::{collections::HashSet, rc::Rc};
 
 use indexmap::{IndexMap, IndexSet};
 
-use crate::frontend::{parsing::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedFunction, ParsedGenericArgs, ParsedGenericParam, ParsedGenericParams, ParsedLogicalOp, ParsedPath, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PatternMatchArmNode, StmtNode, Symbol}, tokenizing::SourceLocation, typechecking::typed_ast::{TypedEnumVariant, TypedPatternMatchArm}};
+use crate::frontend::{parsing::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedFunction, ParsedGenericArgs, ParsedGenericParam, ParsedGenericParams, ParsedLogicalOp, ParsedPath, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PathSegment, PatternMatchArmNode, StmtNode, Symbol}, tokenizing::SourceLocation, typechecking::typed_ast::{TypedEnumVariant, TypedPatternMatchArm}};
 
-use super::{generics:: substitute, names::{ Environment, ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedMethod, TypedStmtNode, UnaryOp}, types::{EnumVariant, FunctionId, GenericArgs, Type, TypeContext}};
+use super::{generics:: substitute, names::{ Environment, ValueKind}, patterns::PatternChecker, typed_ast::{BinaryOp, GenericName, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTarget, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedFunctionSignature, TypedMethod, TypedStmtNode, UnaryOp}, types::{EnumId, EnumVariant, FunctionId, GenericArgs, Type, TypeContext}};
+
+
+enum Item{
+    Variant(Type,EnumId,usize),
+    Method(Type,Symbol,Option<Vec<Type>>),
+    Type(Type)
+}
 #[derive(Clone)]
 struct EnclosingFunction{
     return_type : Type
@@ -569,78 +576,7 @@ impl TypeChecker{
                 (Type::Function { generic_args:GenericArgs::default(), params: function.signature.params.iter().map(|(_,ty)| ty.clone()).collect(), return_type:Box::new(function.signature.return_type.clone()) },TypedExprNodeKind::Function(function))
             },
             ExprNodeKind::GetPath(path) => {
-                let head = &path.head;
-                let head_name = path.head.name.content.clone();
-                match path.generic_args.as_ref() {
-                    Some(args) => {
-                        let ParsedGenericArgs{
-                            location,
-                            types
-                        } = args;
-                        let ty = if let Some(ty) = self.environment.get_type(&head.name.content){
-                            if !ty.is_unknown(){
-                                ty.clone()
-                            }
-                            else{
-                                return Err(TypeCheckFailed);
-                            }
-                        }
-                        else if let Some((function,ValueKind::Function)) = self.get_type_of_value(&head_name){
-                            function
-                        }
-                        else {
-                            self.error(format!("Cannot find type '{}' in scope.",head_name), expr.location.start_line);
-                            return Err(TypeCheckFailed);
-                        };
-                        let args = types.iter().map(|ty| self.check_type(ty)).collect::<Result<Vec<Type>,_>>()?;
-                        let Some(mut params) = ty.get_generic_args() else{
-                            self.error(format!("Cannot apply generic args to non-generic type \"{}\".",ty),location.start_line);
-                            return Err(TypeCheckFailed);
-                        };
-                        if args.len() != params.len(){
-                            self.error(format!("Expected '{}' generic args got '{}'.",params.len(),args.len()), location.start_line);
-                            return Err(TypeCheckFailed);
-                        }
-                        for (value,ty) in params.iter_mut().zip(args.iter().cloned()){
-                            *value = ty;
-                        }
-                        let ty = substitute(ty, &params);
-                        if path.segments.is_empty(){
-                            (substitute(ty,&params),TypedExprNodeKind::GetGeneric{name:head.name.content.clone(), args })
-                        }
-                        else{
-                            self.get_expr_path(path, ty)?
-                        }
-                    },
-                    None => {
-                        if let Some(ty) = self.environment.get_type(&head.name.content){
-                            let ty = if !ty.is_unknown(){
-                                ty.clone()
-                            }
-                            else{
-                                return Err(TypeCheckFailed);
-                            };
-                            if !ty.is_closed(){
-                                self.error(format!("Cannot use generic type \"{}\".",ty), path.location.start_line);
-                                return Err(TypeCheckFailed);
-                            }
-                            self.get_expr_path(path,ty)?
-                        }
-                        else{
-                            let (mut ty,mut expr) = self.infer_variable_expr_type(head.location, &head_name)?;
-                            for segment in &path.segments{
-                                let property = segment.name.clone();
-                                let Some(property_type) = ty.get_field(&property.content,&self.type_context) else{
-                                    self.error(format!("\"{}\" has no field or method '{}'.",ty,property.content),property.location.start_line);
-                                    return Err(TypeCheckFailed);
-                                };
-                                let location = property.location;
-                                (ty,expr) = (property_type,TypedExprNodeKind::Field(Box::new(TypedExprNode { location, ty, kind:expr }), property.clone()));
-                            }
-                            (ty,expr)
-                        }
-                    }
-                }
+                self.get_expr_path(path)?
             },
             ExprNodeKind::Logical { op, left, right } => {
                 let op = match op {
@@ -843,170 +779,196 @@ impl TypeChecker{
         };
         Ok(TypedExprNode { location: expr.location, ty, kind })
     }
-    fn get_expr_path(&mut self,path:&ParsedPath,ty:Type)->Result<(Type, TypedExprNodeKind), TypeCheckFailed>{ 
-
-        enum Item{
-            Type(Type),
-            Method(Type,TypedExprNodeKind),
-            Variant(Type,TypedExprNodeKind),
-        }
-        let mut current = Item::Type(ty.clone());
-        let mut last_type = ty;
-        for segment in &path.segments{
-            let segment_name = segment.name.content.clone();
-            let next = match current{
-                Item::Type(ty) => {
-                    let variant = if let Type::Enum {  id,generic_args,.. } = ty.clone(){
-                        self.type_context.enums.get_enum(id).variants.iter().find(|variant| variant.name == segment_name ).map(|variant|{
-                            last_type = Type::EnumVariant { generic_args, id, name: variant.name.clone(), variant_index: variant.discrim };
-                            Item::Variant(ty.clone(),TypedExprNodeKind::StructInit { kind: InitKind::Variant(id, variant.discrim), fields:Vec::new() })
-                        })
-                    }
-                    else{
-                        None
-                    };
-                    let method = if variant.is_none(){
-                        self.environment.get_method(&ty, &segment_name).map(|method|{
-                            let method_type = Type::Function { generic_args: method.generic_types.clone(), params: method.param_types.clone(), return_type:Box::new(method.return_type.clone()) };
-                            Item::Method(method_type,TypedExprNodeKind::GetMethod { ty:ty.clone(), method:segment.name.clone() })
-                        })
-                    }
-                    else{
-                        None
-                    };
-                    variant.or(method)
-                },
-                _ => None
-            };
-            let Some(next) = next else {
-                self.error(format!("\"{}\" has no variant or method '{}'.",last_type,segment_name), segment.location.start_line);
-                return Err(TypeCheckFailed);
-            };
-            current = next;
-
-        }
-
-        match current{
-            Item::Method(ty, expr) | Item::Variant(ty, expr) => {
-                Ok((ty,expr))
-            },
+    fn next_item(&mut self,item:Item,segment:&PathSegment,full_location : SourceLocation)->Result<Item,TypeCheckFailed>{
+        let next_item = match item{
             Item::Type(ty) => {
-                self.error(format!("Expected an expression got type \"{}\".",ty),path.location.start_line);
-                Err(TypeCheckFailed)
+                if let Type::Enum { id,generic_args,.. } = ty{
+                    self.type_context.enums.get_enum(id).variants.iter().find(|variant| &variant.name == &segment.name.content).map(|variant| 
+                        Item::Variant(Type::EnumVariant { generic_args, id, name:variant.name.clone(), variant_index: variant.discrim },id, variant.discrim))
+                }
+                else if let Some(method) = self.environment.get_method(&ty, &segment.name.content){
+                    Some(Item::Method(ty.clone(),segment.name.clone(),method.generic_types.clone()))
+                }
+                else{
+                    None
+                }
+            },
+            _ => None
+            
+        };
+        let Some(next_item) = next_item else {
+            self.error("Invalid path.".to_string(), full_location.start_line);
+            return Err(TypeCheckFailed);
+        };
+        let generic_args = if let Some(parsed_generic_args) = &segment.generic_args{
+            let generic_args = self.check_generic_args(parsed_generic_args)?;
+            
+            Some((generic_args,parsed_generic_args.location))
+        }
+        else{
+            None
+        };
+        if let Some((generic_args,location)) = generic_args{
+            match next_item{
+                Item::Type(ty) => {
+                    let ty = self.get_substituted(ty, &generic_args,location)?;
+                    Ok(Item::Type(ty))
+                }
+                Item::Method(ty, method,expected) => {
+                    let generic_arg = if let Some(expected_generic_args) = expected{
+                        if generic_args.len() != expected_generic_args.len(){
+                            self.error(format!("Expected '{}' generic arguments got '{}'.",expected_generic_args.len(),generic_args.len()),location.start_line);
+                            return Err(TypeCheckFailed);
+                        }
+                        Some(generic_args)
+                    }
+                    else{
+                        None
+                    };
+                    Ok(Item::Method(ty, method, generic_arg))
+                },
+                Item::Variant(..) => {
+                    self.error(format!("Cannot pass generic parameters to variant type."), segment.location.start_line);
+                    Err(TypeCheckFailed)
+                }
+            }
+        }
+        else if let Item::Method(ty, method,expected) = next_item {
+            if let Some(expected_generic_args) = expected{
+                self.error(format!("Expected '{}' generic arguments got '{}'.",expected_generic_args.len(),0),segment.location.start_line);
+                return Err(TypeCheckFailed);
+            }
+            else{
+                Ok(Item::Method(ty, method, expected))
+            }
+        }
+        else{
+            
+            Ok(next_item)
+        }
+    }
+
+    fn get_item_from_path(&mut self,path:&ParsedPath)->Result<Item,TypeCheckFailed>{
+        let ty = self.get_named_type(&path.head.name)?;
+        let generic_args = if let Some(generic_args) = path.head.generic_args.as_ref() { Some((self.check_generic_args(generic_args)?,generic_args.location)) } else {None};
+        let mut item =  Item::Type(if let Some((generic_args,location)) = generic_args { self.get_substituted(ty,&generic_args ,location )?}else { ty });
+        for segment in &path.segments{
+            item = self.next_item(item,segment, path.location)?;
+        }
+        Ok(item) 
+    }
+    fn get_expr_path(&mut self,path:&ParsedPath)->Result<(Type, TypedExprNodeKind), TypeCheckFailed>{
+        if path.segments.is_empty(){
+            if let Some(generic_args) = path.head.generic_args.as_ref(){
+                if let Some((ty,ValueKind::Function)) = self.get_type_of_value(&path.head.name.content){
+                    let Type::Function { generic_args:expected,.. } = ty.clone() else {
+                        unreachable!("Can't have non function with function value.")
+                    };
+                    let generic_args = self.check_generic_args(generic_args)?;
+                    if generic_args.len() != expected.len(){
+                        self.error(format!("Expected '{}' generic arguments got '{}'.",expected.len(),generic_args.len()),path.head.location.start_line);
+                        return Err(TypeCheckFailed);
+                    }
+                    return Ok((substitute(ty, &generic_args),TypedExprNodeKind::GetGeneric { name:GenericName::Function(path.head.name.content.clone()), args: generic_args}));
+                }
+                else{
+                    self.error("Can only pass generic args to functions or types.".to_string(), path.head.location.start_line);
+                    return Err(TypeCheckFailed);
+                }
+            }
+            return self.infer_variable_expr_type(path.location, &path.head.name.content);
+        }
+        else{
+            let item = self.get_item_from_path(path)?;
+            match item {
+                Item::Method(base_type, method_name, generic_args) =>{
+                    let method = self.environment.get_method(&base_type, &method_name.content).expect("Already checked for method.");
+                    let ty = Type::Function { generic_args: method.generic_types.clone().unwrap_or_default(), params: method.param_types.clone(), return_type: Box::new(method.return_type.clone())};
+                    if let Some(generic_args) = generic_args{
+                        Ok((substitute(ty, &generic_args),TypedExprNodeKind::GetGeneric { name:GenericName::Method{
+                            ty:base_type,
+                            method_name:method_name.content,
+                        }, args: generic_args}))
+                    }
+                    else{
+                        
+                        Ok((ty,TypedExprNodeKind::GetMethod { ty: base_type, method: method_name }))
+                    }
+                },
+                Item::Variant(ty, enum_id, discrim) => {
+                    let variant = &self.type_context.enums.get_enum(enum_id).variants[discrim];
+                    if !variant.fields.is_empty(){
+                        let variant_name = variant.name.clone();
+                        self.error(format!("Cannot initialize '{}' variant without fields.",variant_name), path.location.start_line);
+                        return Err(TypeCheckFailed);
+                    }
+                    else{
+                        Ok((ty,TypedExprNodeKind::StructInit { kind: InitKind::Variant(enum_id, discrim), fields: Vec::new() }))
+                    }
+                },
+                Item::Type(ty) => {
+                    self.error(format!("Cannot get value for type '{}'.",ty), path.location.start_line);
+                    return Err(TypeCheckFailed);
+                }
             }
         }
     }
-    fn check_type(&mut self,ty:&ParsedType)->Result<Type,TypeCheckFailed>{
-        fn get_substituted(this:&mut TypeChecker,ty:Type,args:&ParsedGenericArgs)->Result<Type,TypeCheckFailed>{
-
-            let generic_args = args.types.iter().map(|ty| this.check_type(ty)).collect::<Result<Vec<_>,_>>()?;
-            let expected_args = match &ty { 
-                Type::Struct { generic_args, .. }|Type::Enum { generic_args, .. } if generic_args.iter().all(|ty| !ty.is_closed()) => {
-                    generic_args
-                },
-                ty => {
-                    this.error(format!("Cannot apply generic args to non-generic type \"{}\".",ty), args.location.start_line);
-                    return Err(TypeCheckFailed);
-                }
-            };
-            if generic_args.len() != expected_args.len(){
-                this.error(format!("Expected '{}' generic args, but got '{}'.",expected_args.len(),generic_args.len()),args.location.start_line);
+    fn check_generic_args(&mut self,args:&ParsedGenericArgs)->Result<Vec<Type>,TypeCheckFailed>{
+        args.types.iter().map(|ty| self.check_type(ty)).collect::<Result<Vec<_>,_>>()
+    }
+    fn get_substituted(&mut self,ty:Type,generic_args:&[Type],location : SourceLocation)->Result<Type,TypeCheckFailed>{
+        let expected_args = match &ty { 
+            Type::Struct { generic_args, .. }|Type::Enum { generic_args, .. } if generic_args.iter().all(|ty| !ty.is_closed()) => {
+                generic_args
+            },
+            ty => {
+                self.error(format!("Cannot apply generic args to non-generic type \"{}\".",ty), location.start_line);
                 return Err(TypeCheckFailed);
             }
-            let subbed_generic_args = generic_args;
-            Ok(substitute(ty, &subbed_generic_args))
+        };
+        if generic_args.len() != expected_args.len(){
+            self.error(format!("Expected '{}' generic args, but got '{}'.",expected_args.len(),generic_args.len()),location.start_line);
+            return Err(TypeCheckFailed);
         }
-        fn get_type_at_path(this:&mut TypeChecker,path:&ParsedPath)->Result<Type,TypeCheckFailed>{
-            
-            let ty = get_named_type(this, &path.head.name)?;
-            if path.head.name.content == "Self" && path.generic_args.is_some(){
-                this.error("Cannot use \"Self\" type with generic args.".to_string(), path.head.location.start_line);
-                return Err(TypeCheckFailed);
+        let subbed_generic_args = generic_args;
+        Ok(substitute(ty, &subbed_generic_args))
+    }
+    fn get_named_type(&mut self,name:&Symbol)->Result<Type,TypeCheckFailed>{
+        Ok(match &name.content as &str{
+            "int" => Type::Int,
+            "float" => Type::Float,
+            "string" => Type::String,
+            "bool" => Type::Bool,
+            "never" => Type::Never,
+            "Self" => if let Some(ty) = self.self_type.clone() {
+                ty
             }
-            let ty = match path.generic_args.as_ref(){
-                Some(args) if path.segments.is_empty() => {
-                    get_substituted(this, ty, args)?
-                },
-                None if path.segments.is_empty() => {
-                    if !matches!(&ty,Type::Param { ..}) && !ty.is_closed(){
-                        this.error(format!("Cannot use generic type \"{}\" without type args.",ty), path.head.location.start_line);
-                        return Err(TypeCheckFailed);
-                    }
-                    ty
-                },
-                Some(generic_args) => {
-                    let mut ty = get_substituted(this, ty, generic_args)?;
-                    for segment in &path.segments{
-                        let segment_name = segment.name.content.clone();
-                        let mut result_ty = None;
-                        if let Type::Enum { id, generic_args,.. } = &ty{
-                            if let Some(variant) = this.type_context.enums.get_enum(*id).variants.iter().find(|variant| variant.name == segment_name){
-                                result_ty = Some(Type::EnumVariant { id:*id, name: variant.name.clone(), variant_index: variant.discrim ,generic_args:generic_args.clone()})
-                            }
-                        }
-                        ty = if let Some(result_ty) = result_ty{
-                            result_ty
-                        }
-                        else{
-                            this.error(format!("\"{}\" does not have variant '{}'.",ty,segment.name.content), segment.location.start_line);
-                            return Err(TypeCheckFailed);
-                        }
-
-                    }
-                    ty
-                },
-                None => {
-                    let mut ty = ty;
-                    for segment in &path.segments{
-                        let segment_name = segment.name.content.clone();
-                        let mut result_ty = None;
-                        if let Type::Enum { id, generic_args,.. } = &ty{
-                            if let Some(variant) = this.type_context.enums.get_enum(*id).variants.iter().find(|variant| variant.name == segment_name){
-                                result_ty = Some(Type::EnumVariant { id:*id, name: variant.name.clone(), variant_index: variant.discrim ,generic_args:generic_args.clone()})
-                            }
-                        }
-                        ty = if let Some(result_ty) = result_ty{
-                            result_ty
-                        }
-                        else{
-                            this.error(format!("\"{}\" does not have variant '{}'.",ty,segment.name.content), segment.location.start_line);
-                            return Err(TypeCheckFailed);
-                        }
-
-                    }
-                    ty
+            else{
+                self.error("Cannot use \"Self\" in this context.".to_string(),name.location.start_line);
+                return Err(TypeCheckFailed);
+            },
+            type_name => {
+                if let Some(index) = self.generic_param_names.iter().rev().position(|name| name == type_name){
+                    Type::new_param_type(type_name.to_string(), self.generic_param_names.len() - index - 1)
                 }
-            };
-            Ok(ty)
-        }
-        fn get_named_type(this:&mut TypeChecker,name:&Symbol)->Result<Type,TypeCheckFailed>{
-
-            Ok(match &name.content as &str{
-                "int" => Type::Int,
-                "float" => Type::Float,
-                "string" => Type::String,
-                "bool" => Type::Bool,
-                "never" => Type::Never,
-                "Self" => if let Some(ty) = this.self_type.clone() {
-                    ty
+                else if let Some(ty) = self.environment.get_type(type_name){
+                    ty.clone()
                 }
                 else{
-                    this.error("Cannot use \"Self\" in this context.".to_string(),name.location.start_line);
+                    self.error(format!("Used undefined type \"{}\".",name.content), name.location.start_line);
                     return Err(TypeCheckFailed);
-                },
-                type_name => {
-                    if let Some(index) = this.generic_param_names.iter().rev().position(|name| name == type_name){
-                        Type::new_param_type(type_name.to_string(), this.generic_param_names.len() - index - 1)
-                    }
-                    else if let Some(ty) = this.environment.get_type(type_name){
-                        ty.clone()
-                    }
-                    else{
-                        this.error(format!("Used undefined type \"{}\".",name.content), name.location.start_line);
-                        return Err(TypeCheckFailed);
-                    }
                 }
-            })
+            }
+        })
+    }
+    fn check_type(&mut self,ty:&ParsedType)->Result<Type,TypeCheckFailed>{
+        
+        fn get_type_at_path(this:&mut TypeChecker,path:&ParsedPath)->Result<Type,TypeCheckFailed>{
+            let (Item::Type(ty) | Item::Variant(ty,..)) = this.get_item_from_path(path)? else {
+                this.error(format!("Cannot get a type from this path."), path.location.start_line);
+                return Err(TypeCheckFailed);
+            };
+            Ok(ty)
         }
         let ty = match ty{
             ParsedType::Path(path) => {
@@ -1298,21 +1260,27 @@ impl TypeChecker{
                 let self_type = self.check_type(ty)?;
                 let old_type = self.self_type.take();
                 self.self_type = Some(self_type.clone());
+                let generic_param_count = self.generic_param_names.len();
                 let Ok(methods) = methods.iter().map(|method|{
+                    let generic_params = self.check_generic_params_def(method.generic_params.as_ref())?;
+                    let generic_params = self.convert_to_generic_params(&generic_params);
+                    let is_generic = generic_params.is_some();
                     let signature = self.check_signature(&method.function)?;
                     let receiver_info = method.has_receiver.then(||{
                         method.function.params.first().unwrap().by_ref
                     });
                     let is_repeated = !self.environment.add_method(self_type.clone(),method.name.content.clone(),receiver_info,
-                    signature.params.clone().into_iter().map(|(_,ty)| ty).collect(), signature.return_type.clone());
+                    signature.params.clone().into_iter().map(|(_,ty)| ty).collect(), signature.return_type.clone(),generic_params.map(|params| params.into_iter()));
                     if is_repeated{
                         self.error(format!("There is already a method with name '{}' for type \"{}\".",method.name.content,self_type), method.name.location.start_line);
                         return Err(TypeCheckFailed);
                     }
                     let method_function = self.check_function(&method.function, signature.clone())?;
-                    Ok(TypedMethod{name:method.name.clone(),function:method_function,receiver_info})
+                    self.generic_param_names.truncate(generic_param_count);
+                    Ok(TypedMethod{name:method.name.clone(),function:method_function,receiver_info,is_generic})
                 }).collect::<Result<Vec<_>,TypeCheckFailed>>() else{
                     self.self_type = old_type;
+                    self.generic_param_names.truncate(generic_param_count);
                     return Err(TypeCheckFailed);
                 };
                 

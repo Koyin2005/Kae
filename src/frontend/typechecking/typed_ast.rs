@@ -159,7 +159,7 @@ pub enum TypedExprNodeKind{
         expr : Option<Box<TypedExprNode>>
     },
     GetGeneric{
-        name : String,
+        name : GenericName,
         args : Vec<Type>
     },
     TypenameOf(Type),
@@ -254,5 +254,15 @@ pub struct TypedEnumVariant{
 pub struct TypedMethod{
     pub receiver_info : Option<bool>,
     pub name : Symbol,
+    pub is_generic : bool,
     pub function : TypedFunction
+}
+
+#[derive(Clone,Debug)]
+pub enum GenericName{
+    Function(String),
+    Method{
+        ty : Type,
+        method_name : String
+    }
 }

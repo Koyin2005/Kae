@@ -307,7 +307,7 @@ impl<'a> Parser<'a>{
                     kind: ExprNodeKind::StructInit { path, fields } 
                 })
         }
-        else if path.generic_args.is_none() && path.segments.is_empty(){
+        else if path.segments.is_empty(){
             Ok(ExprNode{
                 location : path.head.location,
                 kind : ExprNodeKind::Get(path.head.name.content)
@@ -473,29 +473,8 @@ impl<'a> Parser<'a>{
             ExprNodeKind::Property(lhs,field  ) => {
                 ParsedAssignmentTargetKind::Field { lhs, field }
             },
-            ExprNodeKind::GetPath(path) if path.generic_args.is_none() => {
-                if path.segments.is_empty(){
-                    ParsedAssignmentTargetKind::Name(path.head.name.content)
-                }
-                else{
-                    enum PathKind{
-                        Variable(Symbol),
-                        Property(ExprNode,Symbol)
-                    }
-                    let mut kind = PathKind::Variable(path.head.name);
-                    for segment in path.segments{
-                        let expr = match kind{
-                            PathKind::Variable(name) => ExprNode{location:name.location,kind:ExprNodeKind::Get(name.content)},
-                            PathKind::Property(expr, property) => ExprNode { location: property.location, kind: ExprNodeKind::Property(Box::new(expr), property) }
-                        };
-                        kind = PathKind::Property(expr, segment.name);
-                    }
-                    match kind{
-                        PathKind::Variable(variable) => ParsedAssignmentTargetKind::Name(variable.content),
-                        PathKind::Property(expr, property) => ParsedAssignmentTargetKind::Field { lhs: Box::new(expr), field: property }
-                    }
-
-                }
+            ExprNodeKind::GetPath(path) if path.segments.is_empty() => {
+                ParsedAssignmentTargetKind::Name(path.head.name.content)
             }
             _ => {
                 self.error("Invalid assignment target.");
@@ -638,25 +617,25 @@ impl<'a> Parser<'a>{
             return Err(ParsingFailed);
         })
     }
-    fn parse_path_segment(&mut self,)->Result<PathSegment,ParsingFailed>{
+    fn parse_path_segment(&mut self,include_colon:bool)->Result<PathSegment,ParsingFailed>{
         let name = self.prev_token;
-        let name = Symbol{content:name.lexeme.to_string(),location:SourceLocation::one_line(name.line)};
-        Ok(PathSegment {  location: SourceLocation::new(name.location.start_line, self.prev_token.line),name })
-    }
-    fn parse_path(&mut self,include_colon:bool)->Result<ParsedPath,ParsingFailed>{
-        let head = self.parse_path_segment()?;
         let generic_args = if (include_colon && self.matches(TokenKind::Colon)) || (!include_colon && self.check(TokenKind::LeftBracket)){
             Some(self.parse_generic_args()?)
         }
         else{
             None
         };
+        let name = Symbol{content:name.lexeme.to_string(),location:SourceLocation::one_line(name.line)};
+        Ok(PathSegment {  location: SourceLocation::new(name.location.start_line, self.prev_token.line),name ,generic_args})
+    }
+    fn parse_path(&mut self,include_colon:bool)->Result<ParsedPath,ParsingFailed>{
+        let head = self.parse_path_segment(include_colon)?;
         let mut segments = Vec::new();
         while self.matches(TokenKind::DoubleColon){
-            self.advance();
-            segments.push(self.parse_path_segment()?);
+            self.expect(TokenKind::Identifier, "Expected valid name for path segment.");
+            segments.push(self.parse_path_segment(false)?);
         }
-        Ok(ParsedPath {location: SourceLocation::new(head.location.start_line, self.prev_token.line), head, segments,generic_args  })
+        Ok(ParsedPath {location: SourceLocation::new(head.location.start_line, self.prev_token.line), head, segments  })
     }
     fn pattern(&mut self)->Result<ParsedPatternNode,ParsingFailed>{
         let (location,kind) = if self.matches(TokenKind::Identifier){
@@ -690,18 +669,14 @@ impl<'a> Parser<'a>{
             else if path.head.name.content.chars().all(|char| char == '_') && path.segments.iter().all(|segment| segment.name.content.chars().all(|char| char == '_')){
                 (path.location,ParsedPatternNodeKind::Wildcard)
             }
-            else if path.segments.is_empty() && path.generic_args.is_none(){
-                if self.matches(TokenKind::Is){
-                    let pattern = self.pattern()?;
-                    (path.head.location,ParsedPatternNodeKind::Is(path.head.name, Box::new(pattern)))
-                }
-                else{
-                    (path.head.location,ParsedPatternNodeKind::Name(path.head.name.content))
-                }
+            else if self.matches(TokenKind::Is){
+                let pattern = self.pattern()?;
+                (path.head.location,ParsedPatternNodeKind::Is(path.head.name, Box::new(pattern)))
             }
             else{
-                (path.location,ParsedPatternNodeKind::Struct { path, fields: vec![] })
+                (path.head.location,ParsedPatternNodeKind::Name(path.head.name.content))
             }
+            
         }
         else if self.matches(TokenKind::LeftBracket){
             let start = self.prev_token.line;
@@ -918,9 +893,10 @@ impl<'a> Parser<'a>{
                                content: "Self".to_string(), 
                                location: self_name.location 
                            },
-                           location: self_name.location
+                           location: self_name.location,
+                           generic_args : None,
                        },
-                       generic_args:None,segments:Vec::new(),location:name.location}
+                       segments:Vec::new(),location:name.location}
                    ),
                    by_ref : self_param == SelfParam::ByRef
                 }

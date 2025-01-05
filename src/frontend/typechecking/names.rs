@@ -36,7 +36,7 @@ pub struct FunctionSignature{
 pub struct Method{
     pub name : String,
     pub self_param_info : Option<bool>,
-    pub generic_types : Vec<Type>,
+    pub generic_types : Option<Vec<Type>>,
     pub param_types : Vec<Type>,
     pub return_type : Type
 }
@@ -109,13 +109,13 @@ impl Environment{
         self.current_types.last().is_some_and(|types| types.contains_key(name))
     }
 
-    pub fn add_method(&mut self,ty:Type,name:String,self_param_info:Option<bool>,param_types:Vec<Type>,return_type : Type)->bool{
+    pub fn add_method(&mut self,ty:Type,name:String,self_param_info:Option<bool>,param_types:Vec<Type>,return_type : Type,generic_params : Option<impl Iterator<Item = Type>>)->bool{
         let methods = self.current_associations.last_mut().unwrap();
         if !methods.contains_key(&ty){
             methods.insert(ty.clone(), HashMap::new());
         }
         let methods = methods.get_mut(&ty).unwrap();
-        methods.insert(name.clone(),Method{name,self_param_info,generic_types:Vec::new(),param_types,return_type}).is_none()
+        methods.insert(name.clone(),Method{name,self_param_info,generic_types:generic_params.map(|params| params.collect()),param_types,return_type}).is_none()
     }
 
     pub fn get_method(&self,ty:&Type,name:&str)->Option<&Method>{

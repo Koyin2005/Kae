@@ -1,6 +1,6 @@
 use std::{rc::Rc, usize};
 
-use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program, StructInfo}, natives::{native_input, native_panic}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedMethod, TypedStmtNode, UnaryOp}, types::{Enum, EnumId, Struct, StructId, Type, TypeContext}}};
+use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program, StructInfo}, natives::{native_input, native_panic}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, GenericName, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedMethod, TypedStmtNode, UnaryOp}, types::{Enum, EnumId, Struct, StructId, Type, TypeContext}}};
 
 
 struct Local{
@@ -730,13 +730,17 @@ impl Compiler{
                 self.emit_instruction(Instruction::Return, expr.location.end_line);
             },
             TypedExprNodeKind::GetGeneric { name, args } => {
+                let name = match name {
+                    GenericName::Function(name) => name.to_string(),
+                    GenericName::Method { ty, method_name } => format!("{}::{}",ty,method_name)
+                };
                 let Some((index,generic_function)) = self.generic_functions.iter().enumerate().rev()
-                    .find(|(_,generic_function)| &generic_function.name == name) else {
-                        self.load_name(name,expr.location.end_line);
+                    .find(|(_,generic_function)| generic_function.name == name) else {
+                        self.load_name(&name,expr.location.end_line);
                         return;
                     };
 
-                let name = sub_name(name, args);
+                let name = sub_name(&name, args);
                 if let Some((_,constant))  = generic_function.monos.iter().find(|(monoed_name,..)| monoed_name == &name){
                     self.load_constant_at_index(*constant, expr.location.end_line);
                 }
@@ -907,8 +911,13 @@ impl Compiler{
             TypedStmtNode::Impl { ty, methods } => {
                 for method in methods{
                     let method_name = format!("{}::{}",ty,method.name.content);
-                    self.compile_function(&method.function, method_name.clone(), None,Some(method));
-                    self.define_name(method_name, method.function.body.location.end_line);
+                    if !method.is_generic{
+                        self.compile_function(&method.function, method_name.clone(), None,Some(method));
+                        self.define_name(method_name, method.function.body.location.end_line);
+                    }
+                    else {
+                        self.generic_functions.push(GenericFunction{name:method_name,depth:self.scope_depth,template:method.function.clone(),monos:Vec::new()});
+                    }
                 }
             }
         }
