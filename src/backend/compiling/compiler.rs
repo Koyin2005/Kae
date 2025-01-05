@@ -684,7 +684,7 @@ impl Compiler{
             },
             TypedExprNodeKind::Assign { lhs, rhs } => {
                 match &lhs.kind{
-                    TypedAssignmentTargetKind::Name(name) => {
+                    TypedAssignmentTargetKind::Variable(name) => {
                         if let Some(&Local {  index, by_ref:true,.. }) = self.get_local(&name){
                             self.emit_instruction(Instruction::LoadLocal(index as u16),lhs.location.start_line);
                         }

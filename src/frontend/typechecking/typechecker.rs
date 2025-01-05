@@ -277,7 +277,7 @@ impl TypeChecker{
     fn infer_assignment_target(&mut self,assignment_target : &ParsedAssignmentTarget)->Result<TypedAssignmentTarget,TypeCheckFailed>{
         let (ty,kind) = match &assignment_target.kind{
             ParsedAssignmentTargetKind::Name(name) => {
-                (self.check_value_in_scope(name,assignment_target.location)?,TypedAssignmentTargetKind::Name(name.clone()))
+                (self.check_value_in_scope(name,assignment_target.location)?,TypedAssignmentTargetKind::Variable(name.clone()))
             },
             ParsedAssignmentTargetKind::Index { lhs, rhs } => {
                 let (ty,lhs,rhs) = self.infer_index_expr_type(assignment_target.location,lhs,rhs)?;

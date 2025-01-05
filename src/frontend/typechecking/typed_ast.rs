@@ -80,7 +80,7 @@ pub struct TypedPatternMatchArm{
 }
 #[derive(Clone,Debug)]
 pub enum TypedAssignmentTargetKind{
-    Name(String),
+    Variable(String),
     Index{
         lhs : Box<TypedExprNode>,
         rhs : Box<TypedExprNode>
