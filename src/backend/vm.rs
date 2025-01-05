@@ -663,8 +663,8 @@ impl VM{
                     self.push(self.peek(offset))?;
                 },
                 Instruction::Print(args) => {
-                    for offset in (0..args).rev(){
-                        if offset > 0{
+                    for (i,offset) in (0..args).rev().enumerate(){
+                        if i > 0{
                             if let Some(debug_buffer) = debug_buffer.as_mut(){
                                 debug_buffer.push(' ');
                             }
@@ -672,11 +672,12 @@ impl VM{
                                 print!(" ");
                             }
                         }
+                        let value = self.peek(offset as usize);
                         if let Some(debug_buffer) = debug_buffer.as_mut(){
-                            debug_buffer.push_str(&self.peek(offset as usize).format(&self.heap));
+                            debug_buffer.push_str(&value.format(&self.heap));
                         }
                         else{
-                            self.peek(offset as usize).print(&self.heap);
+                            value.print(&self.heap);
                         }
                     }
                     self.stack.truncate(self.stack.len() - args as usize);
@@ -688,43 +689,6 @@ impl VM{
                         println!();
                     }
                 },
-                Instruction::PrintValue(after) => {
-                    let value = self.pop();
-                    if let Some(buffer) = debug_buffer.as_mut(){
-                        buffer.push_str(&value.format(&self.heap));
-                        if let Some(after) = after{
-                            let after = after as char;
-                            if after == '\n'{
-                                println!("{}",buffer);
-                                buffer.clear();
-                            }
-                            else{
-                                buffer.push(after);
-                            }
-                        }
-                    }
-                    else{
-                        value.print(&self.heap);
-                        if let Some(after) = after{
-                            print!("{}",after as char);
-                        }
-                    }
-                },
-                Instruction::PrintAscii(byte)=>{
-                    if let Some(buffer) = debug_buffer.as_mut(){
-                        let byte_char = byte as char;
-                        if byte_char == '\n'{
-                            println!("{}",buffer);
-                            buffer.clear();
-                        }
-                        else{
-                            buffer.push(byte_char);
-                        }
-                    }
-                    else{
-                        print!("{}",byte as char);
-                    }
-                }
                 Instruction::Call(args) => {
                     let arg_count = args as usize;
                     let function = self.peek(arg_count);
