@@ -1,6 +1,6 @@
 use std::{rc::Rc, usize};
 
-use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program, ProgramMetadata, StructInfo}, natives::{native_input, native_panic}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, GenericName, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedMethod, TypedStmtNode, UnaryOp}, types::{Enum, EnumId, Struct, StructId, Type, TypeContext}}};
+use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program, ProgramMetadata, StructInfo, VariantInfo}, natives::{native_input, native_panic}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, GenericName, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedMethod, TypedStmtNode, UnaryOp}, types::{Enum, EnumId, Struct, StructId, Type, TypeContext}}};
 
 
 struct Local{
@@ -43,8 +43,7 @@ pub struct Compiler{
     functions : Vec<CompiledFunction>,
     scope_depth : usize,
     type_context : TypeContext,
-    mono_counter : usize,
-    anonymous_var_counter:usize
+    mono_counter : usize
 }
 impl Compiler{
     fn get_field_offset(&self,base_ty:&Type,name:&str)->usize{
@@ -250,9 +249,8 @@ impl Compiler{
             self.emit_instruction(Instruction::Pop, line);
         }
     }
-    fn add_struct_metadata(&mut self,struct_id : StructId,name:String)-> usize{
-        let struct_ = self.get_struct_info(&struct_id);
-        self.metadata.push(ProgramMetadata::Struct(StructInfo { name, field_count: struct_.fields.len() }));
+    fn add_metadata(&mut self,metadata : ProgramMetadata)-> usize{
+        self.metadata.push(metadata);
         self.metadata.len() - 1
     }
 
@@ -773,19 +771,28 @@ impl Compiler{
                 }
             },
             TypedExprNodeKind::StructInit { kind,fields } => {
-                match kind{
+                let ty = match kind{
                     InitKind::Struct(struct_id) => {
-                        let struct_metadata = self.add_struct_metadata(*struct_id, format!("{}",expr.ty));
+                        let struct_metadata = self.add_metadata(ProgramMetadata::Struct(StructInfo { name: format!("{}",expr.ty), field_count: self.get_struct_info(struct_id).fields.len() }));
                         self.emit_instruction(Instruction::BuildRecord(struct_metadata),expr.location.start_line);
-                        for (field_name,field_expr) in fields{
-                            let field_offset = self.get_field_offset(&expr.ty, &field_name);
-                            self.compile_expr(field_expr);
-                            self.emit_instruction(Instruction::StoreField(field_offset as u16), expr.location.end_line);
-                        }
+                        expr.ty.clone()
                     },
-                    InitKind::Variant(..) => {
-                        todo!("ADD SUPPORT FOR THIS")
+                    InitKind::Variant(enum_id,discriminant) => {
+                        let Type::Enum { generic_args, id, name } = expr.ty.clone() else {
+                            unreachable!("Can't construct a non enum variant {}",expr.ty)
+                        };
+                        let variant = &self.get_enum_info(enum_id).variants[*discriminant];
+                        let field_count = self.get_enum_info(enum_id).variants[*discriminant].fields.len();
+                        let ty = Type::EnumVariant { generic_args, id, name: variant.name.clone(), variant_index:*discriminant };
+                        let variant_metadata = self.add_metadata(ProgramMetadata::Variant(VariantInfo { name: format!("{}",ty), field_count ,discriminant:*discriminant }));
+                        self.emit_instruction(Instruction::BuildVariantRecord(variant_metadata),expr.location.start_line);
+                        ty
                     }
+                };
+                for (field_name,field_expr) in fields{
+                    let field_offset = self.get_field_offset(&ty, &field_name);
+                    self.compile_expr(field_expr);
+                    self.emit_instruction(Instruction::StoreField(field_offset as u16), expr.location.end_line);
                 }
             },
             TypedExprNodeKind::MethodCall { lhs, method, args ,by_ref} => {
