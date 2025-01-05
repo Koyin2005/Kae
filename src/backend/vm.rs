@@ -4,7 +4,7 @@ use fxhash::FxHashMap;
 
 use crate::backend::disassembly::disassemble_instruction;
 
-use super::{instructions::{Chunk, Constant, Instruction, Program, StructInfo}, objects::{Heap, Object}, values::{Closure, FieldRef, Function, Record, Upvalue, Value}};
+use super::{instructions::{Chunk, Constant, Instruction, Program, ProgramMetadata, StructInfo}, objects::{Heap, Object}, values::{Closure, FieldRef, Function, Record, Upvalue, Value, VariantRecord}};
 
 pub const DEBUG_TRACE_EXEC : bool = false;
 pub const MAX_STACK_SIZE : usize = 255;
@@ -22,7 +22,7 @@ pub struct VM{
     names : Vec<Rc<str>>,
     stack : Vec<Value>,
     constants : Box<[Constant]>,
-    metadata : Box<[StructInfo]>,
+    metadata : Box<[ProgramMetadata]>,
     frames : Vec<CallFrame>,
     globals : FxHashMap<usize,Value>,
     open_upvalues : Vec<Object>,
@@ -183,7 +183,7 @@ impl VM{
                 self.stack.get_mut(address).expect("Should be a valid stack address")
             },
             Value::FieldRef(field_ref) => {
-                let Value::Record(record) = self.get_ref_mut(field_ref.base_ref) else {
+                let (Value::Record(record) | Value::VariantRecord(VariantRecord { record_data:record,.. })) = self.get_ref_mut(field_ref.base_ref) else {
                     panic!("Expect a valid record")
                 };
                 &mut record.fields[field_ref.field_offset]
@@ -206,7 +206,7 @@ impl VM{
                 self.stack.get(*address).expect("Should be a valid stack address")
             },
             Value::FieldRef(field_ref) => {
-                let Value::Record(record) = self.get_ref(&field_ref.base_ref) else {
+                let (Value::Record(record) | Value::VariantRecord(VariantRecord { record_data:record,.. }))= self.get_ref(&field_ref.base_ref) else {
                     panic!("Expect a valid record")
                 };
                 &record.fields[field_ref.field_offset]
@@ -476,12 +476,12 @@ impl VM{
                 }
                 Instruction::LoadField(field) => {
                     match self.pop(){
-                        Value::Record(record) => {
+                        Value::Record(record) | Value::VariantRecord(VariantRecord { record_data:record,.. }) => {
                             let field_value = record.fields.to_vec().swap_remove(field as usize);
                             self.push(field_value)?;
                         },
                         reference => {
-                             let Value::Record(record) = self.get_ref(&reference) else {
+                             let (Value::Record(record) | Value::VariantRecord(VariantRecord { record_data:record,.. })) = self.get_ref(&reference) else {
                                 unreachable!("Expected a record.")
                             };
                             self.push(record.fields[field as usize].clone())?;
@@ -492,12 +492,12 @@ impl VM{
                 Instruction::StoreField(field) => {
                     let value = self.pop();
                     match self.peek_mut(0){
-                        Value::Record(record) => {
+                        Value::Record(record) | Value::VariantRecord(VariantRecord { record_data:record,.. })=> {
                             record.fields[field as usize] = value;
                         },
                         reference => {
                             let reference = reference.clone();
-                            let Value::Record(record) = self.get_ref_mut(reference) else {
+                            let (Value::Record(record) | Value::VariantRecord(VariantRecord { record_data:record,.. })) = self.get_ref_mut(reference) else {
                                 panic!("Expected a valid record.")
                             };
                             record.fields[field as usize] = value;
@@ -774,12 +774,29 @@ impl VM{
                     self.push(Value::Tuple(elements))?;
                 },
                 Instruction::BuildRecord(struct_metadata) => {
-                    let name = self.metadata[struct_metadata].name.clone();
-                    let fields = self.metadata[struct_metadata].field_count;
+                    let ProgramMetadata::Struct(struct_info) = &self.metadata[struct_metadata] else {
+                        unreachable!("Expected a struct")
+                    };
+                    let name = struct_info.name.clone();
+                    let fields = struct_info.field_count;
                     self.push(Value::Record(Box::new(Record{
                         name,
                         fields:std::iter::repeat(Value::Int(0)).take(fields).collect()
                     })))?;
+                },
+                Instruction::BuildVariantRecord(variant_metadata) => {
+                    let ProgramMetadata::Variant(variant_info) = &self.metadata[variant_metadata] else {
+                        unreachable!("Expected a variant")
+                    };
+                    let name = variant_info.name.clone();
+                    let fields = variant_info.field_count;
+                    self.push(Value::VariantRecord(VariantRecord{
+                            record_data:Box::new(Record{
+                                name,
+                                fields:std::iter::repeat(Value::Int(0)).take(fields).collect()
+                            }),
+                            discriminant:variant_info.discriminant
+                        }))?;
                 },
                 Instruction::UnpackTuple => {
                     let Value::Tuple(elements) = self.pop() else {

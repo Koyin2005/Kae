@@ -28,6 +28,12 @@ pub struct Record{
     pub fields : Box<[Value]>
 }
 
+#[derive(Debug,Clone,PartialEq)]
+pub struct VariantRecord{
+    pub discriminant : usize,
+    pub record_data:Box<Record>,
+}
+
 #[derive(Debug,Clone)]
 pub enum Upvalue{
     Open{
@@ -42,6 +48,7 @@ pub enum Value{
     Bool(bool),
     Tuple(Box<[Value]>),
     Record(Box<Record>),
+    VariantRecord(VariantRecord),
     StackAddress(usize),
     GlobalAddress(usize),
     FieldRef(Box<FieldRef>),
@@ -116,6 +123,17 @@ impl Value{
             Value::Record(record) => {
                 let mut result = format!("{}{{",record.name);
                 for (i,element) in record.fields.iter().enumerate(){
+                    if i>0{
+                        result.push(',');
+                    }
+                    result.push_str(&element.format_recursive(heap, seen_objects));
+                }
+                result.push('}');
+                result
+            },
+            Value::VariantRecord(record) => {
+                let mut result = format!("{}{{",record.record_data.name);
+                for (i,element) in record.record_data.fields.iter().enumerate(){
                     if i>0{
                         result.push(',');
                     }

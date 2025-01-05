@@ -89,6 +89,7 @@ pub enum Instruction {
     UnpackTuple,
 
     BuildRecord(usize),
+    BuildVariantRecord(usize)
 
 }
 #[derive(Clone,Debug,PartialEq)]
@@ -126,7 +127,7 @@ impl Display for Constant{
 pub struct Program{
     pub constants : Vec<Constant>,
     pub names : Vec<Rc<str>>,
-    pub metadata : Vec<StructInfo>,
+    pub metadata : Vec<ProgramMetadata>,
     pub chunk : Chunk
 }
 #[derive(Default,Clone,Debug,PartialEq)]
@@ -138,8 +139,23 @@ pub struct Chunk{
 }
 
 
+#[derive(Clone,Debug,PartialEq)]
+pub enum ProgramMetadata {
+    Struct(StructInfo),
+    Variant(VariantInfo)
+}
+
 #[derive(Default,Clone,Debug,PartialEq)]
 pub struct StructInfo{
     pub name : String,
     pub field_count : usize
+}
+
+
+
+#[derive(Default,Clone,Debug,PartialEq)]
+pub struct VariantInfo{
+    pub name : String,
+    pub field_count : usize,
+    pub discriminant : usize
 }

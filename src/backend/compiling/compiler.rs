@@ -1,6 +1,6 @@
 use std::{rc::Rc, usize};
 
-use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program, StructInfo}, natives::{native_input, native_panic}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, GenericName, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedMethod, TypedStmtNode, UnaryOp}, types::{Enum, EnumId, Struct, StructId, Type, TypeContext}}};
+use crate::{backend::{disassembly::disassemble, instructions::{Chunk, Constant, Instruction, Program, ProgramMetadata, StructInfo}, natives::{native_input, native_panic}, values::{Function, NativeFunction}}, frontend::typechecking::{ substituter::{sub_function, sub_name},  typed_ast::{BinaryOp, GenericName, InitKind, LogicalOp, NumberKind, PatternNode, PatternNodeKind, TypedAssignmentTargetKind, TypedExprNode, TypedExprNodeKind, TypedFunction, TypedMethod, TypedStmtNode, UnaryOp}, types::{Enum, EnumId, Struct, StructId, Type, TypeContext}}};
 
 
 struct Local{
@@ -36,7 +36,7 @@ pub struct CompileFailed;
 pub struct Compiler{
     current_chunk : Chunk,
     constants : Vec<Constant>,
-    struct_info : Vec<StructInfo>,
+    metadata : Vec<ProgramMetadata>,
     names : Vec<String>,
     globals : Vec<Global>,
     generic_functions : Vec<GenericFunction>,
@@ -252,8 +252,8 @@ impl Compiler{
     }
     fn add_struct_metadata(&mut self,struct_id : StructId,name:String)-> usize{
         let struct_ = self.get_struct_info(&struct_id);
-        self.struct_info.push(StructInfo { name, field_count: struct_.fields.len() });
-        self.struct_info.len() - 1
+        self.metadata.push(ProgramMetadata::Struct(StructInfo { name, field_count: struct_.fields.len() }));
+        self.metadata.len() - 1
     }
 
     fn emit_load_field(&mut self,field_offset:usize,line:u32){
@@ -945,6 +945,6 @@ impl Compiler{
         self.emit_instruction(Instruction::LoadUnit,last_line);
         self.emit_instruction(Instruction::Return,last_line);
         disassemble("<main>", &self.current_chunk,&self.constants);
-        Ok(Program{constants:self.constants,chunk:self.current_chunk,names:self.names.into_iter().map(|name| name.into()).collect(),metadata:self.struct_info})
+        Ok(Program{constants:self.constants,chunk:self.current_chunk,names:self.names.into_iter().map(|name| name.into()).collect(),metadata:self.metadata})
     }
 }
