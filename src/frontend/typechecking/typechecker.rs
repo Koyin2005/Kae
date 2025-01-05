@@ -260,7 +260,7 @@ impl TypeChecker{
             self.error(error_string, location.start_line);
         
     }
-    fn check_value_in_scope(&mut self,name:&str,location : SourceLocation)->Result<Type,TypeCheckFailed>{
+    fn check_variable_in_scope(&mut self,name:&str,location : SourceLocation)->Result<Type,TypeCheckFailed>{
         if let Some((ty,kind)) = self.get_type_of_value(name){
             match kind{
                 ValueKind::Variable => Ok(ty.clone()),
@@ -277,7 +277,7 @@ impl TypeChecker{
     fn infer_assignment_target(&mut self,assignment_target : &ParsedAssignmentTarget)->Result<TypedAssignmentTarget,TypeCheckFailed>{
         let (ty,kind) = match &assignment_target.kind{
             ParsedAssignmentTargetKind::Name(name) => {
-                (self.check_value_in_scope(name,assignment_target.location)?,TypedAssignmentTargetKind::Variable(name.clone()))
+                (self.check_variable_in_scope(name,assignment_target.location)?,TypedAssignmentTargetKind::Variable(name.clone()))
             },
             ParsedAssignmentTargetKind::Index { lhs, rhs } => {
                 let (ty,lhs,rhs) = self.infer_index_expr_type(assignment_target.location,lhs,rhs)?;
