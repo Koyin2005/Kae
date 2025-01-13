@@ -778,7 +778,7 @@ impl Compiler{
                         expr.ty.clone()
                     },
                     InitKind::Variant(enum_id,discriminant) => {
-                        let Type::Enum { generic_args, id, name } = expr.ty.clone() else {
+                        let Type::Enum { generic_args, id, .. } = expr.ty.clone() else {
                             unreachable!("Can't construct a non enum variant {}",expr.ty)
                         };
                         let variant = &self.get_enum_info(enum_id).variants[*discriminant];
