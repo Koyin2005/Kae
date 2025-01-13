@@ -827,10 +827,35 @@ impl Compiler{
                     self.compile_pattern_destructure(element, ty, line);
                 }
             },
+            PatternNodeKind::Is(name, pattern) => {
+                self.emit_instruction(Instruction::Copy(1), line);
+                self.define_name(name.content.to_string(), line);
+                self.compile_pattern_destructure(&pattern, ty, line);
+            } ,
+            PatternNodeKind::Struct { ty, fields } => {
+                if let Type::Struct { .. } = ty {
+                    for (field_name,field_pattern) in fields{
+                        let field_type = ty.get_field(field_name, &self.type_context).expect("All fields should be valid");
+                        let field_offset = self.get_field_offset(ty, field_name);
+                        self.emit_instruction(Instruction::Copy(1), line);
+                        self.emit_load_field(field_offset, line);
+                        self.compile_pattern_destructure(field_pattern, &field_type, line);
+                    }
+                }
+                else{
+                    unreachable!("Can't have non-struct type in struct pattern")
+                }
+            },
+            PatternNodeKind::Array(before, mid, after) => {
+                if before.is_empty() && mid.is_some() && after.is_empty(){
+                    self.emit_pop(line);
+                }
+                else{
+                    todo!("Add support for array patterns")
+                }
+            }
             _ => {
-                self.emit_instruction(Instruction::LoadStackTopOffset(1),line);
-                self.compile_pattern_assignment(pattern, ty,line);
-                self.emit_pop(line);
+                unreachable!()
             }
         }
     }
