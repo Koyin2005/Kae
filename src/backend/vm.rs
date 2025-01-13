@@ -680,7 +680,7 @@ impl VM{
                             value.print(&self.heap);
                         }
                     }
-                    self.stack.truncate(self.stack.len() - args as usize);
+                    self.pop_n(args as usize);
                     if let Some(debug_buffer)  = debug_buffer.as_mut(){
                         println!("{}",debug_buffer);
                         debug_buffer.clear();
