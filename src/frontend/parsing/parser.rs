@@ -829,7 +829,7 @@ impl<'a> Parser<'a>{
             }
         }
         self.expect(TokenKind::RightBrace, "Expect '}'.");
-        Ok(StmtNode::Enum { name,generic_params, variants })
+        Ok(StmtNode::Enum { id : self.next_id(), name,generic_params, variants })
     }
     fn parse_struct_field(&mut self)->Result<(Symbol,ParsedType),ParsingFailed>{
         self.expect(TokenKind::Identifier, "Expect valid field name.");
@@ -852,7 +852,7 @@ impl<'a> Parser<'a>{
             }
         }
         self.expect(TokenKind::RightBrace, "Expect '}'.");
-        Ok(StmtNode::Struct { name, generic_params, fields })
+        Ok(StmtNode::Struct { id : self.next_id(), name, generic_params, fields })
     }
     fn fun_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
         self.expect(TokenKind::Identifier, "Expect valid function name.");
@@ -861,7 +861,7 @@ impl<'a> Parser<'a>{
         
         self.expect(TokenKind::LeftParen, "Expect '(' after function name.");
         let function = self.parse_function_body_and_params()?;
-        Ok(StmtNode::Fun { name,generic_params, function })
+        Ok(StmtNode::Fun { id : self.next_id(), name,generic_params, function })
     }
     fn parse_method(&mut self)->Result<(Symbol,Option<ParsedGenericParams>,bool,ParsedFunction),ParsingFailed>{
         #[derive(Clone, Copy,PartialEq, Eq)]
@@ -933,7 +933,7 @@ impl<'a> Parser<'a>{
             methods.push(ParsedMethod{name:method_name,has_receiver,generic_params,function:method});
         }
         self.expect(TokenKind::RightBrace, "Expect '}'.");
-        Ok(StmtNode::Impl { ty, methods })
+        Ok(StmtNode::Impl { id : self.next_id(), ty, methods })
     }
     fn try_non_expr_stmt(&mut self)->Option<Result<StmtNode,ParsingFailed>>{
         Some(if self.matches(TokenKind::Let){

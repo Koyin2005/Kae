@@ -183,21 +183,25 @@ pub enum StmtNode{
         ty : Option<ParsedType>
     },
     Fun{
+        id : NodeId,
         name : Symbol,
         generic_params : Option<ParsedGenericParams>,
         function : ParsedFunction
     },
     Struct{
         name : Symbol,
+        id : NodeId,
         generic_params : Option<ParsedGenericParams>,
         fields : Vec<(Symbol,ParsedType)>
     },
     Enum{
         name : Symbol,
+        id : NodeId,
         generic_params : Option<ParsedGenericParams>,
         variants : Vec<ParsedEnumVariant>
     },
     Impl{
+        id : NodeId,
         ty : ParsedType,
         methods : Vec<ParsedMethod>
     }
