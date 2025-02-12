@@ -2,6 +2,14 @@ use std::fmt::Display;
 
 use crate::frontend::tokenizing::SourceLocation;
 
+#[derive(Clone, Copy,Debug,Hash,PartialEq)]
+pub struct NodeId(usize);
+impl NodeId{
+    pub const FIRST : Self = Self(0);
+    pub fn next(&self)->Self{
+        Self(self.0 + 1)
+    }
+}
 pub struct ParsedAssignmentTarget{
     pub location : SourceLocation,
     pub kind : ParsedAssignmentTargetKind
@@ -153,6 +161,7 @@ impl Display for ParsedLogicalOp{
 }
 pub struct ExprNode{
     pub location : SourceLocation,
+    pub id : NodeId,
     pub kind : ExprNodeKind
 }
 
@@ -212,6 +221,7 @@ pub enum ParsedPatternNodeKind {
 #[derive(Clone)]
 pub struct ParsedPatternNode{
     pub location : SourceLocation,
+    pub id : NodeId,
     pub kind : ParsedPatternNodeKind
 }
 #[derive(Clone,Debug)]

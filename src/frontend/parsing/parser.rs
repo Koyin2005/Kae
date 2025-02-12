@@ -1,6 +1,6 @@
 use crate::frontend::{parsing::ast::{ParsedGenericParam, ParsedMethod, ParsedParam, Symbol}, tokenizing::{tokens::{Token, TokenKind}, SourceLocation}};
 
-use super::ast::{ExprNode, ExprNodeKind, LiteralKind, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPath, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PathSegment, PatternMatchArmNode, StmtNode};
+use super::ast::{ExprNode, ExprNodeKind, LiteralKind, NodeId, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPath, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PathSegment, PatternMatchArmNode, StmtNode};
 
 #[repr(u8)]
 #[derive(Clone, Copy,PartialEq, Eq, PartialOrd, Ord)]
@@ -32,7 +32,8 @@ pub struct Parser<'a>{
     current_token : Token<'a>,
     prev_token : Token<'a>,
     current_index : usize,
-    had_error : bool
+    had_error : bool,
+    current_node : NodeId
 }
 impl<'a> Parser<'a>{
     pub fn new(tokens:Vec<Token<'a>>)->Self{
@@ -41,8 +42,14 @@ impl<'a> Parser<'a>{
             prev_token : tokens[0] ,
             tokens,
             current_index:0,
-            had_error:false
+            had_error:false,
+            current_node : NodeId::FIRST
         }
+    }
+    fn next_id(&mut self)->NodeId{
+        let id = self.current_node;
+        self.current_node = self.current_node.next();
+        id
     }
     fn is_at_end(&self)->bool{
         self.current_token.kind == TokenKind::Eof
@@ -98,7 +105,7 @@ impl<'a> Parser<'a>{
         let line = self.prev_token.line;
 
         let operand = self.parse_precedence(Precedence::Unary)?;
-        Ok(ExprNode{location:SourceLocation::one_line(line),kind: ExprNodeKind::Unary{op,operand:Box::new(operand)}})
+        Ok(ExprNode{ id : self.next_id(),location:SourceLocation::one_line(line),kind: ExprNodeKind::Unary{op,operand:Box::new(operand)}})
     }
     fn grouping(&mut self)->Result<ExprNode,ParsingFailed>{
         
@@ -120,18 +127,18 @@ impl<'a> Parser<'a>{
         };
         self.expect(TokenKind::RightParen, "Expect ')'.");
         let end_line = self.prev_token.line;
-        Ok(ExprNode { location:SourceLocation::new(start_line,end_line), kind})
+        Ok(ExprNode{ id : self.next_id(), location:SourceLocation::new(start_line,end_line), kind})
     }
     fn int(&mut self)->Result<ExprNode,ParsingFailed>{
         let value = self.prev_token.lexeme.parse().or_else(|_|{
             self.error("Int literal is too big.");
             Err(ParsingFailed)
         })?;
-        Ok(ExprNode { location:SourceLocation::one_line(self.prev_token.line), kind: ExprNodeKind::Literal(LiteralKind::Int(value)) })
+        Ok(ExprNode{ id : self.next_id(), location:SourceLocation::one_line(self.prev_token.line), kind: ExprNodeKind::Literal(LiteralKind::Int(value)) })
     }
     fn float(&mut self)->Result<ExprNode,ParsingFailed>{
 
-        Ok(ExprNode { location:SourceLocation::one_line(self.prev_token.line), kind: ExprNodeKind::Literal(LiteralKind::Float(self.prev_token.lexeme.parse().expect("Can only have valid floats"))) })
+        Ok(ExprNode{ id : self.next_id(), location:SourceLocation::one_line(self.prev_token.line), kind: ExprNodeKind::Literal(LiteralKind::Float(self.prev_token.lexeme.parse().expect("Can only have valid floats"))) })
     
     }
     fn logical(&mut self,left:ExprNode)->Result<ExprNode,ParsingFailed>{
@@ -146,7 +153,7 @@ impl<'a> Parser<'a>{
             _ => unreachable!()
         };
         let right = self.parse_precedence(precedence)?;
-        Ok(ExprNode { location: SourceLocation::one_line(op_line), kind: ExprNodeKind::Logical { op, left: Box::new(left), right: Box::new(right) } })
+        Ok(ExprNode{ id : self.next_id(), location: SourceLocation::one_line(op_line), kind: ExprNodeKind::Logical { op, left: Box::new(left), right: Box::new(right) } })
     }
     fn binary(&mut self,left:ExprNode)->Result<ExprNode,ParsingFailed>{
         let op_line = self.prev_token.line;
@@ -164,14 +171,14 @@ impl<'a> Parser<'a>{
             _ => unreachable!()
         };
         let right = self.parse_precedence(self.precedence_of(self.prev_token.kind).next())?;
-        Ok(ExprNode { location:SourceLocation::one_line(op_line), kind: ExprNodeKind::BinaryOp { op:kind, left: Box::new(left), right: Box::new(right) } })
+        Ok(ExprNode{ id : self.next_id(), location:SourceLocation::one_line(op_line), kind: ExprNodeKind::BinaryOp { op:kind, left: Box::new(left), right: Box::new(right) } })
 
     }
     fn bool(&mut self,is_true:bool)->Result<ExprNode,ParsingFailed>{
-        Ok(ExprNode { location: SourceLocation::one_line(self.prev_token.line), kind: ExprNodeKind::Literal(LiteralKind::Bool(is_true)) })
+        Ok(ExprNode{ id : self.next_id(), location: SourceLocation::one_line(self.prev_token.line), kind: ExprNodeKind::Literal(LiteralKind::Bool(is_true)) })
     }
     fn string(&mut self)->Result<ExprNode,ParsingFailed>{
-        Ok(ExprNode { location: SourceLocation::one_line(self.prev_token.line), kind: ExprNodeKind::Literal(LiteralKind::String(String::from(&self.prev_token.lexeme[1..self.prev_token.lexeme.len()-1]))) })
+        Ok(ExprNode{ id : self.next_id(), location: SourceLocation::one_line(self.prev_token.line), kind: ExprNodeKind::Literal(LiteralKind::String(String::from(&self.prev_token.lexeme[1..self.prev_token.lexeme.len()-1]))) })
     }
     fn array(&mut self)->Result<ExprNode,ParsingFailed>{
         let start_line = self.prev_token.line;
@@ -184,14 +191,14 @@ impl<'a> Parser<'a>{
         } 
         self.expect(TokenKind::RightBracket, "Expect ']'.");
         let end_line = self.prev_token.line;
-        Ok(ExprNode { location:SourceLocation::new(start_line, end_line), kind: ExprNodeKind::Array(elements) })
+        Ok(ExprNode{ id : self.next_id(), location:SourceLocation::new(start_line, end_line), kind: ExprNodeKind::Array(elements) })
     }
     fn index(&mut self,lhs : ExprNode)->Result<ExprNode,ParsingFailed>{
         let start_line = self.prev_token.line;
         let rhs = self.expression()?;
         self.expect(TokenKind::RightBracket, "Expect ']'.");
         let end_line = self.prev_token.line;
-        Ok(ExprNode { location:SourceLocation::new(start_line,end_line), kind: ExprNodeKind::Index { lhs:Box::new(lhs), rhs: Box::new(rhs) } })
+        Ok(ExprNode{ id : self.next_id(), location:SourceLocation::new(start_line,end_line), kind: ExprNodeKind::Index { lhs:Box::new(lhs), rhs: Box::new(rhs) } })
     }
     fn call(&mut self,callee:ExprNode)->Result<ExprNode,ParsingFailed>{
         let start_line = self.prev_token.line;
@@ -210,9 +217,9 @@ impl<'a> Parser<'a>{
             ExprNodeKind::MethodCall{receiver,method:field,args}
         }
         else{
-            ExprNodeKind::Call { callee: Box::new(ExprNode { location: callee.location, kind: callee.kind }), args }
+            ExprNodeKind::Call { callee: Box::new(ExprNode{ id : self.next_id(), location: callee.location, kind: callee.kind }), args }
         };
-        Ok(ExprNode { location: SourceLocation::new(start_line,end_line), kind })
+        Ok(ExprNode{ id : self.next_id(), location: SourceLocation::new(start_line,end_line), kind })
     }
     fn if_expression(&mut self)->Result<ExprNode,ParsingFailed>{
         let if_start = self.prev_token.line;
@@ -226,7 +233,7 @@ impl<'a> Parser<'a>{
             None
         };
         let end_line = self.prev_token.line;
-        Ok(ExprNode { location: SourceLocation::new(if_start, end_line), kind: ExprNodeKind::If { condition: Box::new(condition), then_branch: Box::new(then), else_branch: else_.map(Box::new) } })
+        Ok(ExprNode{ id : self.next_id(), location: SourceLocation::new(if_start, end_line), kind: ExprNodeKind::If { condition: Box::new(condition), then_branch: Box::new(then), else_branch: else_.map(Box::new) } })
     }
     fn block(&mut self)->Result<ExprNode,ParsingFailed>{
         let start_line = self.prev_token.line;
@@ -265,7 +272,7 @@ impl<'a> Parser<'a>{
         }
         self.expect(TokenKind::RightBrace, "Expect '}'.");
         let end_line = self.prev_token.line;
-        if !had_error { Ok(ExprNode { location:SourceLocation::new(start_line, end_line) , kind: ExprNodeKind::Block { stmts, expr: result_expr.map(Box::new) } })} else {Err(ParsingFailed)}
+        if !had_error { Ok(ExprNode{ id : self.next_id(), location:SourceLocation::new(start_line, end_line) , kind: ExprNodeKind::Block { stmts, expr: result_expr.map(Box::new) } })} else {Err(ParsingFailed)}
     }
     fn call_args(&mut self)-> Result<Vec<ExprNode>,ParsingFailed>{
         let mut args = Vec::new();
@@ -291,7 +298,7 @@ impl<'a> Parser<'a>{
                     self.expression()?
                 }
                 else{
-                    ExprNode{
+                    ExprNode{ id : self.next_id(),
                         location : SourceLocation::one_line(field_name.line),
                         kind : ExprNodeKind::Get(field_name.lexeme.to_string())
                     }
@@ -302,19 +309,19 @@ impl<'a> Parser<'a>{
                 }
             }
             self.expect(TokenKind::RightBrace, "Expect '}' after struct fields.");
-            Ok(ExprNode { 
+            Ok(ExprNode{ id : self.next_id(), 
                     location: SourceLocation::new(start, self.prev_token.line),
                     kind: ExprNodeKind::StructInit { path, fields } 
                 })
         }
         else if path.segments.is_empty(){
-            Ok(ExprNode{
+            Ok(ExprNode{ id : self.next_id(),
                 location : path.head.location,
                 kind : ExprNodeKind::Get(path.head.name.content)
             })
         }
         else{
-            Ok(ExprNode{location:path.location,kind:ExprNodeKind::GetPath(path)})
+            Ok(ExprNode{ id : self.next_id(),location:path.location,kind:ExprNodeKind::GetPath(path)})
         }
         
         
@@ -324,13 +331,13 @@ impl<'a> Parser<'a>{
         self.expect(TokenKind::LeftParen, "Expect '('.");
         let ty = self.parse_type();
         self.expect(TokenKind::RightParen, "Expect ')'.");
-        Ok(ExprNode { location: SourceLocation::new(line, self.prev_token.line), kind: ExprNodeKind::TypenameOf(ty?) })
+        Ok(ExprNode{ id : self.next_id(), location: SourceLocation::new(line, self.prev_token.line), kind: ExprNodeKind::TypenameOf(ty?) })
     }
     fn print(&mut self) -> Result<ExprNode,ParsingFailed>{
         let line = self.prev_token.line;
         self.expect(TokenKind::LeftParen, "Expect '('.");
         let args = self.call_args()?;
-        Ok(ExprNode { location: SourceLocation::new(line, self.prev_token.line), kind: ExprNodeKind::Print(args) })
+        Ok(ExprNode{ id : self.next_id(), location: SourceLocation::new(line, self.prev_token.line), kind: ExprNodeKind::Print(args) })
     }
     fn parse_generic_args(&mut self) -> Result<ParsedGenericArgs,ParsingFailed>{
         let start = self.prev_token.line;
@@ -405,7 +412,7 @@ impl<'a> Parser<'a>{
         self.expect(TokenKind::LeftParen, "Expect '(' after 'fun'.");
         let function = self.parse_function_body_and_params()?;
         let end_line = self.prev_token.line;
-        Ok(ExprNode { 
+        Ok(ExprNode{ id : self.next_id(), 
             location: SourceLocation::new(start, end_line), 
             kind: ExprNodeKind::Function(Box::new(
                     function
@@ -421,7 +428,7 @@ impl<'a> Parser<'a>{
             None
         };
         let end_line = self.prev_token.line;
-        Ok(ExprNode { location: SourceLocation::new(line, end_line), kind: ExprNodeKind::Return(expr.map(Box::new)) })
+        Ok(ExprNode{ id : self.next_id(), location: SourceLocation::new(line, end_line), kind: ExprNodeKind::Return(expr.map(Box::new)) })
     }
     fn while_expression(&mut self)->Result<ExprNode,ParsingFailed>{
         let line = self.prev_token.line;
@@ -429,7 +436,7 @@ impl<'a> Parser<'a>{
         let condition = self.expression()?;
         self.expect(TokenKind::RightParen, "Expect ')'.");
         let body = self.expression()?;
-        Ok(ExprNode { location: SourceLocation::new(line,body.location.end_line), kind: ExprNodeKind::While { condition: Box::new(condition), body: Box::new(body) } })
+        Ok(ExprNode{ id : self.next_id(), location: SourceLocation::new(line,body.location.end_line), kind: ExprNodeKind::While { condition: Box::new(condition), body: Box::new(body) } })
     }
     fn pattern_match(&mut self)->Result<ExprNode,ParsingFailed>{
         let start = self.prev_token.line;
@@ -454,12 +461,12 @@ impl<'a> Parser<'a>{
             }
         }
         self.expect(TokenKind::RightBrace, "Expect '}'.");
-        Ok(ExprNode { location: SourceLocation::new(start, self.prev_token.line), kind: ExprNodeKind::Match { matchee:Box::new(matchee), arms} })
+        Ok(ExprNode{ id : self.next_id(), location: SourceLocation::new(start, self.prev_token.line), kind: ExprNodeKind::Match { matchee:Box::new(matchee), arms} })
     }
     fn property(&mut self,left:ExprNode)->Result<ExprNode,ParsingFailed>{
         let start = self.prev_token.line;
         let property_symbol = self.parse_identifer("Expect valid property name.");
-        Ok(ExprNode { location: SourceLocation::new(start, self.prev_token.line), kind: ExprNodeKind::Property(Box::new(left), property_symbol) })
+        Ok(ExprNode{ id : self.next_id(), location: SourceLocation::new(start, self.prev_token.line), kind: ExprNodeKind::Property(Box::new(left), property_symbol) })
     }
     fn assign(&mut self,left:ExprNode)->Result<ExprNode,ParsingFailed>{
         
@@ -486,7 +493,7 @@ impl<'a> Parser<'a>{
             kind : assignment_target_kind
         };
         let rhs = self.parse_precedence(Precedence::Assignment)?;
-        Ok(ExprNode { location: SourceLocation::new(lhs.location.start_line, rhs.location.end_line), kind: ExprNodeKind::Assign { lhs, rhs:Box::new(rhs) } })
+        Ok(ExprNode{ id : self.next_id(), location: SourceLocation::new(lhs.location.start_line, rhs.location.end_line), kind: ExprNodeKind::Assign { lhs, rhs:Box::new(rhs) } })
     }
     fn needs_semi_for_stmt(expr:&ExprNode)->bool{
         match &expr.kind{
@@ -649,6 +656,7 @@ impl<'a> Parser<'a>{
                     }
                     else{
                         ParsedPatternNode{
+                            id:self.next_id(),
                             location:field_name.location,
                             kind:ParsedPatternNodeKind::Name(field_name.content.clone())
                         }
@@ -689,7 +697,7 @@ impl<'a> Parser<'a>{
                         self.error(".. pattern can only be used once.");
                         return Err(ParsingFailed);
                     }
-                    ignore_pattern = Some(ParsedPatternNode{location:SourceLocation::one_line(self.prev_token.line),kind:ParsedPatternNodeKind::Wildcard});
+                    ignore_pattern = Some(ParsedPatternNode{id:self.next_id(),location:SourceLocation::one_line(self.prev_token.line),kind:ParsedPatternNodeKind::Wildcard});
                 }
                 else{
                     let pattern = self.pattern()?;
@@ -751,6 +759,7 @@ impl<'a> Parser<'a>{
             return Err(ParsingFailed);
         };
         Ok(ParsedPatternNode{
+            id : self.next_id(),
             location,
             kind
         })
@@ -884,6 +893,7 @@ impl<'a> Parser<'a>{
                 ParsedParam{
                     pattern:
                         ParsedPatternNode{
+                            id : self.next_id(),
                             location: self_name.location,
                             kind : ParsedPatternNodeKind::Name(self_name.content.clone())
                         },
