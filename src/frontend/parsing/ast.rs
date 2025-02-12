@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::frontend::tokenizing::SourceLocation;
 
-#[derive(Clone, Copy,Debug,Hash,PartialEq)]
+#[derive(Clone, Copy,Debug,Hash,PartialEq,Eq)]
 pub struct NodeId(usize);
 impl NodeId{
     pub const FIRST : Self = Self(0);
