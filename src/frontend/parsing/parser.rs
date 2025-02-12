@@ -772,7 +772,7 @@ impl<'a> Parser<'a>{
         self.expect(TokenKind::Equals, "Expect '='.");
         let expr = self.expression()?;
         self.expect(TokenKind::Semicolon, "Expect ';'.");
-        Ok(StmtNode::Let { pattern, expr ,ty})
+        Ok(StmtNode::Let { id: self.next_id(), pattern, expr ,ty})
     }
     fn optional_generic_params(&mut self)->Result<Option<ParsedGenericParams>,ParsingFailed>{
         if self.matches(TokenKind::LeftBracket){

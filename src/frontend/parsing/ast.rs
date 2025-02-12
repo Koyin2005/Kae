@@ -178,6 +178,7 @@ pub enum StmtNode{
         has_semi : bool
     },
     Let{
+        id : NodeId,
         pattern : ParsedPatternNode,
         expr : ExprNode,
         ty : Option<ParsedType>
