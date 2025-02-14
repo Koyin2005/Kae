@@ -261,6 +261,7 @@ impl<'a> Resolver<'a>{
             },
             StmtNode::Fun { name,id,function,.. } => {
                 let func_index = self.context.function_info.push(FunctionInfo{
+                    name : name.content.clone(),
                     params : vec![FunctionParamInfo(Type::Unknown);function.params.len()],
                     return_type : Type::Unknown
                 });
@@ -368,7 +369,7 @@ impl<'a> Resolver<'a>{
                 Ok(())
             },
             ExprNodeKind::Function(function) => {
-                self.bind_names_in_function(expr.id, function)
+                self.bind_names_in_function(expr.id,function)
             },
             ExprNodeKind::Get(_) | ExprNodeKind::GetPath(_) | ExprNodeKind::TypenameOf(_) | ExprNodeKind::Literal(_) => {
                 Ok(())
@@ -430,8 +431,18 @@ impl<'a> Resolver<'a>{
                 }
                 self.bind_names_in_expr(expr)?;
             },
-            StmtNode::Fun { id, name, generic_params, function } => {
-                self.bind_names_in_function(*id, function)?;
+            StmtNode::Fun { id, generic_params, function,.. } => {
+                let function_index = self.context.function_id_map[id];
+                let param_types = function.params.iter().map(|param|{
+                    self.resolve_type(&param.ty)
+                }).collect::<Result<Vec<_>,_>>()?;
+                let return_type = function.return_type.as_ref().map_or(Ok(Type::Unit),|ty| self.resolve_type(ty))?;
+                let function_info = self.context.function_info.get_mut(function_index).expect("All functions should be declared");
+                for (param,param_ty) in (&mut function_info.params).into_iter().zip(param_types){
+                    param.0 = param_ty;
+                }   
+                function_info.return_type = return_type;
+                self.bind_names_in_function(*id,function)?;
             },
             StmtNode::Expr { expr, .. } => {
                 self.bind_names_in_expr(expr)?;
