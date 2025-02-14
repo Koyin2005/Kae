@@ -39,6 +39,7 @@ pub struct StructInfo{
 pub struct FunctionParamInfo(pub Type);
 #[derive(Debug)]
 pub struct FunctionInfo{
+    pub name : String,
     pub params : Vec<FunctionParamInfo>,
     pub return_type : Type
 }
