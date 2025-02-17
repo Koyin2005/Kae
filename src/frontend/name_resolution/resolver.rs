@@ -145,16 +145,19 @@ impl<'a> Resolver<'a>{
                 pattern.find_bindings(&mut variables_in_pattern);
                 let repeated_variables = variables_in_args.intersection(&variables_in_pattern).copied().collect::<Box<_>>();
                 if !repeated_variables.is_empty(){
-                    let mut variables = String::new();
+                    let mut variable_error = String::new();
                     for (i,variable) in repeated_variables.iter().copied().enumerate(){
                         if i == repeated_variables.len()-1{
-                            variables += " and ";
+                            variable_error += " and ";
                         }
                         else if i < repeated_variables.len() - 1{
-                            variables += ",";
+                            variable_error += ",";
                         }
-                        variables += self.context.variable_info.get(variable).expect("All variables should have info");
+                        variable_error += &format!("'{}'",self.context.variable_info.get(variable).expect("All variables should have info"));
                     }
+                    variable_error += " are repeated.";
+                    self.error(variable_error,pattern.span.start_line);
+                    return Err(ResolutionError);
                 }
                 variables_in_args.append(&mut variables_in_pattern);
                 Ok(ResolvedFunctionParam{
