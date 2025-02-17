@@ -452,6 +452,7 @@ impl<'a> Parser<'a>{
             let arm = self.expression()?;
             let needs_coma = Self::needs_semi_for_stmt(&arm);
             arms.push(PatternMatchArmNode{
+                id : self.next_id(),
                 location,
                 pattern,
                 expr:arm

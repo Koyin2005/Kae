@@ -33,6 +33,7 @@ pub enum LiteralKind {
     Bool(bool)
 }
 pub struct PatternMatchArmNode{
+    pub id : NodeId,
     pub location : SourceLocation,
     pub pattern : ParsedPatternNode,
     pub expr : ExprNode

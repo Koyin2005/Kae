@@ -1,24 +1,72 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Debug, hash::Hash};
 
 use indexmap::IndexMap;
-use super::types::{FunctionId, Type};
+use super::types::Type;
 
+pub trait Identifier : Clone + Copy + Hash + PartialEq + Eq + Debug {}
+#[derive(Clone, Copy,Hash,PartialEq, Eq, Debug)]
+pub enum DefId{
+    Function(FunctionId),
+    Variable(VariableId)
+}
 
+#[derive(Clone, Copy,PartialEq, Eq,Debug,Hash)]
+pub struct FunctionId(u32);
+
+#[derive(Clone, Copy,Hash,PartialEq, Eq,Debug)]
+pub struct VariableId(u32);
+#[derive(Debug,Clone, Copy,PartialEq, Eq,Hash)]
+pub struct GenericParamIndex(pub u32);
+impl Identifier for FunctionId{}
+impl Identifier for VariableId{}
+
+#[derive(Default)]
+pub struct Identifiers{
+    variable_names : Vec<String>,
+    function_names : Vec<String>
+}
+impl Identifiers{
+    pub fn define_variable(&mut self,name : String)->VariableId{
+        let id = self.variable_names.len() as u32;
+        self.variable_names.push(name);
+        VariableId(id)
+    }
+    pub fn define_function(&mut self,name : String)->FunctionId{
+        let id = self.function_names.len() as u32;
+        self.function_names.push(name);
+        FunctionId(id)
+    }
+
+    pub fn get_variable_name(&self,id:VariableId)->&str{
+        &self.variable_names[id.0 as usize]
+    }
+    pub fn get_function_name(&self,id:FunctionId)->&str{
+        &self.function_names[id.0 as usize]
+    }
+
+}
+#[derive(Clone,Hash,PartialEq, Eq,Debug)]
+pub struct Binding{
+    pub id : DefId,
+    pub ty : Type
+}
 pub enum ValueKind{
     Variable,
     Function
 }
 #[derive(Clone)]
-struct Variable{
-    ty : Type,
-    by_ref : bool
+pub struct Variable{
+    pub ty : Type,
+    pub by_ref : bool,
+    pub id : VariableId
 }
 #[derive(Clone)]
-struct Function{
-    id : FunctionId,
-    generic_types : Vec<Type>,
-    param_types : Vec<Type>,
-    return_type : Type
+pub struct Function{
+    pub id : FunctionId,
+    pub is_generic : bool,
+    pub generic_types : Vec<Type>,
+    pub param_types : Vec<Type>,
+    pub return_type : Type
 }
 pub struct Parameter{
     pub is_by_ref : bool,
@@ -40,86 +88,97 @@ pub struct Method{
     pub param_types : Vec<Type>,
     pub return_type : Type
 }
-#[derive(Clone)]
-pub struct Environment{
-    current_variables : Vec<IndexMap<String,Variable>>,
-    current_types : Vec<IndexMap<String,Type>>,
-    current_functions : Vec<IndexMap<String,Function>>,
-    current_associations : Vec<IndexMap<Type,HashMap<String,Method>>>,
+
+#[derive(Clone,)]
+pub struct Scope{
+    variables : IndexMap<String,Variable>,
+    types : IndexMap<String,Type>,
+    functions : IndexMap<String,Function>,
 }
-impl Default for Environment{
+impl Default for Scope{
     fn default() -> Self {
         Self { 
-            current_variables: vec![IndexMap::new()], 
-            current_types:vec![IndexMap::new()], 
-            current_functions: vec![IndexMap::new()],
-            current_associations:vec![IndexMap::new()]
+            variables: IndexMap::new(), 
+            types: IndexMap::new(), 
+            functions: IndexMap::new()
         }
     }
 }
+#[derive(Clone,Default)]
+pub struct Environment{
+    global_scope : Scope,
+    scopes : Vec<Scope>,
+    methods : IndexMap<Type,HashMap<String,Method>>,
+    generic_params : Vec<String>
+}
+
 impl Environment{
+    pub fn add_generic_param(&mut self,name:String)->GenericParamIndex{
+        let index = self.generic_params.len() as u32;
+        self.generic_params.push(name);
+        GenericParamIndex(index)
+    }
+    pub fn remove_generic_params(&mut self,param_count:usize){
+        self.generic_params.truncate(self.generic_params.len() - param_count);
+    }
+    pub fn get_generic_param(&self,name:&str)->Option<GenericParamIndex>{
+        self.generic_params.iter().enumerate().rev().find(|(_,param_name)| *param_name == name).map(|(i,_)| GenericParamIndex(i as u32))
+    }
     pub fn begin_scope(&mut self){
-        self.current_functions.push(IndexMap::new());
-        self.current_types.push(IndexMap::new());
-        self.current_functions.push(IndexMap::new());
-        self.current_associations.push(IndexMap::new());
+        self.scopes.push(Scope::default());
     }
-    pub fn add_variable(&mut self,name:String,ty:Type,by_ref : bool){
-         self.current_variables.last_mut().unwrap().insert(name, Variable{ty,by_ref});
+    pub fn end_scope(&mut self){
+        self.scopes.pop();
     }
-
-    pub fn add_variables(&mut self,variables : impl Iterator<Item = (String,Type)>){
-        for (name,ty) in variables{
-            self.add_variable(name, ty,false);
-        }
+    fn current_scope_mut(&mut self)->&mut Scope{
+        self.scopes.last_mut().unwrap_or_else(|| &mut self.global_scope)
     }
-
-    pub fn add_function(&mut self,name:String,param_types:Vec<Type>,return_type : Type,id : FunctionId){
-        self.current_functions.last_mut().unwrap().insert(name, Function { id, param_types, return_type ,generic_types:Vec::new()});
+    fn current_scope(&self)->&Scope{
+        self.scopes.last().unwrap_or_else(|| &self.global_scope)
     }
-
-    pub fn add_generic_function(&mut self,name:String,param_types:Vec<Type>,return_type : Type,id : FunctionId,generic_params : impl Iterator<Item = Type>){
-        self.current_functions.last_mut().unwrap().insert(name, Function { id, param_types, return_type ,generic_types:generic_params.collect()});
+    fn traverse_scopes<T>(&self,f:impl Fn(&Scope)->Option<&T>)->Option<&T>{
+        self.scopes.iter().rev().filter_map(|scope| f(scope)).next().or_else(|| f(&self.global_scope))
     }
-    pub fn get_variable(&self,name:&str)->Option<&Type>{
-        self.current_variables.iter()
-        .rev().filter_map(|vars| 
-            vars.get(name).map(|Variable { ty,.. }|{ 
-                ty
-            }))
-        .next()
+    pub fn add_variable(&mut self,name:String,ty:Type,by_ref : bool,id:VariableId){
+         self.current_scope_mut().variables.insert(name, Variable{ty,by_ref,id});
     }
-    pub fn get_function_id(&self,name:&str)->Option<FunctionId>{
-        self.current_functions.last().unwrap().get(name).map(|Function { id,..}|{
-            *id
+    pub fn add_function(&mut self,name:String,function : Function){
+        self.current_scope_mut().functions.insert(name, function);
+    }
+    pub fn get_variable(&self,name:&str)->Option<&Variable>{
+        self.traverse_scopes(|scope|{
+            scope.variables.get(name)
         })
     }
-    pub fn get_function_type(&self,name:&str)->Option<Type>{
-        self.current_functions.iter().rev().filter_map(|funcs| funcs.get(name).map(|Function { generic_types, param_types, return_type,.. }|{
-            Type::Function { generic_args:generic_types.clone(), params: param_types.clone(), return_type: Box::new(return_type.clone()) }
-        })).next()
+    pub fn get_function(&self,name:&str)->Option<&Function>{
+        self.traverse_scopes(|scope|{
+            scope.functions.get(name)
+        })
+    }
+    pub fn get_function_by_id(&self,id:FunctionId)->Option<&Function>{
+        self.traverse_scopes(|scope| scope.functions.values().find(|function| function.id == id))
     }
     pub fn add_type(&mut self,name:String,ty:Type){
-        self.current_types.last_mut().unwrap().insert(name, ty);
+        self.current_scope_mut().types.insert(name, ty);
     }
     pub fn get_type(&self,name:&str)->Option<&Type>{
-        self.current_types.iter().rev().filter_map(|types| types.get(name)).next()
+        self.traverse_scopes(|scope| scope.types.get(name))
     }
     pub fn is_type_in_local_scope(&self,name:&str)->bool{
-        self.current_types.last().is_some_and(|types| types.contains_key(name))
+        self.current_scope().types.get(name).is_some()
+    }
+    pub fn is_function_in_local_scope(&self,name:&str)->bool{
+        self.current_scope().functions.get(name).is_some()
     }
 
-    pub fn add_method(&mut self,ty:Type,name:String,self_param_info:Option<bool>,param_types:Vec<Type>,return_type : Type,generic_params : Option<impl Iterator<Item = Type>>)->bool{
-        let methods = self.current_associations.last_mut().unwrap();
-        if !methods.contains_key(&ty){
-            methods.insert(ty.clone(), HashMap::new());
-        }
-        let methods = methods.get_mut(&ty).unwrap();
-        methods.insert(name.clone(),Method{name,self_param_info,generic_types:generic_params.map(|params| params.collect()),param_types,return_type}).is_none()
+    pub fn add_method(&mut self,ty:Type,name:String,method : Method)->bool{
+        self.methods.entry(ty).or_insert(HashMap::new()).insert(name, method).is_none()
     }
 
     pub fn get_method(&self,ty:&Type,name:&str)->Option<&Method>{
-        self.current_associations.iter().rev().filter_map(|methods| methods.get(ty).and_then(|methods| methods.get(name))).next()
+        self.methods.get(ty).and_then(|methods|{
+            methods.get(name)
+        })
     }
     
 

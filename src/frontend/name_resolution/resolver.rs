@@ -1,29 +1,36 @@
-use std::{collections::{HashMap, HashSet}, marker::PhantomData};
+use std::{collections::{BTreeSet, HashMap, HashSet}, marker::PhantomData};
 
 use fxhash::{FxHashMap, FxHashSet};
 
-use crate::frontend::{parsing::ast::{ExprNode, ExprNodeKind, NodeId, ParsedAssignmentTargetKind, ParsedEnumVariant, ParsedFunction, ParsedPath, ParsedPatternNode, ParsedType, StmtNode}, typechecking::types::Type};
+use crate::frontend::{name_resolution::resolved_ast::ConstructorPatternField, parsing::ast::{ExprNode, ExprNodeKind, LiteralKind, NodeId, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, ParsedLogicalOp, ParsedParam, ParsedPath, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PathSegment, StmtNode}, typechecking::{typed_ast::{BinaryOp, LogicalOp, UnaryOp}, types::Type}};
 
-use super::{EnumInfo, FieldInfo, Fields, FuncIndex, FunctionInfo, FunctionParamInfo, IndexVec, IntoIndex, NameContext, StructIndex, StructInfo, VariantIndex, VariantInfo};
+use super::{resolved_ast::{ConstructorField, ConstructorKind, ResolvedExpr, ResolvedExprKind, ResolvedFunction, ResolvedFunctionParam, ResolvedMatchArm, ResolvedPattern, ResolvedPatternKind, ResolvedStmt}, EnumInfo, FieldIndex, FieldInfo, Fields, FuncIndex, FunctionInfo, FunctionParamInfo, IndexVec, IntoIndex, NameContext, StructIndex, StructInfo, VariableIndex, VariantIndex, VariantInfo};
 
 pub struct ResolutionError;
-#[derive(Default)]
-struct Scope{
+#[derive(Default,Clone)]
+pub struct Scope{
     functions : FxHashMap<String,FuncIndex>,
-    types : FxHashMap<String,Type>
+    types : FxHashMap<String,Type>,
+    variables : FxHashSet<String>
 }
 pub struct Resolver<'a>{
     context : NameContext,
     prev_scopes : Vec<Scope>,
     current_scope : Scope,
     variant_map : FxHashMap<NodeId,&'a [ParsedEnumVariant]>,
-    scope_map : FxHashMap<NodeId,Scope>
+    scope_map : FxHashMap<NodeId,Scope>,
+    constructor_map : FxHashMap<NodeId,ConstructorKind>,
+    field_map : FxHashMap<NodeId,FieldIndex>
 
 }
 impl<'a> Resolver<'a>{
-    fn begin_scope(&mut self){
-        let old_scope = std::mem::replace(&mut self.current_scope, Scope::default());
+    fn push_scope(&mut self,scope:Scope){
+        let old_scope = std::mem::replace(&mut self.current_scope, scope);
         self.prev_scopes.push(old_scope);
+
+    }
+    fn begin_scope(&mut self){
+        self.push_scope(Scope::default());
     }
     fn end_scope(&mut self)->Scope{
         std::mem::replace(&mut self.current_scope, self.prev_scopes.pop().expect("Can only end a scope if a scope already exists"))
@@ -92,34 +99,224 @@ impl<'a> Resolver<'a>{
             }
         }
     }
-    fn resolve_pattern(&mut self,pattern:&ParsedPatternNode) -> Result<(),ResolutionError>{
-        Ok(())
-    }
-    fn resolve_expr(&mut self,expr:&ExprNode) -> Result<(),ResolutionError>{
-        Ok(())
-    }
-    fn resolve_stmt(&mut self,stmt:&StmtNode) -> Result<(),ResolutionError>{
-        match stmt{
-            StmtNode::Expr { expr, has_semi } => {
-
+    fn resolve_pattern(&mut self,pattern:&ParsedPatternNode)->Result<ResolvedPattern,ResolutionError>{
+        let kind = match &pattern.kind{
+            ParsedPatternNodeKind::Name(variable) => {
+                ResolvedPatternKind::Binding(self.define_variable(variable),None)
             },
-            StmtNode::Enum { name, generic_params, variants ,id} => {
-                
+            ParsedPatternNodeKind::Is(variable,checked_pattern) => {
+                ResolvedPatternKind::Binding(self.define_variable(&variable.content), Some(Box::new(self.resolve_pattern(checked_pattern)?)))
+            },
+            ParsedPatternNodeKind::Tuple(elements) => {
+                let elements = elements.iter().map(|element| self.resolve_pattern(element)).collect::<Result<Vec<_>,_>>()?;
+                if elements.is_empty() { ResolvedPatternKind::Unit } else { ResolvedPatternKind::Tuple(elements) }
+            },
+            ParsedPatternNodeKind::Array(before,mid ,after) => {
+                let before = before.iter().map(|element| self.resolve_pattern(element)).collect::<Result<Vec<_>,_>>()?;
+                let mid = if let Some(mid) = mid.as_ref() { Some(self.resolve_pattern(mid)?) } else { None };
+                let after = after.iter().map(|element| self.resolve_pattern(element)).collect::<Result<Vec<_>,_>>()?;
+                todo!("Array patterns")
+            },
+            ParsedPatternNodeKind::Struct { fields,.. } => {
+                let kind = self.constructor_map.remove(&pattern.id).expect("All struct constructors");
+                let fields = fields.iter().map(|(_,field_pattern)| {
+                    let pattern = self.resolve_pattern(field_pattern)?;
+                    Ok(ConstructorPatternField{field:FieldIndex::new(0),pattern})
+                }).collect::<Result<Vec<_>,_>>()?;
+                ResolvedPatternKind::Constructor(kind, fields)
+            },
+            ParsedPatternNodeKind::Wildcard => ResolvedPatternKind::Wildcard,
+            ParsedPatternNodeKind::Literal(literal) => ResolvedPatternKind::Literal(literal.clone())
+        };
+        Ok(ResolvedPattern{
+            span : pattern.location,
+            kind
+        })
+    }
+    fn resolve_function(&mut self,id:NodeId,function:&ParsedFunction)->Result<ResolvedFunction,ResolutionError>{
+        let scope = self.scope_map.remove(&id).expect("All scopes should be defined");
+        self.push_scope(scope);
+        let function = (||{
+            let mut variables_in_args = BTreeSet::new();
+            let params = function.params.iter().map(|ParsedParam{pattern,ty,..}|{
+                let pattern = self.resolve_pattern(pattern)?;
+                let ty = self.resolve_type(ty)?;
+                let mut variables_in_pattern = BTreeSet::new();
+                pattern.find_bindings(&mut variables_in_pattern);
+                let repeated_variables = variables_in_args.intersection(&variables_in_pattern).copied().collect::<Box<_>>();
+                if !repeated_variables.is_empty(){
+                    let mut variables = String::new();
+                    for (i,variable) in repeated_variables.iter().copied().enumerate(){
+                        if i == repeated_variables.len()-1{
+                            variables += " and ";
+                        }
+                        else if i < repeated_variables.len() - 1{
+                            variables += ",";
+                        }
+                        variables += self.context.variable_info.get(variable).expect("All variables should have info");
+                    }
+                }
+                variables_in_args.append(&mut variables_in_pattern);
+                Ok(ResolvedFunctionParam{
+                    pattern,
+                    ty  
+                })
+            }).collect::<Result<Vec<_>,_>>()?;
+            let return_type = if let Some(return_type) = &function.return_type { self.resolve_type(return_type)? } else { Type::Unit };
+            let body = self.resolve_expr(&function.body)?;
+
+            Ok((params,return_type,body))
+
+        })();
+        let scope = self.end_scope();
+        let (params,return_type,body) = function?;
+        Ok(ResolvedFunction{
+            params,
+            return_type,
+            body,
+            scope
+        })
+    }
+
+    fn resolve_expr(&mut self,expr:&ExprNode) -> Result<ResolvedExpr,ResolutionError>{
+        let kind = match &expr.kind {
+            ExprNodeKind::Grouping(expr) => self.resolve_expr(expr)?.kind,
+            ExprNodeKind::Function(function) =>  ResolvedExprKind::FunctionExpr(Box::new(self.resolve_function(expr.id,function)?)),
+            ExprNodeKind::TypenameOf(ty) => ResolvedExprKind::Typename(self.resolve_type(ty)?),
+            ExprNodeKind::Literal(literal)  => ResolvedExprKind::Literal(literal.clone()),
+            ExprNodeKind::Array(elements) => ResolvedExprKind::Array(elements.iter().map(|element| self.resolve_expr(element)).collect::<Result<Vec<_>,_>>()?),
+            ExprNodeKind::Tuple(elements) => if elements.is_empty() { ResolvedExprKind::Unit } else { ResolvedExprKind::Tuple(elements.iter().map(|element| self.resolve_expr(element)).collect::<Result<Vec<_>,_>>()?)},
+            ExprNodeKind::Block { stmts, expr:result_expr } => {
+                let scope = self.scope_map.remove(&expr.id).expect("All blocks should have scopes");
+                self.push_scope(scope);
+                let body = (||{
+                    let stmts = self.resolve_stmts(stmts)?;
+                    let result_expr = if let Some(result_expr) = result_expr.as_ref(){
+                        Some(Box::new(self.resolve_expr(result_expr)?))
+                    }
+                    else{
+                        None
+                    };
+                    Ok((stmts,result_expr))
+                })();
+                let scope = self.end_scope();
+                let (stmts,result_expr) = body?;
+                ResolvedExprKind::Block { scope, stmts, expr:result_expr }
+            },
+            ExprNodeKind::BinaryOp { op, left, right } => {
+                let op = match op {
+                    ParsedBinaryOp::Add => BinaryOp::Add,
+                    ParsedBinaryOp::Subtract => BinaryOp::Subtract,
+                    ParsedBinaryOp::Multiply => BinaryOp::Multiply,
+                    ParsedBinaryOp::Divide => BinaryOp::Divide,
+                    ParsedBinaryOp::Equals => BinaryOp::Equals,
+                    ParsedBinaryOp::NotEquals => BinaryOp::NotEquals,
+                    ParsedBinaryOp::Greater => BinaryOp::Greater,
+                    ParsedBinaryOp::GreaterEquals => BinaryOp::GreaterEquals,
+                    ParsedBinaryOp::Lesser => BinaryOp::Lesser,
+                    ParsedBinaryOp::LesserEquals => BinaryOp::LesserEquals,
+                };
+                ResolvedExprKind::Binary(op, Box::new(self.resolve_expr(left)?), Box::new(self.resolve_expr(right)?))
+            },
+            ExprNodeKind::Logical { op, left, right } => {
+                let op = match op {
+                    ParsedLogicalOp::And => LogicalOp::And,
+                    ParsedLogicalOp::Or => LogicalOp::Or
+                };
+                ResolvedExprKind::Logical(op, Box::new(self.resolve_expr(left)?), Box::new(self.resolve_expr(right)?))
+            },
+            ExprNodeKind::Unary { op, operand } => {
+                let op = match op {
+                    ParsedUnaryOp::Negate => UnaryOp::Negate,
+                };
+                ResolvedExprKind::Unary(op, Box::new(self.resolve_expr(operand)?))
+            },
+            ExprNodeKind::StructInit { fields,.. } => {
+                let constructor = self.constructor_map.remove(&expr.id).expect("All constructors should have kinds");
+                let fields = fields.iter().map(|(_,field_expr)|{
+                    Ok(ConstructorField{
+                        field : self.field_map.remove(&field_expr.id).expect("All constructor fields should be defined"),
+                        expr : self.resolve_expr(field_expr)?
+
+                    })
+                }).collect::<Result<Vec<_>,_>>()?;
+                ResolvedExprKind::Constructor { kind: constructor,fields }
+            },
+            ExprNodeKind::Match { matchee, arms } => {
+                let matchee = self.resolve_expr(matchee)?;
+                let arms = arms.iter().map(|arm|{
+                    let scope = self.scope_map.remove(&arm.id).expect("All pattern arms should have scopes");
+                    self.push_scope(scope);
+                    let arm = (||{
+                        let pattern = self.resolve_pattern(&arm.pattern)?;
+                        let body = self.resolve_expr(&arm.expr)?;
+                        Ok((pattern,body))
+                    })();
+                    let scope = self.end_scope();
+                    let (pattern,body) = arm?;
+                    Ok(ResolvedMatchArm{
+                        scope,
+                        pattern,
+                        body
+                    })
+                }).collect::<Result<Vec<_>,_>>()?;
+                ResolvedExprKind::Match(Box::new(matchee),arms)
+            },
+            ExprNodeKind::Index { lhs, rhs } => ResolvedExprKind::Index(Box::new(self.resolve_expr(lhs)?), Box::new(self.resolve_expr(rhs)?)),
+            ExprNodeKind::Property(expr, field) => ResolvedExprKind::Field(Box::new(self.resolve_expr(expr)?), field.clone()),
+            ExprNodeKind::While { condition, body } => ResolvedExprKind::While(Box::new(self.resolve_expr(condition)?), Box::new(self.resolve_expr(body)?)),
+            ExprNodeKind::If { condition, then_branch, else_branch } => 
+                ResolvedExprKind::If(Box::new(self.resolve_expr(condition)?), Box::new(self.resolve_expr(then_branch)?), 
+                    else_branch.as_ref().map_or(Ok(None),|branch| self.resolve_expr(branch).map(Box::new).map(Some))?),
+            ExprNodeKind::Print(args) => ResolvedExprKind::Print(args.iter().map(|arg| self.resolve_expr(arg)).collect::<Result<Vec<_>,_>>()?),
+            ExprNodeKind::Call { callee, args } => ResolvedExprKind::Call(Box::new(self.resolve_expr(callee)?), args.iter().map(|arg| self.resolve_expr(arg)).collect::<Result<Vec<_>,_>>()?),
+            ExprNodeKind::Return(expr) => {
+                ResolvedExprKind::Return(expr.as_ref().map_or(Ok(None),|expr| self.resolve_expr(expr).map(Box::new).map(Some))?)
+            },
+            ExprNodeKind::MethodCall { receiver, method, args } => ResolvedExprKind::MethodCall(
+                Box::new(self.resolve_expr(receiver)?),
+                PathSegment{
+                    name : method.clone(),
+                    location : method.location,
+                    generic_args : None
+                },
+                args.iter().map(|arg| self.resolve_expr(arg)).collect::<Result<Vec<_>,_>>()?
+            ),
+            ExprNodeKind::Assign { lhs, rhs } => todo!("Assignments"),
+            ExprNodeKind::Get(_) | ExprNodeKind::GetPath(_) => todo!("Paths and variables")
+        };
+        let expr = ResolvedExpr { span: expr.location, kind };
+        Ok(expr)
+    }
+    fn define_variable(&mut self,name:&str)->VariableIndex{
+        let variable_index = self.context.variable_info.push(name.to_string());
+        self.current_scope.variables.insert(name.to_string());
+        variable_index
+    }
+    fn resolve_stmt(&mut self,stmt:&StmtNode) -> Result<Option<ResolvedStmt>,ResolutionError>{
+        let stmt = match stmt{
+            StmtNode::Expr { expr, has_semi } => {
+                let expr = self.resolve_expr(expr)?;
+                Some(if *has_semi { ResolvedStmt::Semi(expr) } else { ResolvedStmt::Expr(expr) })
+            },
+            StmtNode::Enum {..}|StmtNode::Struct {.. } => {
+                None
             },
             StmtNode::Impl { ty, methods,id } => {
-
+                None
             },
-            StmtNode::Struct { name, generic_params, fields,id } => {
-
-            },
-            StmtNode::Fun { name, generic_params, function,id } => {
-
+            &StmtNode::Fun { ref name, ref generic_params, ref function,id } => {
+                self.resolve_function(id, function)?;
+                None
             },
             StmtNode::Let { pattern, expr, ty,id } => {
-
+                let pattern = self.resolve_pattern(pattern)?;
+                let ty = ty.as_ref().map_or(Ok(None),|ty| self.resolve_type(ty).map(Some))?;
+                let expr = self.resolve_expr(expr)?;
+                Some(ResolvedStmt::Let(pattern, ty, expr))
             }
-        }
-        Ok(())
+        };
+        Ok(stmt)
     }
     fn find_names_in_function<'b:'a>(&mut self,id:NodeId,function:&'b ParsedFunction)->Result<(),ResolutionError>{
         self.begin_scope();
@@ -287,7 +484,22 @@ impl<'a> Resolver<'a>{
     
     fn bind_names_in_function<'b:'a>(&mut self,id:NodeId,function:&'b ParsedFunction)->Result<(),ResolutionError>{
         self.begin_scope();
-        let found_names_in_function = self.bind_names_in_expr(&function.body);
+        let function_signature = (||{
+            let param_types = function.params.iter().map(|param|{
+                self.resolve_type(&param.ty)
+            }).collect::<Result<Vec<_>,_>>()?;
+            let return_type = function.return_type.as_ref().map_or(Ok(Type::Unit),|ty| self.resolve_type(ty))?;
+            Ok::<_,ResolutionError>((param_types,return_type))
+        })();
+        let found_names_in_function = if let Ok((param_types,return_type)) = function_signature{
+            let function_index = self.context.function_id_map[&id];
+            let function_info = self.context.function_info.get_mut(function_index).expect("All functions should be declared");
+            for (param,param_ty) in (&mut function_info.params).into_iter().zip(param_types){
+                param.0 = param_ty;
+            }   
+            function_info.return_type = return_type;
+            self.bind_names_in_expr(&function.body)
+        } else { Err(ResolutionError)};
         let scope = self.end_scope();   
         self.scope_map.insert(id, scope);
         found_names_in_function
@@ -432,16 +644,6 @@ impl<'a> Resolver<'a>{
                 self.bind_names_in_expr(expr)?;
             },
             StmtNode::Fun { id, generic_params, function,.. } => {
-                let function_index = self.context.function_id_map[id];
-                let param_types = function.params.iter().map(|param|{
-                    self.resolve_type(&param.ty)
-                }).collect::<Result<Vec<_>,_>>()?;
-                let return_type = function.return_type.as_ref().map_or(Ok(Type::Unit),|ty| self.resolve_type(ty))?;
-                let function_info = self.context.function_info.get_mut(function_index).expect("All functions should be declared");
-                for (param,param_ty) in (&mut function_info.params).into_iter().zip(param_types){
-                    param.0 = param_ty;
-                }   
-                function_info.return_type = return_type;
                 self.bind_names_in_function(*id,function)?;
             },
             StmtNode::Expr { expr, .. } => {
@@ -461,6 +663,8 @@ impl<'a> Resolver<'a>{
     }
     pub fn new()->Self{
         Self{
+            constructor_map:HashMap::default(),
+            field_map:HashMap::default(),
             scope_map:HashMap::default(),
             context:NameContext::default(),
             prev_scopes:Vec::new(),
@@ -468,16 +672,19 @@ impl<'a> Resolver<'a>{
             variant_map:Default::default()
         }
     }
-    pub fn resolve<'b:'a>(mut self,stmts:&'b [StmtNode]) -> Result<NameContext,ResolutionError>{
+    pub fn resolve<'b:'a>(mut self,stmts:&'b [StmtNode]) -> Result<(NameContext,Vec<ResolvedStmt>),ResolutionError>{
         self.find_names_in_stmts(stmts)?;
         self.bind_names_in_stmts(stmts)?;
-        self.resolve_stmts(stmts)?;
-        Ok(self.context)
+        let stmts = self.resolve_stmts(stmts)?;
+        Ok((self.context,stmts))
     }
-    fn resolve_stmts(&mut self,stmts : &[StmtNode]) -> Result<(),ResolutionError>{
+    fn resolve_stmts(&mut self,stmts : &[StmtNode]) -> Result<Vec<ResolvedStmt>,ResolutionError>{
+        let mut resolved_stmts = Vec::new();
         for stmt in stmts{
-            self.resolve_stmt(stmt)?;
+            if let Some(stmt) = self.resolve_stmt(stmt)?{
+                resolved_stmts.push(stmt);
+            }
         }
-        Ok(())
+        Ok(resolved_stmts)
     }
 }

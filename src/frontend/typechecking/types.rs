@@ -1,5 +1,7 @@
 use std::fmt::Display;
-use super::generics::substitute;
+use crate::frontend::name_resolution::{EnumIndex, StructIndex};
+
+use super::{generics::substitute, names::GenericParamIndex};
 
 #[derive(Clone, Copy,PartialEq, Eq,Debug,Default,Hash)]
 pub struct StructId(usize);
@@ -82,26 +84,12 @@ pub struct TypeContext{
     pub structs : Structs,
     pub enums : Enums
 }
-#[derive(Clone, Copy,PartialEq, Eq,Debug)]
-pub struct FunctionId(usize);
-
-
-impl FunctionId{
-    pub const DEFAULT : Self = FunctionId(0);
-
-    pub fn next(&self)->Self{
-        Self(self.0+1)
-    }
+#[derive(Debug,Clone,Hash,PartialEq,Eq)]
+pub struct GenericParamType{
+    pub name : String,
+    pub index : GenericParamIndex
 }
-
-impl Default for FunctionId{
-    fn default() -> Self {
-        Self::DEFAULT
-    }
-}
-
 pub type GenericArgs = Vec<Type>;
-
 #[derive(Clone,Debug,Hash,PartialEq,Eq)]
 pub enum Type {
     Int,
@@ -117,33 +105,28 @@ pub enum Type {
         params : Vec<Type>, 
         return_type : Box<Type>
     },
-    Param{
-        name : String,
-        index : usize,
-    },
+    Param(GenericParamType),
     Struct{
         generic_args :  Vec<Type>,
-        id : StructId,
+        id : StructIndex,
         name : String,
     },
     Enum{
         generic_args : Vec<Type>,
-        id : EnumId,
+        id : EnumIndex,
         name : String
     },
     EnumVariant{
         generic_args : Vec<Type>,
-        id : EnumId,
+        id : EnumIndex,
         name : String,
         variant_index : usize,
     },
+
     Unknown,
 
 }
 impl Type{
-    pub fn new_param_type(name:String,index:usize)->Self{
-        Self::Param { name, index }
-    }
     pub fn is_variant_of(&self,other:&Type)->bool{
         match (self,other){
             (Type::EnumVariant { id:other_id,.. },Type::Enum { id, .. }) => id == other_id,
@@ -153,14 +136,14 @@ impl Type{
     pub fn get_field_index(&self,field_name:&str,type_context:&TypeContext)->Option<usize>{
         match (self,field_name){
             (Type::Struct { id, .. },field_name) => {
-                type_context.structs.get_struct_info(id)
+                type_context.structs.get_struct_info(todo!("Use correct ids"))
                     .and_then(|struct_| struct_.get_field(field_name)
                     .map(|(index,_)| {
                         index
                 }))
             },
             (Type::EnumVariant { id,  variant_index,.. },field_name) => {
-                type_context.enums.get_enum(*id).variants[*variant_index].fields.iter().position(|(field,_)| field ==  field_name).map(|index| index)
+                type_context.enums.get_enum(todo!("Use correct ids")).variants[*variant_index].fields.iter().position(|(field,_)| field ==  field_name).map(|index| index)
                     
             },
             _ => None
@@ -171,7 +154,7 @@ impl Type{
         match (self,field_name){
             (Type::Array(..),"length") => Some(Type::Int),
             (Type::Struct { generic_args, id, .. },field_name) => {
-                type_context.structs.get_struct_info(id)
+                type_context.structs.get_struct_info(todo!("Use correct ids"))
                     .and_then(|struct_| struct_.get_field(field_name)
                     .map(|(_,ty)| {
                         let ty = ty.clone();
@@ -179,7 +162,7 @@ impl Type{
                 }))
             },
             (Type::EnumVariant { id,  variant_index,generic_args,.. },field_name) => {
-                type_context.enums.get_enum(*id).variants[*variant_index].fields.iter().find(|(field,_)| field ==  field_name).map(|(_,ty)| {
+                type_context.enums.get_enum(todo!("Use correct ids")).variants[*variant_index].fields.iter().find(|(field,_)| field ==  field_name).map(|(_,ty)| {
                    if !generic_args.is_empty() {substitute(ty.clone(), generic_args)} else { ty.clone()}
                 })
                     
@@ -206,6 +189,9 @@ impl Type{
             },
             Type::Enum { generic_args,.. } => {
                 if generic_args.is_empty() { None} else {Some(generic_args.clone())}
+            },
+            Type::Struct { generic_args, .. } => {
+                if generic_args.is_empty() {None} else {Some(generic_args.clone())}
             }
             _ => None
         }
@@ -272,7 +258,7 @@ impl Display for Type{
                 }
                 write!(f,")->{}",return_type)
             },
-            Type::Param { name ,index} => write!(f,"{}/{}",name,index),
+            Type::Param(param_info) => write!(f,"{}",param_info.name),
             Type::Unknown => write!(f,"_"),
             Type::Enum {name,generic_args,.. } => {
                 write!(f,"{}",name)?;

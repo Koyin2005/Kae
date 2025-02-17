@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use pl4::{backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::typechecker::TypeChecker}};
+use pl4::{backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{name_resolution::resolver::Resolver, parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::typechecker::TypeChecker}};
 
 fn compile(source:&str)->Option<Program>{
     let Ok(tokens) = Scanner::new(source).scan() else {
@@ -10,11 +10,15 @@ fn compile(source:&str)->Option<Program>{
     let Ok(stmts) = parser.parse() else{
         return None;
     };
-    let typechecker = TypeChecker::default();
-    let Ok((type_context,stmts)) = typechecker.check(stmts) else {
+    let resolver = Resolver::new();
+    let Ok((context,stmts)) = resolver.resolve(&stmts) else {
         return None;
     };
-    let Ok(code) = Compiler::new(type_context).compile(stmts) else {
+    let typechecker = TypeChecker::default();
+    let Ok((type_context,stmts,identifiers)) = typechecker.check(stmts) else {
+        return None;
+    };
+    let Ok(code) = Compiler::new(type_context,identifiers).compile(stmts) else {
         return None;
     };
     Some(code)

@@ -26,18 +26,8 @@ fn sub_stmt(stmt:&mut TypedStmtNode,generic_args : &GenericArgs){
         TypedStmtNode::Fun { function,.. } => {
             sub_function(function, generic_args) 
         },
-        TypedStmtNode::Struct {  fields,.. } => {
-            fields.iter_mut().for_each(|(_,field_type)| *field_type = substitute(field_type.clone(), generic_args));
-        },
         TypedStmtNode::GenericFunction { function,.. } => {
             sub_function(function, generic_args);
-        },
-        TypedStmtNode::Enum { variants,.. } => {
-            variants.iter_mut().for_each(|variant|{
-                variant.fields.iter_mut().for_each(|(_,field_type)|{
-                    *field_type = substitute(field_type.clone(), generic_args);
-                });
-            });
         },
         TypedStmtNode::Impl { ty,methods } => {
             *ty = substitute(ty.clone(), generic_args);
@@ -57,7 +47,7 @@ fn sub_assignment_target(target:&mut TypedAssignmentTarget,generic_args : &Gener
         TypedAssignmentTargetKind::Field { lhs, .. } => {
             sub_expr(lhs, generic_args);
         }
-        _ => ()
+        TypedAssignmentTargetKind::Variable(_) => ()
     };
 }
 
@@ -159,9 +149,9 @@ fn sub_expr(expr:&mut TypedExprNode,generic_args : &GenericArgs){
     };
 }
 fn sub_pattern(pattern:&mut PatternNode,generic_args : &GenericArgs){
+    pattern.ty = substitute(pattern.ty.clone(), generic_args);
     match &mut pattern.kind{
-        PatternNodeKind::Struct { ty, fields } => {
-            *ty = substitute(ty.clone(), generic_args);
+        PatternNodeKind::Struct { fields } => {
             fields.iter_mut().for_each(|(_,pattern)| sub_pattern(pattern, generic_args));
         },
         PatternNodeKind::Tuple(elements) => {

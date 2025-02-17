@@ -3,6 +3,7 @@ use std::{collections::{HashMap, HashSet}, marker::PhantomData};
 use super::{parsing::ast::NodeId, typechecking::types::Type};
 
 pub mod resolver;
+pub mod resolved_ast;
 
 trait IntoIndex : Copy{
     fn new(index:usize)-> Self;
@@ -43,18 +44,26 @@ pub struct FunctionInfo{
     pub params : Vec<FunctionParamInfo>,
     pub return_type : Type
 }
+#[derive(Debug)]
+pub enum ConstructorKind{
+    Struct(StructIndex),
+    Variant(EnumIndex,VariantIndex)
+}
 #[derive(Default,Debug)]
 pub struct NameContext{
 
     function_info : IndexVec<FuncIndex,FunctionInfo>,
     struct_info : IndexVec<StructIndex,StructInfo>, 
     enum_info : IndexVec<EnumIndex,EnumInfo>,
+    variable_info : IndexVec<VariableIndex,String>,
 
 
     struct_id_map : HashMap<NodeId,StructIndex>,
     enum_id_map : HashMap<NodeId,EnumIndex>,
     function_id_map : HashMap<NodeId,FuncIndex>,
-    variable_id_type_map : HashMap<NodeId,Type>
+    variable_id_type_map : HashMap<NodeId,Type>,
+
+    constructor_id_type_map : HashMap<NodeId,ConstructorKind>
 }
 
 #[derive(Debug)]
@@ -108,7 +117,7 @@ impl<'a,Index:IntoIndex,Value> Iterator for IndexVecIter<'a,Index,Value>{
 
 macro_rules! define_id {
     ($id:ident) => {
-        #[derive(Clone, Copy,PartialEq,Eq,Hash,Debug)]
+        #[derive(Clone, Copy,PartialEq,Eq,Hash,Debug,Ord,PartialOrd)]
         pub struct $id(usize);
         impl IntoIndex for $id{
             fn new(index:usize)-> Self{
@@ -126,3 +135,4 @@ define_id!(EnumIndex);
 define_id!(FuncIndex);
 define_id!(VariantIndex);
 define_id!(FieldIndex);
+define_id!(VariableIndex);

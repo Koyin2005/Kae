@@ -2,7 +2,13 @@ use std::{fmt::Display, rc::Rc};
 
 use crate::frontend::{parsing::ast::Symbol, tokenizing::SourceLocation};
 
-use super::types::{EnumId, StructId, Type};
+use super::{names::{DefId, FunctionId, GenericParamIndex, Identifier, VariableId}, types::{EnumId, StructId, Type}};
+
+#[derive(Debug,Clone, Copy)]
+pub struct ResolvedSymbol<T> where  T:Identifier{
+    pub id  : T,
+    pub location : SourceLocation
+}
 #[derive(Clone, Copy,Debug)]
 pub enum NumberKind {
     Int(i64),
@@ -80,7 +86,7 @@ pub struct TypedPatternMatchArm{
 }
 #[derive(Clone,Debug)]
 pub enum TypedAssignmentTargetKind{
-    Variable(String),
+    Variable(VariableId),
     Index{
         lhs : Box<TypedExprNode>,
         rhs : Box<TypedExprNode>
@@ -136,7 +142,7 @@ pub enum TypedExprNodeKind{
         lhs : Box<TypedExprNode>,
         rhs : Box<TypedExprNode>
     },
-    Get(String),
+    Get(DefId),
     Print(Vec<TypedExprNode>),
     Match{
         matchee : Box<TypedExprNode>,
@@ -188,22 +194,13 @@ pub enum TypedStmtNode {
         expr : TypedExprNode
     },
     Fun{
-        name : Symbol,
+        name :ResolvedSymbol<FunctionId>,
         function : TypedFunction
     },
     GenericFunction{
-        name : Symbol,
-        generic_params : Vec<usize>,
+        name : ResolvedSymbol<FunctionId>,
+        generic_params : Vec<GenericParamIndex>,
         function : TypedFunction,
-    },
-    Struct{
-        name : Symbol,
-        generic_params : Vec<usize>,
-        fields : Vec<(String,Type)>
-    },
-    Enum{
-        name : Symbol,
-        variants : Vec<TypedEnumVariant>
     },
     Impl{
         ty : Type,
@@ -213,11 +210,12 @@ pub enum TypedStmtNode {
 #[derive(Clone,Debug)]
 pub struct PatternNode{
     pub location : SourceLocation,
-    pub kind : PatternNodeKind
+    pub kind : PatternNodeKind,
+    pub ty : Type
 }
 #[derive(Clone,Debug)]
 pub enum PatternNodeKind{
-    Name(String),
+    Name(VariableId),
     Wildcard,
     Tuple(Vec<PatternNode>),
     Int(i64),
@@ -225,11 +223,10 @@ pub enum PatternNodeKind{
     String(String),
     Bool(bool),
     Struct{
-        ty : Type,
         fields : Vec<(String,PatternNode)>
     },
     Array(Vec<PatternNode>,Option<Box<PatternNode>>,Vec<PatternNode>),
-    Is(Symbol,Box<PatternNode>)
+    Is(ResolvedSymbol<VariableId>,Box<PatternNode>)
 
 }
 #[derive(Clone,Debug)]
@@ -260,7 +257,7 @@ pub struct TypedMethod{
 
 #[derive(Clone,Debug)]
 pub enum GenericName{
-    Function(String),
+    Function(FunctionId),
     Method{
         ty : Type,
         method_name : String
