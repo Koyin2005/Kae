@@ -1,11 +1,11 @@
-use std::{collections::{HashMap, HashSet}, marker::PhantomData};
+use std::{collections::HashMap, marker::PhantomData};
 
 use super::{parsing::ast::NodeId, typechecking::types::Type};
 
 pub mod resolver;
 pub mod resolved_ast;
 
-trait IntoIndex : Copy{
+pub trait IntoIndex : Copy{
     fn new(index:usize)-> Self;
     fn as_index(&self) -> usize;
 }
@@ -67,7 +67,7 @@ pub struct NameContext{
 }
 
 #[derive(Debug)]
-struct IndexVec<Index,Value> where Index : IntoIndex{
+pub struct IndexVec<Index,Value> where Index : IntoIndex{
     data : Vec<Value>,
     _phantom : PhantomData<Index>
 }
