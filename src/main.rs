@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use pl4::{backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{name_resolution::resolver::Resolver, parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::typechecker::TypeChecker}};
+use pl4::{backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{ast_lowering::{ast_lower::AstLowerer, name_finding::NameFinder, SymbolInterner}, parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::typechecker::TypeChecker}};
 
 fn compile(source:&str)->Option<Program>{
     let Ok(tokens) = Scanner::new(source).scan() else {
@@ -10,15 +10,20 @@ fn compile(source:&str)->Option<Program>{
     let Ok(stmts) = parser.parse() else{
         return None;
     };
-    let resolver = Resolver::new();
-    let Ok((context,stmts)) = resolver.resolve(&stmts) else {
+    let mut interner = SymbolInterner::new();
+    let Ok((names_found,items_to_lower)) = NameFinder::new(&mut interner).find_names(&stmts) else {
         return None;
     };
-    let typechecker = TypeChecker::default();
-    let Ok((type_context,stmts,identifiers)) = typechecker.check(stmts) else {
+    let ast_lower = AstLowerer::new(&mut interner,names_found);
+
+    let Ok((items,stmts)) = ast_lower.lower(stmts) else {
         return None;
     };
-    let Ok(code) = Compiler::new(type_context,identifiers).compile(stmts) else {
+    let typechecker = TypeChecker::new(&interner);
+    let Ok((context,stmts)) = typechecker.check(items,stmts) else {
+        return None;
+    };
+    let Ok(code) = Compiler::new().compile() else {
         return None;
     };
     Some(code)

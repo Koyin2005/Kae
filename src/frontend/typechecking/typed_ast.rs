@@ -1,24 +1,20 @@
-use std::{fmt::Display, rc::Rc};
+use std::fmt::Display;
 
-use crate::frontend::{parsing::ast::Symbol, tokenizing::SourceLocation};
 
-use super::{names::{DefId, FunctionId, GenericParamIndex, Identifier, VariableId}, types::{EnumId, StructId, Type}};
+use crate::{define_id, frontend::{ast_lowering::hir::{self, Ident}, tokenizing::SourceLocation}, identifiers::{EnumIndex, FieldIndex, FuncIndex, StructIndex, VariableIndex, VariantIndex}};
 
-#[derive(Debug,Clone, Copy)]
-pub struct ResolvedSymbol<T> where  T:Identifier{
-    pub id  : T,
-    pub location : SourceLocation
-}
+use super::types::Type;
+
 #[derive(Clone, Copy,Debug)]
 pub enum NumberKind {
     Int(i64),
     Float(f64),
 }
 #[derive(Clone,Debug)]
-pub struct TypedExprNode{
-    pub location : SourceLocation,
+pub struct Expr{
+    pub span : SourceLocation,
     pub ty : Type,
-    pub kind : TypedExprNodeKind
+    pub kind : ExprKind
 }
 #[derive(Clone, Copy,PartialEq,Debug)]
 pub enum BinaryOp{
@@ -34,11 +30,15 @@ pub enum BinaryOp{
     Equals,
     NotEquals,
 }
-#[derive(Clone, Copy,PartialEq,Debug)]
+#[derive(Clone,Copy,PartialEq,Debug)]
 pub enum UnaryOp{
     Negate
 }
-
+#[derive(Clone,Copy,PartialEq,Debug,Hash,Eq)]
+pub enum ConstructorKind {
+    Struct(StructIndex),
+    Variant(EnumIndex,VariantIndex)
+}
 impl Display for BinaryOp{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f,"{}",match self{
@@ -77,189 +77,161 @@ impl Display for LogicalOp{
     }
 }
 #[derive(Clone,Debug)]
-pub struct TypedPatternMatchArm{
-    pub location : SourceLocation,
-    pub ty : Type,
-    pub pattern : PatternNode,
-    pub expr : TypedExprNode,
+pub struct PatternMatchArm{
+    pub span : SourceLocation,
+    pub pattern : Pattern,
+    pub body : Expr,
 
 }
 #[derive(Clone,Debug)]
-pub enum TypedAssignmentTargetKind{
-    Variable(VariableId),
+pub enum AssignmentTargetKind{
+    Variable(VariableIndex),
     Index{
-        lhs : Box<TypedExprNode>,
-        rhs : Box<TypedExprNode>
+        lhs : Box<Expr>,
+        rhs : Box<Expr>
     },
     Field{
-        lhs : Box<TypedExprNode>,
-        name : Symbol
+        lhs : Box<Expr>,
+        index : FieldIndex
     }
 }
 #[derive(Clone,Debug)]
-pub struct TypedAssignmentTarget{
-    pub location : SourceLocation,
-    pub ty : Type,
-    pub kind : TypedAssignmentTargetKind
-}
-#[derive(Clone,Debug,Copy)]
-pub enum InitKind{
-    Variant(EnumId,usize),
-    Struct(StructId)
-}
-#[derive(Clone,Debug)]
-pub enum TypedExprNodeKind{
-    Unit,
-    Number(NumberKind),
-    String(Rc<str>),
-    Bool(bool),
-    Array(Vec<TypedExprNode>),
-    Tuple(Vec<TypedExprNode>),
+pub enum ExprKind{
+    Literal(hir::LiteralKind),
+    Array(Vec<Expr>),
+    Tuple(Vec<Expr>),
     Binary{
         op : BinaryOp,
-        left : Box<TypedExprNode>,
-        right : Box<TypedExprNode>
+        left : Box<Expr>,
+        right : Box<Expr>
     },
     Logical{
         op : LogicalOp,
-        left : Box<TypedExprNode>,
-        right : Box<TypedExprNode>
+        left : Box<Expr>,
+        right : Box<Expr>
     },
     Unary{
         op : UnaryOp,
-        operand : Box<TypedExprNode>
+        operand : Box<Expr>
     },
     If{
-        condition : Box<TypedExprNode>,
-        then_branch : Box<TypedExprNode>,
-        else_branch : Option<Box<TypedExprNode>>
+        condition : Box<Expr>,
+        then_branch : Box<Expr>,
+        else_branch : Option<Box<Expr>>
     },
     Block{
-        stmts : Vec<TypedStmtNode>,
-        expr : Option<Box<TypedExprNode>>
+        stmts : Vec<Stmt>,
+        expr : Option<Box<Expr>>
     },
     Index{
-        lhs : Box<TypedExprNode>,
-        rhs : Box<TypedExprNode>
+        lhs : Box<Expr>,
+        rhs : Box<Expr>
     },
-    Get(DefId),
-    Print(Vec<TypedExprNode>),
+    Variable(VariableIndex),
+    Print(Vec<Expr>),
     Match{
-        matchee : Box<TypedExprNode>,
-        arms : Vec<TypedPatternMatchArm>
+        matchee : Box<Expr>,
+        arms : Vec<PatternMatchArm>
     },
     While{
-        condition : Box<TypedExprNode>,
-        body : Box<TypedExprNode>
+        condition : Box<Expr>,
+        body : Box<Expr>
     },
     Assign{
-        lhs : TypedAssignmentTarget,
-        rhs : Box<TypedExprNode>
+        lhs : Box<Expr>,
+        rhs : Box<Expr>
     },
-    Function(TypedFunction),
+    Function(FuncIndex),
+    AnonFunction(Function),
     Call{
-        callee : Box<TypedExprNode>,
-        args : Vec<TypedExprNode>
+        callee : Box<Expr>,
+        args : Vec<Expr>
     },
     Return{
-        expr : Option<Box<TypedExprNode>>
+        expr : Option<Box<Expr>>
     },
     GetGeneric{
         name : GenericName,
         args : Vec<Type>
     },
-    TypenameOf(Type),
-    Field(Box<TypedExprNode>,Symbol),
-    StructInit{
-        kind : InitKind,
-        fields : Vec<(String,TypedExprNode)>
+    Typename(Type),
+    Field(Box<Expr>,FieldIndex),
+    Constructor{
+        kind : ConstructorKind,
+        fields : Vec<FieldExpr>
     },
-    MethodCall{
-        by_ref : bool,
-        lhs : Box<TypedExprNode>,
-        method : Symbol,
-        args : Vec<TypedExprNode>
-    },
-    GetMethod{
-       ty : Type,
-       method : Symbol 
-    }
 }
 #[derive(Clone,Debug)]
-pub enum TypedStmtNode {
-    ExprWithSemi(TypedExprNode),
-    Expr(TypedExprNode),
+pub struct FieldExpr{
+    pub index : FieldIndex,
+    pub expr : Expr
+}
+#[derive(Clone,Debug)]
+pub enum StmtKind {
+    Expr(Expr),
     Let{
-        pattern : PatternNode,
-        expr : TypedExprNode
-    },
-    Fun{
-        name :ResolvedSymbol<FunctionId>,
-        function : TypedFunction
-    },
-    GenericFunction{
-        name : ResolvedSymbol<FunctionId>,
-        generic_params : Vec<GenericParamIndex>,
-        function : TypedFunction,
-    },
-    Impl{
-        ty : Type,
-        methods : Vec<TypedMethod>,
+        pattern : Pattern,
+        expr : Expr
     },
 }
+
 #[derive(Clone,Debug)]
-pub struct PatternNode{
-    pub location : SourceLocation,
-    pub kind : PatternNodeKind,
+pub struct Stmt{
+    pub kind : StmtKind
+}
+#[derive(Clone,Debug)]
+pub struct Pattern{
+    pub span : SourceLocation,
+    pub kind : PatternKind,
     pub ty : Type
 }
 #[derive(Clone,Debug)]
-pub enum PatternNodeKind{
-    Name(VariableId),
+pub struct FieldPattern{
+    pub index : FieldIndex,
+    pub pattern : Pattern
+}
+#[derive(Clone,Debug)]
+pub enum PatternKind{
+    Binding(VariableIndex,Option<Box<Pattern>>),
     Wildcard,
-    Tuple(Vec<PatternNode>),
-    Int(i64),
-    Float(f64),
-    String(String),
-    Bool(bool),
-    Struct{
-        fields : Vec<(String,PatternNode)>
+    Tuple(Vec<Pattern>),
+    Literal(hir::LiteralKind),
+    Constructor{
+        kind : ConstructorKind,
+        fields : Vec<FieldPattern>
     },
-    Array(Vec<PatternNode>,Option<Box<PatternNode>>,Vec<PatternNode>),
-    Is(ResolvedSymbol<VariableId>,Box<PatternNode>)
 
 }
 #[derive(Clone,Debug)]
-pub struct TypedFunction{
-    pub signature : TypedFunctionSignature,
-    pub body : Box<TypedExprNode>,
+pub struct Function{
+    pub signature : FunctionSignature,
+    pub body : Box<Expr>,
 }
 
 #[derive(Clone,Debug)]
-
-pub struct TypedFunctionSignature{
-    pub params : Vec<(PatternNode,Type)>,
+pub struct FunctionParam{
+    pub pattern : Pattern,
+    pub ty : Type
+}
+#[derive(Clone,Debug)]
+pub struct FunctionSignature{
+    pub params : Vec<FunctionParam>,
     pub return_type : Type
 }
 #[derive(Clone,Debug)]
-pub struct TypedEnumVariant{
-    pub name : Symbol,
-    pub fields : Vec<(Symbol,Type)>,
-}
-
-#[derive(Clone,Debug)]
-pub struct TypedMethod{
+pub struct Method{
     pub receiver_info : Option<bool>,
-    pub name : Symbol,
+    pub name : Ident,
     pub is_generic : bool,
-    pub function : TypedFunction
+    pub function : Function
 }
 
 #[derive(Clone,Debug)]
 pub enum GenericName{
-    Function(FunctionId),
+    Function(FuncIndex),
     Method{
         ty : Type,
         method_name : String
     }
 }
+define_id!(FunctionId,doc = "An identifier for a fully type checked function.");

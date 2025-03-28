@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::frontend::tokenizing::SourceLocation;
 
-#[derive(Clone, Copy,Debug,Hash,PartialEq,Eq)]
+#[derive(Clone, Copy,Debug,Hash,PartialEq,Eq,PartialOrd, Ord)]
 pub struct NodeId(usize);
 impl NodeId{
     pub const FIRST : Self = Self(0);
@@ -173,6 +173,32 @@ pub struct ParsedEnumVariant{
     pub name : Symbol,
     pub fields : Vec<(Symbol,ParsedType)>
 }
+
+pub struct StructDef{ 
+    pub name : Symbol,
+    pub id : NodeId,
+    pub generic_params : Option<ParsedGenericParams>,
+    pub fields : Vec<(Symbol,ParsedType)>
+}
+pub struct EnumDef{
+    pub name : Symbol,
+    pub id : NodeId,
+    pub generic_params : Option<ParsedGenericParams>,
+    pub variants : Vec<ParsedEnumVariant>
+}
+pub struct Impl{
+    pub span : SourceLocation,
+    pub id : NodeId,
+    pub ty : ParsedType,
+    pub methods : Vec<ParsedMethod>
+}
+pub struct FuncDef{
+    pub id : NodeId,
+    pub name : Symbol,
+    pub generic_params : Option<ParsedGenericParams>,
+    pub function : ParsedFunction
+}
+
 pub enum StmtNode{
     Expr{
         expr : ExprNode,
@@ -184,29 +210,10 @@ pub enum StmtNode{
         expr : ExprNode,
         ty : Option<ParsedType>
     },
-    Fun{
-        id : NodeId,
-        name : Symbol,
-        generic_params : Option<ParsedGenericParams>,
-        function : ParsedFunction
-    },
-    Struct{
-        name : Symbol,
-        id : NodeId,
-        generic_params : Option<ParsedGenericParams>,
-        fields : Vec<(Symbol,ParsedType)>
-    },
-    Enum{
-        name : Symbol,
-        id : NodeId,
-        generic_params : Option<ParsedGenericParams>,
-        variants : Vec<ParsedEnumVariant>
-    },
-    Impl{
-        id : NodeId,
-        ty : ParsedType,
-        methods : Vec<ParsedMethod>
-    }
+    Fun(FuncDef),
+    Struct(StructDef),
+    Enum(EnumDef),
+    Impl(Impl)
 }
 #[derive(Clone)]
 pub enum ParsedPatternNodeKind {
@@ -239,9 +246,9 @@ pub struct Symbol{
 #[derive(Clone)]
 pub enum ParsedType{
     Path(ParsedPath),
-    Array(Box<ParsedType>),
-    Tuple(Vec<ParsedType>),
-    Fun(Vec<ParsedType>,Option<Box<ParsedType>>),
+    Array(SourceLocation,Box<ParsedType>),
+    Tuple(SourceLocation,Vec<ParsedType>),
+    Fun(SourceLocation,Vec<ParsedType>,Option<Box<ParsedType>>),
 }
 
 pub struct ParsedParam{
@@ -251,6 +258,7 @@ pub struct ParsedParam{
 }
 
 pub struct ParsedMethod{
+    pub id : NodeId,
     pub name : Symbol,
     pub has_receiver : bool,
     pub generic_params : Option<ParsedGenericParams>,
