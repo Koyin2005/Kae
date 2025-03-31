@@ -314,7 +314,7 @@ impl<'a> Parser<'a>{
                     kind: ExprNodeKind::StructInit { path, fields } 
                 })
         }
-        else if path.segments.is_empty(){
+        else if path.segments.is_empty() && path.head.generic_args.is_none(){
             Ok(ExprNode{ id : self.next_id(),
                 location : path.head.location,
                 kind : ExprNodeKind::Get(path.head.name.content)
@@ -633,8 +633,9 @@ impl<'a> Parser<'a>{
     }
     fn parse_path_segment(&mut self,include_colon:bool)->Result<PathSegment,ParsingFailed>{
         let name = self.prev_token;
-        let generic_args = if (include_colon && self.matches(TokenKind::Colon)) || (!include_colon && self.check(TokenKind::LeftBracket)){
-            Some(self.parse_generic_args()?)
+        let generic_args = if (include_colon && self.matches(TokenKind::Colon)) || self.check(TokenKind::LeftBracket){
+            let generic_args = self.parse_generic_args()?;
+            Some(generic_args)
         }
         else{
             None

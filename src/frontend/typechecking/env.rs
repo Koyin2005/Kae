@@ -6,7 +6,7 @@ use crate::{identifiers::VariableIndex, identifiers::FuncIndex};
 use super::types::Type;
 pub struct Environment{
     variable_types : FxHashMap<VariableIndex,Type>,
-    function_types : FxHashMap<FuncIndex,Type>
+    function_types : FxHashMap<FuncIndex,Type>,
 }
 
 impl Environment{

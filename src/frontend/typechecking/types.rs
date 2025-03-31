@@ -1,5 +1,5 @@
 use crate::{data_structures::IntoIndex, frontend::ast_lowering::SymbolInterner, identifiers::{EnumIndex, GenericParamIndex, StructIndex, SymbolIndex}};
-use super::TypeContext;
+use super::{typed_ast::Generics, TypeContext};
 
 
 #[derive(Debug,Clone,Hash,PartialEq,Eq)]
@@ -102,6 +102,7 @@ impl Type{
                     }
                     displayed_string.push_str(&format!("{}",element.display_type(ctxt, interner)));
                 }
+                displayed_string.push(')');
                 displayed_string
             },
             Type::Function(_,params, return_type) => {
@@ -148,6 +149,20 @@ pub struct GenericArgs(Vec<GenericArg>);
 pub struct GenericArg{
     pub ty : Type
 }
+impl From<Vec<GenericArg>> for GenericArgs{
+    fn from(value: Vec<GenericArg>) -> Self {
+        Self(value)
+    }
+}
+impl From<Generics> for GenericArgs{
+    fn from(value: Generics) -> Self {
+        Self(value.names.into_iter().enumerate().map(|(i,name)|{
+            GenericArg{
+                ty: Type::Param(GenericParamType { name: name, index: GenericParamIndex::new(i as u32) })
+            }
+        }).collect::<Vec<_>>())
+    }
+} 
 impl GenericArgs{
     pub fn new()->Self{
         Self(Vec::new())

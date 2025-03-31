@@ -1,4 +1,4 @@
-use crate::{data_structures::IndexVec, frontend::{tokenizing::SourceLocation, typechecking::typed_ast::{BinaryOp, LogicalOp, UnaryOp}}};
+use crate::{data_structures::IndexVec, frontend::{tokenizing::SourceLocation, typechecking::typed_ast::{BinaryOp, LogicalOp, UnaryOp}}, identifiers::GenericParamIndex};
 
 use crate::identifiers::{EnumIndex, FieldIndex, FuncIndex, ItemIndex, MethodIndex, StructIndex, SymbolIndex, VariantIndex, VariableIndex};
 pub struct FieldDef{
@@ -14,14 +14,14 @@ pub struct FunctionDef{
     pub name : Ident,
     pub function : Function
 }
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub struct Function{
     pub params : Vec<Param>,
     pub return_type : Option<Type>,
     pub body : Expr
 }
 
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub struct Param{
     pub pattern : Pattern,
     pub ty : Type
@@ -43,7 +43,7 @@ pub enum Item {
     Function(FunctionDef),
     Impl(Type,IndexVec<MethodIndex,FunctionDef>)
 }
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub struct Expr{
     pub span : SourceLocation,
     pub kind : ExprKind
@@ -55,7 +55,7 @@ pub enum LiteralKind {
     String(SymbolIndex),
     Bool(bool)
 }
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub enum ExprKind {
     Literal(LiteralKind),
     Binary(BinaryOp,Box<Expr>,Box<Expr>),
@@ -78,7 +78,7 @@ pub enum ExprKind {
     Assign(Box<Expr>,Box<Expr>),
     StructLiteral(Path,Vec<FieldExpr>),
 }
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub struct MatchArm{
     pub pat : Pattern,
     pub body : Expr
@@ -88,29 +88,29 @@ pub struct Ident{
     pub index : SymbolIndex,
     pub span : SourceLocation
 }
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub struct Stmt{
     pub kind : StmtKind,
     pub span : SourceLocation
 }
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub enum StmtKind {
     Expr(Expr),
     Semi(Expr),
     Let(Pattern,Option<Type>,Expr),
     Item(ItemIndex)
 }
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub struct Pattern{
     pub kind : PatternKind,
     pub span : SourceLocation
 }
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub struct FieldPattern{
     pub name : Ident,
     pub pattern : Pattern
 }
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub enum PatternKind {
     Binding(VariableIndex,Ident,Option<Box<Pattern>>),
     Tuple(Vec<Pattern>),
@@ -118,25 +118,30 @@ pub enum PatternKind {
     Struct(Path,Vec<FieldPattern>),
     Wildcard
 }
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub struct Type{
     pub kind : TypeKind,
     pub span : SourceLocation
 }
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub enum TypeKind {
     Array(Box<Type>),
     Tuple(Vec<Type>),
     Function(Vec<Type>,Option<Box<Type>>),
     Path(Path)
 }
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub struct PathSegment{
     pub def : PathDef,
     pub ident : Ident,
+    pub args : Vec<GenericArg>,
 
 }
-#[derive(Clone)]
+#[derive(Debug,Clone)]
+pub struct GenericArg{
+    pub ty : Type
+}
+#[derive(Clone,Debug)]
 pub struct Path{
     pub span : SourceLocation,
     pub def : PathDef,
@@ -150,7 +155,7 @@ pub enum PrimitiveType {
     String,
     Never,
 }
-#[derive(Clone,Copy,PartialEq, Eq,Hash)]
+#[derive(Clone,Copy,PartialEq, Eq,Hash,Debug)]
 pub enum PathDef {
     Variable(VariableIndex),
     PrimitiveType(PrimitiveType),
@@ -158,6 +163,15 @@ pub enum PathDef {
     Struct(StructIndex),
     Enum(EnumIndex),
     Variant(EnumIndex,VariantIndex),
+    GenericParam(GenericParamIndex,SymbolIndex)
+}
+
+
+#[derive(Clone,Copy,PartialEq, Eq,Hash,Debug)]
+pub enum GenericOwner {
+    Struct(StructIndex),
+    Enum(EnumIndex),
+    Function(FuncIndex),
 }
 
 #[derive(Clone, Copy,Debug,PartialEq,Eq,Hash)]
@@ -172,9 +186,9 @@ pub enum DefKind {
     Function,
     Struct,
     Enum,
-    Variant
+    Variant,
 }
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub struct FieldExpr{
     pub field : Ident,
     pub expr : Expr,

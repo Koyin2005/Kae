@@ -168,6 +168,11 @@ pub struct ExprNode{
 
 pub struct ParsedGenericParam(pub Symbol);
 pub struct ParsedGenericParams(pub Vec<ParsedGenericParam>);
+impl ParsedGenericParams{
+    pub fn empty()->Self{
+        Self(Vec::new())
+    }
+}
 
 pub struct ParsedEnumVariant{
     pub name : Symbol,
@@ -243,7 +248,7 @@ pub struct Symbol{
     pub location : SourceLocation
 }
 
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub enum ParsedType{
     Path(ParsedPath),
     Array(SourceLocation,Box<ParsedType>),
@@ -269,20 +274,20 @@ pub struct ParsedFunction{
     pub return_type : Option<ParsedType>,
     pub body : ExprNode
 }
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub struct ParsedGenericArgs{
     pub location : SourceLocation,
     pub types : Vec<ParsedType>
 }
 
 
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub struct PathSegment{
     pub name : Symbol,
     pub generic_args : Option<ParsedGenericArgs>,
     pub location : SourceLocation
 }
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub struct ParsedPath{
     pub head : PathSegment,
     pub segments : Vec<PathSegment>,

@@ -1,11 +1,11 @@
 use std::{cell::Cell, collections::{BTreeMap, BTreeSet}};
 
-use fxhash::FxHashMap;
+use fxhash::{FxHashMap, FxHashSet};
 use indexmap::IndexMap;
 
-use crate::{data_structures::{IndexVec, IntoIndex}, frontend::{ast_lowering::{hir::Ident, SymbolIndex, SymbolInterner}, parsing::ast::{self, NodeId, ParsedAssignmentTargetKind}, tokenizing::SourceLocation, }, identifiers::VariableIndex};
+use crate::{data_structures::{IndexVec, IntoIndex}, frontend::{ast_lowering::{hir::Ident, SymbolIndex, SymbolInterner}, parsing::ast::{self, NodeId, ParsedAssignmentTargetKind}, tokenizing::SourceLocation, }, identifiers::{GenericParamIndex, VariableIndex}};
 
-use super::hir::PrimitiveType;
+use super::hir::{GenericOwner, PrimitiveType};
 use crate::identifiers::{EnumIndex, FieldIndex, FuncIndex, ImplIndex, StructIndex, VariantIndex,ScopeIndex};
 
 pub struct ResolutionError;
@@ -13,7 +13,7 @@ pub struct ResolutionError;
 pub enum Type {
     Struct(StructIndex),
     Enum(EnumIndex),
-    PrimitiveType(PrimitiveType)
+    PrimitiveType(PrimitiveType),
 }
 #[derive(Debug,PartialEq,Eq)]
 pub enum VariableUse {
@@ -141,6 +141,7 @@ pub struct NamesFound{
     pub(super) structs : IndexVec<StructIndex,Record>,
     pub(super) enum_defs : IndexVec<EnumIndex,(Ident,IndexVec<VariantIndex,Record>,FxHashMap<SymbolIndex,VariantIndex>)>,
     pub(super) functions : IndexVec<FuncIndex,Ident>,
+    pub(super) generics : FxHashMap<GenericOwner,IndexVec<GenericParamIndex,Ident>>,
     pub(super) items : IndexMap<NodeId,Item>,
 }
 pub struct ItemsToLower<'a>{
@@ -177,6 +178,7 @@ impl<'a,'b> NameFinder<'a,'b>{
                 structs: IndexVec::default(), 
                 enum_defs: IndexVec::default(), 
                 functions: IndexVec::new(), 
+                generics : FxHashMap::default()
 
             },
             current_scope:global_scope , 
@@ -189,7 +191,7 @@ impl<'a,'b> NameFinder<'a,'b>{
         self.had_error.set(true);
         eprintln!("Error on line {}: {}",span.start_line,message);
     }
-    fn define_bindings(&mut self,base_id:NodeId,bindings:&BTreeMap<NodeId,Ident>,seen_symbols:&BTreeMap<SymbolIndex,NodeId>){
+    fn define_bindings(&mut self,base_pattern_id:NodeId,bindings:&BTreeMap<NodeId,Ident>,seen_symbols:&BTreeMap<SymbolIndex,NodeId>){
         let mut all_variables = Vec::new();
         for (node,&ident) in bindings{
             if seen_symbols.get(&ident.index).is_some_and(|node_id| node_id != node){
@@ -201,7 +203,7 @@ impl<'a,'b> NameFinder<'a,'b>{
             self.info.variable_defs.insert(*node, index);
             self.next_local_variable+=1;
         }
-        self.info.variable_def_map.insert(base_id, all_variables);
+        self.info.variable_def_map.insert(base_pattern_id, all_variables);
 
     }
     fn get_current_scope_mut(&mut self)->&mut Scope{
@@ -254,7 +256,7 @@ impl<'a,'b> NameFinder<'a,'b>{
                     let mut bindings = BTreeMap::new();
                     let mut seen_symbols = BTreeMap::new();
                     self.find_names_in_pattern(&arm.pattern,&mut bindings, &mut seen_symbols);
-                    self.define_bindings(arm.id,&bindings, &seen_symbols);
+                    self.define_bindings(arm.pattern.id,&bindings, &seen_symbols);
                     self.find_names_in_expr(&arm.expr);
                     self.end_scope();
                 }
@@ -312,9 +314,27 @@ impl<'a,'b> NameFinder<'a,'b>{
             ast::ParsedPatternNodeKind::Wildcard | ast::ParsedPatternNodeKind::Literal(_) => ()
         }
     }
+    fn find_generic_params(&mut self,owner:GenericOwner,generic_params:Option<&'a ast::ParsedGenericParams>){
+        let mut seen_generic_params = FxHashSet::default();
+        let generic_params = if let Some(generic_params) = generic_params { 
+            generic_params.0.iter().filter_map(|param| {
+                let index = self.interner.intern(param.0.clone().content);
+                if !seen_generic_params.insert(index){
+                    self.error(format!("Repeated generic param '{}'.",self.interner.get(index)), param.0.location);
+                    None
+                }
+                else{
+                    Some(Ident { index, span:param.0.location })
+                }
+            }).collect() 
+        }
+        else {
+            IndexVec::new()
+        };
+        self.info.generics.insert(owner,generic_params);
+    }
     fn find_names_in_function(&mut self,id:NodeId,function:&'a ast::ParsedFunction){
         self.begin_scope(id,ScopeKind::Function);
-
         self.prev_last_local_variables.push(std::mem::replace(&mut self.next_local_variable,0));
         let mut bindings = BTreeMap::new();
         let mut seen_symbols = BTreeMap::new();
@@ -360,6 +380,7 @@ impl<'a,'b> NameFinder<'a,'b>{
                 };
                 let enum_index = self.info.enum_defs.push((name,variants,seen_variants));
                 self.info.items.insert(enum_def.id, Item::Enum(enum_index));
+                self.find_generic_params(GenericOwner::Enum(enum_index), enum_def.generic_params.as_ref());
                 let index = self.interner.intern(enum_def.name.content.clone());
                 if !self.get_current_scope_mut().define_type(index,Type::Enum(enum_index)){
                     self.error(format!("Repeated type '{}'.",enum_def.name.content), enum_def.name.location);
@@ -371,6 +392,7 @@ impl<'a,'b> NameFinder<'a,'b>{
                 let struct_index = self.info.structs.push(Record { name, fields});
                 self.info.items.insert(struct_def.id, Item::Struct(struct_index));
                 let index = self.interner.intern(struct_def.name.content.clone());
+                self.find_generic_params(GenericOwner::Struct(struct_index), struct_def.generic_params.as_ref());
                 if !self.get_current_scope_mut().define_type(index,Type::Struct(struct_index)){
                     self.error(format!("Repeated type '{}'.",struct_def.name.content), struct_def.name.location);
                 }
@@ -389,6 +411,7 @@ impl<'a,'b> NameFinder<'a,'b>{
             ast::StmtNode::Fun(function_def) => {
                 let index = self.info.functions.push(self.interner.intern_symbol(function_def.name.clone()));
                 self.info.items.insert(function_def.id, Item::Function(index));
+                self.find_generic_params(GenericOwner::Function(index),function_def.generic_params.as_ref());
                 self.find_names_in_function(function_def.id,&function_def.function);
                 let symbol = self.interner.intern(function_def.name.content.clone());
                 if !self.get_current_scope_mut().define_function(symbol,index){

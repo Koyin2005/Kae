@@ -77,6 +77,9 @@ pub struct IndexVecIter<'a,I:IntoIndex,V>{
     index_vec : &'a IndexVec<I,V>,
     index : usize
 }
+impl<I:IntoIndex,T> ExactSizeIterator for IndexVecIter<'_,I,T>{
+    
+}
 impl<'a,Index:IntoIndex,Value> Iterator for IndexVecIter<'a,Index,Value>{
     type Item =  &'a Value;
     fn next(&mut self)->Option<Self::Item>{
@@ -85,12 +88,17 @@ impl<'a,Index:IntoIndex,Value> Iterator for IndexVecIter<'a,Index,Value>{
         self.index += 1;
         item
     }
+    fn size_hint(&self) -> (usize,Option<usize>){
+        (self.index_vec.len(),Some(self.index_vec.len()))
+    }
 } 
 impl<'a,Index:IntoIndex,Value> DoubleEndedIterator for IndexVecIter<'a,Index,Value>{
     fn next_back(&mut self) -> Option<Self::Item> {
         let index = Index::new(self.index as u32);
         let item = self.index_vec.get(index);
-        self.index -= 1;
+        if self.index > 0{
+            self.index -= 1;
+        }
         item
     }
 }

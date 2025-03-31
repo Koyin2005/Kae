@@ -23,12 +23,13 @@ pub fn is_exhaustive(patterns:&[&Pattern],pattern_ty:&Type,type_context:&TypeCon
         &Type::Enum(_,index) => {
             let mut seen_variants = HashSet::new();
             for pattern in patterns{
-                if is_irrefutable(&pattern){
+                if is_irrefutable(pattern){
                     return true;
                 }
-
-                if let PatternKind::Constructor { kind:ConstructorKind::Variant(enum_index, variant), .. } = pattern.kind{
-                    if enum_index == index {
+                if let &PatternKind::Constructor { kind:ConstructorKind::Variant(enum_index, variant), ref fields } = &pattern.kind{
+                    if enum_index == index && fields.iter().all(|field|{
+                        is_irrefutable(&field.pattern)
+                    }){
                         seen_variants.insert(variant);
                     }
                 }

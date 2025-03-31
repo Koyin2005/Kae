@@ -11,7 +11,7 @@ fn compile(source:&str)->Option<Program>{
         return None;
     };
     let mut interner = SymbolInterner::new();
-    let Ok((names_found,items_to_lower)) = NameFinder::new(&mut interner).find_names(&stmts) else {
+    let Ok((names_found,_)) = NameFinder::new(&mut interner).find_names(&stmts) else {
         return None;
     };
     let ast_lower = AstLowerer::new(&mut interner,names_found);

@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 
-use crate::{define_id, frontend::{ast_lowering::hir::{self, Ident}, tokenizing::SourceLocation}, identifiers::{EnumIndex, FieldIndex, FuncIndex, StructIndex, VariableIndex, VariantIndex}};
+use crate::{data_structures::IndexVec, define_id, frontend::{ast_lowering::hir::{self, Ident}, tokenizing::SourceLocation}, identifiers::{EnumIndex, FieldIndex, FuncIndex, GenericParamIndex, StructIndex, SymbolIndex, VariableIndex, VariantIndex}};
 
 use super::types::Type;
 
@@ -235,3 +235,8 @@ pub enum GenericName{
     }
 }
 define_id!(FunctionId,doc = "An identifier for a fully type checked function.");
+
+#[derive(Clone,Debug)]
+pub struct Generics{
+    pub names : IndexVec<GenericParamIndex,SymbolIndex>
+}

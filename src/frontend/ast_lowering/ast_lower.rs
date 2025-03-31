@@ -3,9 +3,9 @@ use std::cell::Cell;
 use fxhash::FxHashSet;
 
 use crate::{data_structures::{IndexVec, IntoIndex}, frontend::{ast_lowering::hir::{Generics, VariantDef}, parsing::ast::{self, NodeId, ParsedType, Symbol}, tokenizing::SourceLocation, 
-    typechecking::typed_ast::{BinaryOp, LogicalOp, UnaryOp}}};
+    typechecking::typed_ast::{BinaryOp, LogicalOp, UnaryOp}}, identifiers::GenericParamIndex};
 
-use super::{hir::{self, FunctionDef, Ident, Item, LiteralKind, PatternKind}, name_finding::{self, Record, ResolutionResult, Scope}, SymbolInterner};
+use super::{hir::{self, FunctionDef, GenericArg, GenericOwner, Ident, Item, LiteralKind, PatternKind}, name_finding::{self, Record, ResolutionResult, Scope}, SymbolInterner};
 use crate::identifiers::{VariantIndex,ItemIndex,FieldIndex,ScopeIndex};
 
 pub struct LoweringErr;
@@ -14,6 +14,7 @@ pub struct AstLowerer<'a>{
     items : IndexVec<ItemIndex,Item>,
     name_info : name_finding::NamesFound,
     current_scope : ScopeIndex,
+    current_generic_stack : Vec<GenericOwner>,
     had_error : Cell<bool>
 }
 
@@ -24,6 +25,7 @@ impl<'a> AstLowerer<'a>{
             items:IndexVec::new(),
             current_scope:ScopeIndex::new(0),
             name_info,
+            current_generic_stack:Vec::new(),
             had_error : false.into()
         }
     }
@@ -54,6 +56,49 @@ impl<'a> AstLowerer<'a>{
             index : symbol_index,
             span
         }
+    }
+    fn lower_generic_args(&mut self,args:Option<ast::ParsedGenericArgs>) -> Result<Vec<GenericArg>,LoweringErr>{
+        if let Some(args)=  args{
+            Ok(args.types.into_iter().map(|arg|{
+                Ok(GenericArg{ ty: self.lower_type(arg)?})
+            }).collect::<Result<Vec<_>,_>>()?)
+        }
+        else{
+            Ok(Vec::new())
+        }
+    }
+    fn get_last_generic_param(&self,name:hir::Ident) -> Option<(GenericOwner,GenericParamIndex)>{
+        self.current_generic_stack.iter().rev().filter_map(|&generic_owner|{
+            self.name_info.generics[&generic_owner].iter().enumerate().rev().find(|(_,param)|{
+                param.index == name.index
+            }).map(|(index,_)|{
+                (generic_owner,GenericParamIndex::new(index as u32))
+            })
+        }).next()
+    }
+    fn resolve_base_path_def(&self,name:hir::Ident) -> Option<hir::PathDef>{
+        Some(match self.symbol_interner.get(name.index){
+            "int" => hir::PathDef::PrimitiveType(hir::PrimitiveType::Int),
+            "float" => hir::PathDef::PrimitiveType(hir::PrimitiveType::Float),
+            "string" => hir::PathDef::PrimitiveType(hir::PrimitiveType::String),
+            "bool" => hir::PathDef::PrimitiveType(hir::PrimitiveType::Bool),
+            "never" => hir::PathDef::PrimitiveType(hir::PrimitiveType::Never),
+            _ => match self.get_current_scope().get_type(name.index, &self.name_info.all_scopes){
+                ResolutionResult::Type(ty) => match ty{
+                    name_finding::Type::Enum(enum_index) => hir::PathDef::Enum(enum_index),
+                    name_finding::Type::PrimitiveType(primitive_ty) => hir::PathDef::PrimitiveType(primitive_ty),
+                    name_finding::Type::Struct(struct_index) => hir::PathDef::Struct(struct_index),
+                },
+                ResolutionResult::None => match self.get_last_generic_param(name) {
+                    Some((_,index)) => {
+                       hir::PathDef::GenericParam(index, name.index)
+                    },
+                    None => return None
+                }
+                _ => return None
+            }
+        })
+
     }
     fn resolve_path_def(&self,name:hir::Ident,prev_def:Option<hir::PathDef>,namespace:hir::Namespace)->Option<hir::PathDef>{
         if let Some(prev) = prev_def{
@@ -87,22 +132,7 @@ impl<'a> AstLowerer<'a>{
             Some(def)
         }
         else if namespace == hir::Namespace::Type {
-            Some(match self.symbol_interner.get(name.index){
-                "int" => hir::PathDef::PrimitiveType(hir::PrimitiveType::Int),
-                "float" => hir::PathDef::PrimitiveType(hir::PrimitiveType::Float),
-                "string" => hir::PathDef::PrimitiveType(hir::PrimitiveType::String),
-                "bool" => hir::PathDef::PrimitiveType(hir::PrimitiveType::Bool),
-                "never" => hir::PathDef::PrimitiveType(hir::PrimitiveType::Never),
-                _ => match self.get_current_scope().get_type(name.index, &self.name_info.all_scopes){
-                    ResolutionResult::Type(ty) => match ty{
-                        name_finding::Type::Enum(enum_index) => hir::PathDef::Enum(enum_index),
-                        name_finding::Type::PrimitiveType(primitive_ty) => hir::PathDef::PrimitiveType(primitive_ty),
-                        name_finding::Type::Struct(struct_index) => hir::PathDef::Struct(struct_index),
-                    },
-                    _ => return None
-                }
-                
-            })
+            self.resolve_base_path_def(name)
         }
         else{
             None
@@ -111,14 +141,22 @@ impl<'a> AstLowerer<'a>{
     fn resolve_path(&mut self,path:ast::ParsedPath,namespace:hir::Namespace)->Option<hir::Path>{
         let name = self.intern_symbol(path.head.name);
         let mut span = name.span;
-        let Some(mut def) = self.resolve_path_def(name, None, namespace) else {
+        let generic_args = self.lower_generic_args(path.head.generic_args).ok()?;
+        let base_path_def = if !path.segments.is_empty(){
+            self.resolve_base_path_def(name)
+        }
+        else{
+            self.resolve_path_def(name, None, namespace)
+        };
+        let Some(mut def) = base_path_def else {
             self.error(format!("Unknown identifier '{}'.",self.symbol_interner.get(name.index)), name.span);
             return None;
         };
         let segments = path.segments.into_iter().map(|segment|{
             let prev_def = def;
             let name = self.intern_symbol(segment.name);
-            let Some(next_def) = self.resolve_path_def(name, Some(def), namespace) else {
+            let generic_args = self.lower_generic_args(segment.generic_args).ok()?;
+            let Some(next_def) = self.resolve_path_def(name, Some(def),namespace) else {
                 self.error(format!("Unknown variant, or method '{}'.",self.symbol_interner.get(name.index)), name.span);
                 return None;
             };
@@ -126,18 +164,27 @@ impl<'a> AstLowerer<'a>{
             def = next_def;
             Some(hir::PathSegment{
                def:prev_def,
-               ident:name 
+               ident:name,
+               args:generic_args
             })
         }).collect::<Vec<_>>();
-        let segments = segments.into_iter().collect::<Option<_>>()?;
+        let segments = {
+            let mut new_segments = vec![hir::PathSegment{
+                def,
+                ident:name,
+                args:generic_args
+            }];
+            new_segments.extend(segments.into_iter().collect::<Option<Vec<_>>>()?);
+            new_segments
+        };
         Some(hir::Path{
             span,
             def,
             segments
         })
     }
-    fn lower_generic_params(&mut self,generics:Option<ast::ParsedGenericParams>) -> Generics{
-        if let Some(ast::ParsedGenericParams(params)) = generics {
+    fn lower_generic_params(&mut self,owner:GenericOwner,generics:Option<ast::ParsedGenericParams>) -> Generics{
+        let generics = if let Some(ast::ParsedGenericParams(params)) = generics {
             let mut generics = Generics::new(); 
             let mut seen_names = FxHashSet::default();
             for ast::ParsedGenericParam(param) in params{
@@ -152,7 +199,9 @@ impl<'a> AstLowerer<'a>{
         }
         else{
             Generics::new()
-        }
+        };
+        self.current_generic_stack.push(owner);
+        generics
     }
     fn lower_type(&mut self,ty:ast::ParsedType) -> Result<hir::Type,LoweringErr>{
         let (kind,span) = match ty{
@@ -337,15 +386,13 @@ impl<'a> AstLowerer<'a>{
             ast::ExprNodeKind::Match { matchee, arms } => {
                 let matchee = self.lower_expr(*matchee);
                 let arms = arms.into_iter().map(|arm|{
-                    let pat = {
-                        self.begin_scope(arm.id);
-                        let pattern = self.define_bindings_and_lower_pattern(arm.pattern);
-                        self.end_scope();
-                        pattern
-                    };
+                    self.begin_scope(arm.id);
+                    let pat = self.define_bindings_and_lower_pattern(arm.pattern);
+                    let body = self.lower_expr(arm.expr);
+                    self.end_scope();
                     Ok(hir::MatchArm{
                         pat:pat?,
-                        body:self.lower_expr(arm.expr)?
+                        body:body?
                     })
                 }).collect::<Vec<_>>();
                 hir::ExprKind::Match(Box::new(matchee?),arms.into_iter().collect::<Result<Vec<_>,_>>()? )
@@ -361,14 +408,15 @@ impl<'a> AstLowerer<'a>{
             ast::ExprNodeKind::Print(args) => hir::ExprKind::Print(args.into_iter().map(|arg| self.lower_expr(arg)).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>()?),
             ast::ExprNodeKind::Get(name) => {
                 let interned_name = self.symbol_interner.intern_symbol(Symbol { content: name, location: expr.location });
-                match self.resolve_path_def(interned_name, None, hir::Namespace::Value) {
+                match self.resolve_path_def(interned_name, None,hir::Namespace::Value) {
                     Some(def) => {
                         hir::ExprKind::Path(hir::Path { 
                             span:interned_name.span,def, 
                             segments: vec![hir::PathSegment{
                                 def,
-                                ident:interned_name
-                            }] 
+                                ident:interned_name,
+                                args:Vec::new()
+                            }],
                         })
                     },
                     None => {
@@ -377,7 +425,9 @@ impl<'a> AstLowerer<'a>{
                     }
                 }
             },
-            ast::ExprNodeKind::GetPath(path) => hir::ExprKind::Path(self.resolve_path(path, hir::Namespace::Value).ok_or(LoweringErr)?),
+            ast::ExprNodeKind::GetPath(path) => {
+                hir::ExprKind::Path(self.resolve_path(path, hir::Namespace::Value).ok_or(LoweringErr)?)
+            },
             ast::ExprNodeKind::Logical { op, left, right } => {
                 let left = self.lower_expr(*left);
                 let right = self.lower_expr(*right)?;
@@ -408,15 +458,16 @@ impl<'a> AstLowerer<'a>{
                 let lhs = match lhs.kind{
                     ast::ParsedAssignmentTargetKind::Name(name) => {
                         let interned_name = self.symbol_interner.intern_symbol(Symbol { content: name, location: expr.location });
-                        match self.resolve_path_def(interned_name, None, hir::Namespace::Value) {
+                        match self.resolve_path_def(interned_name, None,hir::Namespace::Value) {
                             Some(def) => {
                                 Ok(hir::Expr{
                                     kind : hir::ExprKind::Path(hir::Path { 
                                         span:interned_name.span,def, 
                                         segments: vec![hir::PathSegment{
                                             def,
-                                            ident:interned_name
-                                        }] 
+                                            ident:interned_name,
+                                            args:Vec::new()
+                                        }],
                                     }),
                                     span : interned_name.span
                                 })
@@ -502,7 +553,7 @@ impl<'a> AstLowerer<'a>{
                 let name_finding::Item::Struct(struct_index) = self.name_info.items[&struct_def.id] else {
                     unreachable!("Should be a struct")
                 };
-                let generics = self.lower_generic_params(struct_def.generic_params);
+                let generics = self.lower_generic_params(GenericOwner::Struct(struct_index),struct_def.generic_params);
                 let name = self.name_info.structs[struct_index].name;
                 let fields = self.lower_fields(struct_def.fields, self.name_info.structs[struct_index].fields.clone())?;
                 (hir::StmtKind::Item(self.add_item(Item::Struct(generics,VariantDef { name, fields }))),name.span)
@@ -511,7 +562,7 @@ impl<'a> AstLowerer<'a>{
                 let name_finding::Item::Enum(enum_index) = self.name_info.items[&enum_def.id] else {
                     unreachable!("Should be an enum")
                 };
-                let generics = self.lower_generic_params(enum_def.generic_params);
+                let generics = self.lower_generic_params(GenericOwner::Enum(enum_index),enum_def.generic_params);
                 let (name,ref variants,_) = self.name_info.enum_defs[enum_index];
                 let variants : Vec<_> = variants.iter().map(|variant|{
                     Record{
@@ -532,7 +583,7 @@ impl<'a> AstLowerer<'a>{
                     unreachable!("Should be a function")
                 };
                 let name = self.name_info.functions[func_index];
-                let generics = self.lower_generic_params(function_def.generic_params);
+                let generics = self.lower_generic_params(GenericOwner::Function(func_index),function_def.generic_params);
                 let function = self.lower_function(function_def.id, function_def.function)?;
                 let span = SourceLocation::new(name.span.start_line, function.body.span.end_line);
                 (hir::StmtKind::Item(self.add_item(Item::Function(FunctionDef { generics, name, function }))),span)

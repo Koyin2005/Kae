@@ -1,10 +1,14 @@
 use std::cell::Cell;
 
-use fxhash::{FxHashMap, FxHashSet};
+use fxhash::FxHashSet;
+use indexmap::IndexMap;
 
-use crate::{data_structures::IndexVec, frontend::{ast_lowering::{hir::{self}, SymbolInterner}, tokenizing::SourceLocation, typechecking::typed_ast::{self, FieldExpr}}, identifiers::{EnumIndex, FieldIndex, FuncIndex, ImplIndex, ItemIndex, StructIndex}};
+use crate::{data_structures::{IndexVec, IntoIndex}, frontend::{ast_lowering::{hir::{self}, SymbolInterner}, tokenizing::SourceLocation, typechecking::typed_ast::FieldExpr}, 
+    identifiers::{EnumIndex, FieldIndex, FuncIndex, GenericParamIndex, ItemIndex, StructIndex}};
 use super::{
-    env::Environment, generics::infer_types, patterns::{self, is_exhaustive}, typed_ast::{BinaryOp, ConstructorKind, Expr, ExprKind, FieldPattern, Function, FunctionId, FunctionParam, FunctionSignature, GenericName, LogicalOp, NumberKind, Pattern, PatternKind, PatternMatchArm, Stmt, StmtKind, UnaryOp}, types::{GenericArgs, GenericParamType, Type}, EnumDef, FieldDef, StructDef, VariantDef};
+    env::Environment, generics::infer_types, patterns::{self, is_exhaustive}, 
+    typed_ast::{BinaryOp, ConstructorKind, Expr, ExprKind, FieldPattern, Function, FunctionId, FunctionParam, FunctionSignature, Generics, Pattern, PatternKind, PatternMatchArm, Stmt, StmtKind, UnaryOp}, 
+    types::{GenericArg, GenericArgs, GenericParamType, Type}, EnumDef, FieldDef, StructDef, VariantDef};
 use super::TypeContext;
 
 #[derive(Clone)]
@@ -12,45 +16,6 @@ struct EnclosingFunction{
     return_type : Type
 }
 pub type NameContext = ();
-struct TypeLowerer;
-impl TypeLowerer{
-    fn error(&self,message:String,span:SourceLocation){
-        eprintln!("Error on line {}: {}",span.start_line,message);
-    }
-    fn lower_type(&self,ty:&hir::Type) -> Type{
-        match &ty.kind{
-            hir::TypeKind::Tuple(elements) => Type::Tuple(elements.into_iter().map(|ty| self.lower_type(ty)).collect()),
-            hir::TypeKind::Array(element) => Type::Array(Box::new(self.lower_type(element))),
-            hir::TypeKind::Function(args, return_type) => Type::Function(
-                GenericArgs::new(),
-                args.into_iter().map(|ty| self.lower_type(ty)).collect(),
-                Box::new(return_type.as_ref().map_or(Type::new_unit(), |ty| self.lower_type(ty)))
-            ),
-            hir::TypeKind::Path(path) => {
-                match path.def{
-                    hir::PathDef::Enum(enum_index) => {
-                        Type::Enum(GenericArgs::new(), enum_index)
-                    },
-                    hir::PathDef::PrimitiveType(ty) => match ty{
-                        hir::PrimitiveType::Int => Type::Int,
-                        hir::PrimitiveType::Bool => Type::Bool,
-                        hir::PrimitiveType::Float => Type::Float,
-                        hir::PrimitiveType::Never => Type::Never,
-                        hir::PrimitiveType::String => Type::String
-                    },
-                    hir::PathDef::Struct(struct_index) => {
-                        Type::Struct(GenericArgs::new(), struct_index)
-                    },
-                    _ => {
-                        self.error(format!("Cannot use {} as type.","TODO: ADD ACTUAL PATH ERROR"), path.span);
-                        Type::Unknown
-                    }
-                }
-            }
-
-        }
-    }
-}
 
 enum Item{
     Struct(StructIndex),
@@ -74,7 +39,7 @@ pub struct TypeChecker<'a>{
     interner : &'a SymbolInterner,
     context : TypeContext,
     items : IndexVec<ItemIndex,Item>,
-    functions : IndexVec<FuncIndex,(hir::Ident,Option<FunctionToCheck>)>,
+    functions : IndexVec<FuncIndex,(hir::Ident,IndexVec<GenericParamIndex,hir::Ident>,Option<FunctionToCheck>)>,
     checked_functions : IndexVec<FunctionId,Function>,
     had_error : Cell<bool>
 }
@@ -97,6 +62,43 @@ impl<'a> TypeChecker<'a>{
     fn error(&self,message:String,span:SourceLocation){
         eprintln!("Error on line {}: {}",span.start_line,message);
         self.had_error.set(true);
+    }
+    fn lower_type(&self,ty:&hir::Type) -> Type{
+        match &ty.kind{
+            hir::TypeKind::Tuple(elements) => Type::Tuple(elements.into_iter().map(|ty| self.lower_type(ty)).collect()),
+            hir::TypeKind::Array(element) => Type::Array(Box::new(self.lower_type(element))),
+            hir::TypeKind::Function(args, return_type) => Type::Function(
+                GenericArgs::new(),
+                args.into_iter().map(|ty| self.lower_type(ty)).collect(),
+                Box::new(return_type.as_ref().map_or(Type::new_unit(), |ty| self.lower_type(ty)))
+            ),
+            hir::TypeKind::Path(path) => {
+                let Ok(_) = self.check_path(path) else {
+                    return Type::Unknown;
+                };
+                match path.def{
+                    hir::PathDef::Enum(enum_index) => {
+                        Type::Enum(GenericArgs::new(), enum_index)
+                    },
+                    hir::PathDef::PrimitiveType(ty) => match ty{
+                        hir::PrimitiveType::Int => Type::Int,
+                        hir::PrimitiveType::Bool => Type::Bool,
+                        hir::PrimitiveType::Float => Type::Float,
+                        hir::PrimitiveType::Never => Type::Never,
+                        hir::PrimitiveType::String => Type::String
+                    },
+                    hir::PathDef::Struct(struct_index) => {
+                        Type::Struct(GenericArgs::new(), struct_index)
+                    },
+                    hir::PathDef::GenericParam(index, symbol) => Type::Param(GenericParamType { name: symbol, index }),
+                    def => {
+                        self.error(format!("Cannot use {} as type.",self.display_path(&def)), path.span);
+                        Type::Unknown
+                    }
+                }
+            }
+
+        }
     }
     fn display_path(&self,path:&hir::PathDef) -> String{
         match path{
@@ -123,11 +125,30 @@ impl<'a> TypeChecker<'a>{
                     hir::PrimitiveType::Never => "never".to_string(),
                     hir::PrimitiveType::String => "string".to_string(),
                 }
+            },
+            hir::PathDef::GenericParam(_,symbol) => {
+                format!("generic param {}",self.interner.get(*symbol))
             }
         }
     }
     fn type_mismatch_error(&self,span:SourceLocation,expected:&Type,got:&Type){
         self.error(format!("Expected \"{}\" got \"{}\".",expected.display_type(&self.context, self.interner),got.display_type(&self.context, self.interner)),span);
+    }
+    fn get_constructor_at_path(&self,path:hir::Path) -> Result<ConstructorKind,TypeCheckFailed>{
+        Ok(match path.def {
+            hir::PathDef::Struct(struct_index) => ConstructorKind::Struct(struct_index),
+            hir::PathDef::Variant(enum_index, variant_index) => ConstructorKind::Variant(enum_index, variant_index),
+            def => {
+                self.error(format!("Expected a struct or enum constructor got '{}'.",self.display_path(&def)), path.span);
+                return Err(TypeCheckFailed);
+            }
+        })
+    }
+    fn get_type_of_constructor(&self,constructor:ConstructorKind,generic_args:GenericArgs) -> Type{
+        match constructor{
+            ConstructorKind::Struct(struct_index) => Type::Struct(generic_args, struct_index),
+            ConstructorKind::Variant(enum_index,_) => Type::Enum(generic_args, enum_index)
+        }
     }
     pub fn define_bindings_in_pattern(&mut self,pattern:&Pattern){
         match &pattern.kind{
@@ -151,7 +172,17 @@ impl<'a> TypeChecker<'a>{
         }
         
     }
-    
+    fn check_field(&mut self,constructor:ConstructorKind,field:hir::Ident,seen_fields:&mut FxHashSet<FieldIndex>) -> Result<FieldIndex, TypeCheckFailed>{
+        let Some(field_index) = self.context.get_field_index(constructor, field.index) else {
+            self.error(format!("Undefined field '{}'.",self.interner.get(field.index)), field.span);
+            return Err(TypeCheckFailed);
+        };
+        if !seen_fields.insert(field_index){
+            self.error(format!("Repeated field '{}'.",self.interner.get(field.index)), field.span);
+            return Err(TypeCheckFailed);
+        }
+        Ok(field_index)
+    }
     pub fn check_pattern(&mut self,pattern:hir::Pattern, expected_type:Option<Type>) -> Result<Pattern,TypeCheckFailed>{
         let (kind,ty)= match pattern.kind{
             hir::PatternKind::Binding(id,_,inner_pattern) => {
@@ -207,7 +238,19 @@ impl<'a> TypeChecker<'a>{
                 })
             },
             hir::PatternKind::Struct(path, fields ) => {
-                todo!("Struct patterns")
+                let constructor = self.get_constructor_at_path(path)?;
+                let generic_args = GenericArgs::new();
+                let mut seen_fields = FxHashSet::default();
+                let fields = fields.into_iter().map(|hir::FieldPattern { name, pattern }|{
+                    let field =  self.check_field(constructor, name, &mut seen_fields)?;
+                    let pattern = self.check_pattern(pattern, Some(self.context.get_field_type(constructor, &generic_args, field)))?;
+                    Ok(FieldPattern{
+                        pattern,
+                        index:field
+                    })
+                }).collect::<Result<Vec<_>,_>>()?;
+                let ty = self.get_type_of_constructor(constructor, generic_args);
+                (PatternKind::Constructor { kind: constructor, fields },ty)
             },
         };
         if let Some(expected_type) = &expected_type{
@@ -215,12 +258,96 @@ impl<'a> TypeChecker<'a>{
         }
         Ok(Pattern { span:pattern.span,kind ,ty})
     }
+    fn get_generic_params(&self,path_def:hir::PathDef) -> Generics{
+        match path_def{
+            hir::PathDef::Function(func_index) => {
+                Generics{
+                    names :  self.functions[func_index].1.iter().map(|name|{
+                        name.index
+                    }).collect::<IndexVec<_,_>>()
+                }
+                
+            },
+            _ => Generics { names: IndexVec::new() }
+        }
+    }
+    fn check_path(&self,path:&hir::Path) -> Result<(),TypeCheckFailed>{
+        let mut had_error = false;
+        for segment in &path.segments{
+            let generic_params = self.get_generic_params(segment.def);
+            if generic_params.names.len() != segment.args.len(){
+                self.error(format!("Expected '{}' generic args got '{}'.",generic_params.names.len(),segment.args.len()),segment.ident.span);
+                had_error |= true;
+            }
+        }
+        if had_error{ Err(TypeCheckFailed) } else { Ok(())}
+    }
     fn check_type_match(&mut self,ty:&Type,expected_type:&Type,span:SourceLocation)->Result<(),TypeCheckFailed>{
         if ty != expected_type &&  ty != &Type::Never {
             self.type_mismatch_error(span, expected_type, ty);
             return Err(TypeCheckFailed);
         }
         Ok(())
+    }
+    fn check_call_expr(&mut self,callee:hir::Expr,args:Vec<hir::Expr>,expected_type : Option<&Type>,span:SourceLocation)->Result<(Type,ExprKind),TypeCheckFailed>{
+        if let &hir::ExprKind::Path(hir::Path{
+                span:_,
+                def:def @ hir::PathDef::Function(function),
+                ref segments
+            }) = &callee.kind { 
+                if segments.last().expect("There should be a whole path").args.is_empty()  {
+                    let generics =  self.get_generic_params(def);
+                    if !generics.names.is_empty(){
+                        let mut generic_arg_map : IndexMap<Type,Option<Type>> = generics.names.iter().enumerate().map(|(i,&name)|{
+                            (Type::Param(GenericParamType { name, index:GenericParamIndex::new(i as u32) }),None)
+                        }).collect();let function_type = self.environment.get_function_type(function);
+                        let Type::Function(generic_args, params, return_type) = &function_type else {
+                            unreachable!("Should be a function")
+                        };
+                        if params.len() != args.len(){
+                            self.error(format!("Expected '{}' args got '{}'.",params.len(),args.len()),span);
+                            return Err(TypeCheckFailed);
+                        }
+                        let inferred_return_type = if let Some(expected_type) = expected_type{
+                            infer_types(&mut generic_arg_map, return_type, expected_type).map_err(|_| TypeCheckFailed)
+                        } else { Ok(()) };
+                        let args = args.into_iter().zip(params).map(|(arg,param_type)|{
+                            let expected_type = generic_arg_map.get(param_type).and_then(|ty| ty.as_ref());
+                            let arg = self.check_expr(arg, expected_type)?;
+                            let Ok(()) = infer_types(&mut generic_arg_map, param_type, &arg.ty) else {
+                                return Err(TypeCheckFailed)
+                            };
+                            Ok(arg)
+            
+                        }).collect::<Result<Vec<_>,_>>()?;
+                        let generic_args = generic_args.iter().map(|arg|{
+                            let Some(Some(ty)) = generic_arg_map.get(&arg.ty) else {
+                                self.error(format!("Failed to infer type of '{}'.",arg.ty.display_type(&self.context, &self.interner)), span);
+                                return Err(TypeCheckFailed);
+                            };
+                            Ok(GenericArg{
+                                ty: ty.clone()
+                            })
+                        }).collect::<Result<Vec<_>,_>>()?.into();
+                        inferred_return_type?;
+                        let return_type = return_type.substitute(&generic_args);
+                        let function_type = function_type.substitute(&generic_args);
+                        return Ok((return_type,ExprKind::Call { callee: Box::new(Expr { span, ty: function_type, kind: ExprKind::Function(function) }), args }))
+                }
+            }
+        };
+        let callee = self.check_expr(callee, None)?;
+        let Type::Function(_, params, return_type) = &callee.ty else {
+            self.error(format!("Expected a callable type got '{}'.",callee.ty.display_type(&self.context, self.interner)), callee.span);
+            return Err(TypeCheckFailed);
+        };
+        if params.len() != args.len(){
+            self.error(format!("Expected '{}' args got '{}'.",params.len(),args.len()),span);
+            return Err(TypeCheckFailed);
+        }
+        let args = args.into_iter().zip(params).map(|(arg,ty)|  self.check_expr(arg, Some(ty))).collect::<Result<Vec<_>,_>>()?;
+        let return_type = *return_type.clone();
+        Ok((return_type,ExprKind::Call { callee: Box::new(callee), args }))
     }
     fn check_expr(&mut self,expr:hir::Expr,expected_type : Option<&Type>)->Result<Expr,TypeCheckFailed>{
         let (ty,kind) = match expr.kind{
@@ -233,7 +360,7 @@ impl<'a> TypeChecker<'a>{
                 };
                 (ty,ExprKind::Literal(literal))
             },
-            hir::ExprKind::Typename(ty) => (Type::String,ExprKind::Typename(TypeLowerer.lower_type(&ty))),
+            hir::ExprKind::Typename(ty) => (Type::String,ExprKind::Typename(self.lower_type(&ty))),
             hir::ExprKind::Tuple(elements) => 
                 match expected_type{
                     Some(ty @ Type::Tuple(element_types)) if element_types.len() == elements.len() => {
@@ -411,26 +538,12 @@ impl<'a> TypeChecker<'a>{
                 (*element_type,ExprKind::Index { lhs: Box::new(indexed), rhs: Box::new(index) })
             },
             hir::ExprKind::StructLiteral(path,fields) => {
-                let kind = match path.def {
-                    hir::PathDef::Struct(struct_index) => ConstructorKind::Struct(struct_index),
-                    hir::PathDef::Variant(enum_index, variant_index) => ConstructorKind::Variant(enum_index, variant_index),
-                    def => {
-                        self.error(format!("Expected a struct or enum constructor got '{}'.",self.display_path(&def)), path.span);
-                        return Err(TypeCheckFailed);
-                    }
-                };
+                let kind = self.get_constructor_at_path(path)?;
                 let generic_args = GenericArgs::new();
                 let fields = {
                     let mut seen_fields = FxHashSet::default();
                     fields.into_iter().map(|field_expr|{
-                        let Some(field_index) = self.context.get_field_index(kind, field_expr.field.index) else {
-                            self.error(format!("Undefined field '{}'.",self.interner.get(field_expr.field.index)), field_expr.field.span);
-                            return Err(TypeCheckFailed);
-                        };
-                        if !seen_fields.insert(field_index){
-                            self.error(format!("Repeated field '{}'.",self.interner.get(field_expr.field.index)), field_expr.field.span);
-                            return Err(TypeCheckFailed);
-                        }
+                        let field_index = self.check_field(kind, field_expr.field, &mut seen_fields)?;
                         let field_type = self.context.get_field_type(kind, &generic_args, field_index);
                         let Ok(field_expr) = self.check_expr(field_expr.expr, Some(&field_type)) else {
                             return Err(TypeCheckFailed);
@@ -492,26 +605,25 @@ impl<'a> TypeChecker<'a>{
                 (Type::Never,ExprKind::Return { expr: return_expr.map(Box::new) })
             },
             hir::ExprKind::Call(callee, args) => {
-                let callee = self.check_expr(*callee, None)?;
-                let Type::Function(generic_args, params, return_type) = &callee.ty else {
-                    self.error(format!("Expected a callable type got '{}'.",callee.ty.display_type(&self.context, self.interner)), callee.span);
-                    return Err(TypeCheckFailed);
-                };
-                if params.len() != args.len(){
-                    self.error(format!("Expected '{}' args got '{}'.",params.len(),args.len()),expr.span);
-                    return Err(TypeCheckFailed);
-                }
-                let args = args.into_iter().zip(params).map(|(arg,ty)|  self.check_expr(arg, Some(ty))).collect::<Result<Vec<_>,_>>()?;
-                let return_type = *return_type.clone();
-                (return_type,ExprKind::Call { callee: Box::new(callee), args })
-                
+                self.check_call_expr(*callee,args,expected_type,expr.span)?
             },
             hir::ExprKind::Path(path) => {
+                let _ = self.check_path(&path)?;
                 match path.def{
                     def @ hir::PathDef::Variant(enum_index, variant_index) => {
+                        let Some(passed_generic_args) = path.segments.into_iter().rev().filter_map(|segment|{
+                            if matches!(segment.def,hir::PathDef::Enum(current_enum_index) if current_enum_index == enum_index){
+                                Some(self.lower_generic_args(segment.args))
+                            }
+                            else{
+                                None
+                            }
+                        }).next() else {
+                            unreachable!("Already checked for generic args")
+                        };
                         let VariantDef(variant_info) = &self.context.enums[enum_index].variants[variant_index];
                         if variant_info.fields.is_empty(){
-                            (Type::Enum(GenericArgs::new(), enum_index),ExprKind::Constructor { kind: ConstructorKind::Variant(enum_index, variant_index), fields: vec![] })
+                            (Type::Enum(passed_generic_args, enum_index),ExprKind::Constructor { kind: ConstructorKind::Variant(enum_index, variant_index), fields: vec![] })
                         }
                         else{
                             self.error(format!("Constructing '{}' requires fields.",self.display_path(&def)), path.span);
@@ -522,7 +634,24 @@ impl<'a> TypeChecker<'a>{
                         (self.environment.get_variable_type(variable),ExprKind::Variable(variable))
                     },
                     hir::PathDef::Function(function) => {
-                        (self.environment.get_function_type(function),ExprKind::Function(function))
+                        let function_type = self.environment.get_function_type(function);
+                        let Some(passed_generic_args) = path.segments.into_iter().rev().filter_map(|segment|{
+                            if matches!(segment.def,hir::PathDef::Function(seg_func_index) if seg_func_index == function){
+                                Some(self.lower_generic_args(segment.args))
+                            }
+                            else{
+                                None
+                            }
+                        }).next() else {
+                            unreachable!("Already checked for generic args")
+                        };
+                        let function_type = if !passed_generic_args.is_empty(){
+                            function_type.substitute(&(passed_generic_args))
+                        }
+                        else{
+                            function_type
+                        };
+                        (function_type,ExprKind::Function(function))
                     },
                     def => {
                         self.error(format!("Expected a value got '{}'.",self.display_path(&def)), path.span);
@@ -538,28 +667,44 @@ impl<'a> TypeChecker<'a>{
         }
         Ok(Expr { span:expr.span, ty, kind })
     }
-    fn check_recursive(&self,ty:&Type)->Result<(),TypeCheckFailed>{
+    fn check_recursive(&self,ty:&Type,base_type:&Type,span:SourceLocation)->Result<(),TypeCheckFailed>{
+        let mut had_error = false;
         match ty{
             Type::Array(element) => {
-                self.check_recursive(element)?;
+                self.check_recursive(element,base_type,span)?;
             },
+            Type::Tuple(elements) => elements.iter().try_for_each(|element| self.check_recursive(element,base_type,span))?,
             Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown | Type::Never | Type::Param(_) => (),
-            Type::Function(generic_args, params, return_type) => {
-                generic_args.iter().try_for_each(|arg| self.check_recursive(&arg.ty))?;
-                params.iter().try_for_each(|param| self.check_recursive(param))?;
-                self.check_recursive(return_type)?;
-            },
-            Type::Struct(generic_args, index) => {
-                generic_args.iter().try_for_each(|arg| self.check_recursive(&arg.ty))?;
+            Type::Function(_, _, _) =>(),
+            &Type::Struct(_, index) => {
+                if matches!(base_type,&Type::Struct(_, other_index) if other_index == index){
+                    self.error(format!("Recursive type '{}' has infinite size.",self.interner.get(self.context.structs[index].name.index)), span);
+                    return Err(TypeCheckFailed);
+                }
+                for field_def in self.context.structs[index].fields.iter(){
+                    had_error |= self.check_recursive(&field_def.ty, base_type,field_def.name.span).is_err();
+                }
 
             },
-            Type::Enum(generic_args, index) => {
-                generic_args.iter().try_for_each(|arg| self.check_recursive(&arg.ty))?;
+            &Type::Enum(_, index) => {
+                if matches!(base_type,&Type::Enum(_, other_index) if other_index == index){
+                    self.error(format!("Recursive type '{}' has infinite size.",self.interner.get(self.context.enums[index].name.index)), span);
+                    return Err(TypeCheckFailed);
+                }
+                for VariantDef(variant_def) in self.context.enums[index].variants.iter(){
+                    for field_def in variant_def.fields.iter(){
+                        had_error |=  self.check_recursive(&field_def.ty, base_type,field_def.name.span).is_err();
+                    }
+                }
 
             },
-            Type::Tuple(elements) => elements.iter().try_for_each(|element| self.check_recursive(element))?,
         }
-        Ok(())
+        if had_error {
+            Err(TypeCheckFailed)
+        }
+        else{
+            Ok(())
+        }
     }
     fn check_stmt(&mut self,stmt:hir::Stmt)->Result<Option<Stmt>,TypeCheckFailed>{
         let kind = match stmt.kind{
@@ -573,15 +718,15 @@ impl<'a> TypeChecker<'a>{
                 })
             },
             hir::StmtKind::Let(pattern,ty,expr) => {
-                let ty = ty.as_ref().map(|ty| TypeLowerer.lower_type(ty));
+                let ty = ty.as_ref().map(|ty| self.lower_type(ty));
                 let expr = self.check_expr(expr, ty.as_ref());
                 let type_and_expr = match (ty,expr) {
                     (Some(ty),Ok(expr)) => {
                         Ok((ty,expr))
                     },
-                    (Some(ty),Err(_)) => Err(Some(ty)),
-                    (None,Ok(expr)) => Err(Some(expr.ty.clone())),
-                    (None,Err(_)) => Err(None)
+                    (Some(ty),Err(_)) => Err(ty),
+                    (None,Ok(expr)) => Ok((expr.ty.clone(),expr)),
+                    (None,Err(_)) => Err(Type::Unknown)
                 };
                 let (pattern,expr) = match type_and_expr {
                         Ok((ty,expr)) => {
@@ -594,12 +739,11 @@ impl<'a> TypeChecker<'a>{
                             (pattern,expr)
                         },
                         Err(expected) => {
-                            let pattern = self.check_pattern(pattern, expected)?;
+                            let pattern = self.check_pattern(pattern, Some(expected))?;
                             self.define_bindings_in_pattern(&pattern);
                             return Err(TypeCheckFailed);
                         }
                 };
- 
                 Some(StmtKind::Let{
                     pattern,
                     expr
@@ -609,19 +753,26 @@ impl<'a> TypeChecker<'a>{
                 match self.items[item]{
                     Item::Struct(struct_index) => {
                         let args = GenericArgs::new();
-                        self.check_recursive(&Type::Struct(args, struct_index))?;
+                        let ty = Type::Struct(args, struct_index);
+                        for field in self.context.structs[struct_index].fields.iter(){
+                            self.check_recursive(&field.ty,&ty,self.context.structs[struct_index].name.span)?;
+                        }
                         
                     },
                     Item::Enum(enum_index) => {
                         let args = GenericArgs::new();
-                        self.check_recursive(&&Type::Enum(args, enum_index))?;
+                        let ty = Type::Enum(args, enum_index);
+                        for variant in self.context.enums[enum_index].variants.iter(){
+                            for field in variant.0.fields.iter(){
+                                self.check_recursive(&field.ty,&ty,self.context.enums[enum_index].name.span)?;
+                            }
+                        }
                     },
                     Item::Function(function) => {
-                        let (_,function) = &mut self.functions[function];
+                        let (_,_,function) = &mut self.functions[function];
                         let function = function.take().expect("Should be able to take a function body");
                         let function = self.check_function(function)?;
                         self.checked_functions.push(function);
-
                     },
                 }
                 None
@@ -669,15 +820,22 @@ impl<'a> TypeChecker<'a>{
                 had_error = true;
             }
         }
-
         if !had_error { Ok(typed_stmts)} else {Err(TypeCheckFailed)}
 
     }
+    fn lower_generic_args(&mut self,args:Vec<hir::GenericArg>) -> GenericArgs{
+        let generic_args = args.into_iter().map(|arg|{
+            GenericArg{
+                ty: self.lower_type(&arg.ty)
+            }
+        }).collect::<Vec<_>>();
+        generic_args.into()
+    }
     fn lower_function(&mut self,function:hir::Function) -> (Vec<Type>,Type,FunctionToCheck){
-        let return_type = function.return_type.as_ref().map_or_else(Type::new_unit, |ty| TypeLowerer.lower_type(ty));
+        let return_type = function.return_type.as_ref().map_or_else(Type::new_unit, |ty| self.lower_type(ty));
         let mut param_types = Vec::new();
         let params = function.params.into_iter().map(|param|{
-            let param_type = TypeLowerer.lower_type(&param.ty);
+            let param_type = self.lower_type(&param.ty);
             param_types.push(param_type.clone());
             ParamToCheck{ 
                 pattern : param.pattern,
@@ -694,7 +852,7 @@ impl<'a> TypeChecker<'a>{
                     fields : struct_info.fields.into_iter().map(|field|{
                         FieldDef{
                             name : field.name,
-                            ty : TypeLowerer.lower_type(&field.ty)
+                            ty : self.lower_type(&field.ty)
                         }
                     }).collect()
                 }))
@@ -704,17 +862,26 @@ impl<'a> TypeChecker<'a>{
                     name,
                     variants:variants.into_iter().map(|variant|{
                         VariantDef(StructDef { name: variant.name, fields: variant.fields.into_iter().map(|field|{
-                            FieldDef { name: field.name, ty: TypeLowerer.lower_type(&field.ty) }
+                            FieldDef { name: field.name, ty: self.lower_type(&field.ty) }
                         }).collect() })
                     }).collect()
                 }))
             },
             hir::Item::Function(function_def) => {
                 let (param_types,return_type,function) = self.lower_function(function_def.function);
-                let function_index = self.functions.push((function_def.name,
-                    Some(function))
-                );
-                self.environment.define_function_type(function_index, Type::Function(GenericArgs::new(), param_types, Box::new(return_type)));
+                let generics = function_def.generics.params.into_iter().map(|generic_param| generic_param.0).collect::<IndexVec<_,_>>();
+                let generic_args = generics.iter().enumerate().map(|(index,ident)|{
+                    GenericArg{
+                        ty: Type::Param(GenericParamType { name: ident.index, index: GenericParamIndex::new(index as u32) })
+                    }
+                }).collect::<Vec<_>>();
+                let function_index = self.functions.push(
+                    (
+                        function_def.name,
+                        generics,
+                        Some(function)
+                    ));
+                self.environment.define_function_type(function_index, Type::Function(generic_args.into(), param_types, Box::new(return_type)));
                 Item::Function(function_index)
             },
             hir::Item::Impl(ty, methods) => {
