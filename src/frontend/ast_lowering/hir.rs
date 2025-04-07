@@ -1,4 +1,6 @@
-use crate::{data_structures::IndexVec, frontend::{tokenizing::SourceLocation, typechecking::typed_ast::{BinaryOp, LogicalOp, UnaryOp}}, identifiers::GenericParamIndex};
+use std::fmt::Display;
+
+use crate::{data_structures::IndexVec, frontend::tokenizing::SourceLocation, identifiers::GenericParamIndex};
 
 use crate::identifiers::{EnumIndex, FieldIndex, FuncIndex, ItemIndex, MethodIndex, StructIndex, SymbolIndex, VariantIndex, VariableIndex};
 pub struct FieldDef{
@@ -54,6 +56,67 @@ pub enum LiteralKind {
     Float(f64),
     String(SymbolIndex),
     Bool(bool)
+}
+
+#[derive(Clone, Copy,PartialEq,Debug)]
+pub enum BinaryOp{
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+
+    Lesser,
+    Greater,
+    LesserEquals,
+    GreaterEquals,
+    Equals,
+    NotEquals,
+}
+#[derive(Clone,Copy,PartialEq,Debug)]
+pub enum UnaryOp{
+    Negate
+}
+#[derive(Clone,Copy,PartialEq,Debug,Hash,Eq)]
+pub enum ConstructorKind {
+    Struct(StructIndex),
+    Variant(EnumIndex,VariantIndex)
+}
+impl Display for BinaryOp{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f,"{}",match self{
+            Self::Add => "+",
+            Self::Subtract => "-",
+            Self::Multiply => "*",
+            Self::Divide => "/",
+            Self::Lesser => "<",
+            Self::LesserEquals => "<=",
+            Self::Greater => ">",
+            Self::GreaterEquals => ">=",
+            Self::Equals => "==",
+            Self::NotEquals => "!=",
+        })
+    }
+}
+
+impl Display for UnaryOp{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f,"{}",match self{
+            Self::Negate => "-"
+        })
+    }
+}
+#[derive(Clone, Copy,Debug)]
+pub enum LogicalOp{
+    And,
+    Or
+}
+impl Display for LogicalOp{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f,"{}",match self {
+            Self::And => "and",
+            Self::Or => "or"
+        })
+    }
 }
 #[derive(Clone,Debug)]
 pub enum ExprKind {

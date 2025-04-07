@@ -296,7 +296,6 @@ impl<'a,'b> NameFinder<'a,'b>{
                 bindings.insert(id,Ident { index, span:pattern.location });
                 seen_symbols.entry(index).or_insert(pattern.id);
             },
-            ast::ParsedPatternNodeKind::Array(..) => todo!("Array pattern bindings"),
             ast::ParsedPatternNodeKind::Is(name, pattern) => {
                 let ident = self.interner.intern_symbol(name.clone());
                 bindings.insert(id,ident);

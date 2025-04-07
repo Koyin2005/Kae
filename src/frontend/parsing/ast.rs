@@ -230,7 +230,6 @@ pub enum ParsedPatternNodeKind {
         path : ParsedPath,
         fields : Vec<(Symbol,ParsedPatternNode)>
     },
-    Array(Vec<ParsedPatternNode>,Option<Box<ParsedPatternNode>>,Vec<ParsedPatternNode>),
     Wildcard
 }
 

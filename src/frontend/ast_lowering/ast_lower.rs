@@ -3,7 +3,7 @@ use std::cell::Cell;
 use fxhash::FxHashSet;
 
 use crate::{data_structures::{IndexVec, IntoIndex}, frontend::{ast_lowering::hir::{Generics, VariantDef}, parsing::ast::{self, NodeId, ParsedType, Symbol}, tokenizing::SourceLocation, 
-    typechecking::typed_ast::{BinaryOp, LogicalOp, UnaryOp}}, identifiers::GenericParamIndex};
+    }, identifiers::GenericParamIndex};
 
 use super::{hir::{self, FunctionDef, GenericArg, GenericOwner, Ident, Item, LiteralKind, PatternKind}, name_finding::{self, Record, ResolutionResult, Scope}, SymbolInterner};
 use crate::identifiers::{VariantIndex,ItemIndex,FieldIndex,ScopeIndex};
@@ -104,12 +104,10 @@ impl<'a> AstLowerer<'a>{
         if let Some(prev) = prev_def{
             match &prev{
                 &hir::PathDef::Enum(enum_index) => {
-                    let (_,ref variants,ref variant_names) = self.name_info.enum_defs[enum_index];
+                    let (_,_,ref variant_names) = self.name_info.enum_defs[enum_index];
                     if let Some(&variant) = variant_names.get(&name.index){
-                        if (namespace == hir::Namespace::Value && variants[variant].fields.is_empty())
-                        || namespace == hir::Namespace::Type{
-                            return Some(hir::PathDef::Variant(enum_index, variant))
-                        }
+                        return Some(hir::PathDef::Variant(enum_index, variant))
+                        
                     }
                     None
                 },
@@ -141,7 +139,7 @@ impl<'a> AstLowerer<'a>{
     fn resolve_path(&mut self,path:ast::ParsedPath,namespace:hir::Namespace)->Option<hir::Path>{
         let name = self.intern_symbol(path.head.name);
         let mut span = name.span;
-        let generic_args = self.lower_generic_args(path.head.generic_args).ok()?;
+        let base_generic_args = self.lower_generic_args(path.head.generic_args).ok()?;
         let base_path_def = if !path.segments.is_empty(){
             self.resolve_base_path_def(name)
         }
@@ -152,8 +150,8 @@ impl<'a> AstLowerer<'a>{
             self.error(format!("Unknown identifier '{}'.",self.symbol_interner.get(name.index)), name.span);
             return None;
         };
+        let base_path_def = def;
         let segments = path.segments.into_iter().map(|segment|{
-            let prev_def = def;
             let name = self.intern_symbol(segment.name);
             let generic_args = self.lower_generic_args(segment.generic_args).ok()?;
             let Some(next_def) = self.resolve_path_def(name, Some(def),namespace) else {
@@ -163,16 +161,16 @@ impl<'a> AstLowerer<'a>{
             span.end_line = name.span.end_line;
             def = next_def;
             Some(hir::PathSegment{
-               def:prev_def,
+               def:next_def,
                ident:name,
                args:generic_args
             })
         }).collect::<Vec<_>>();
         let segments = {
             let mut new_segments = vec![hir::PathSegment{
-                def,
+                def:base_path_def,
                 ident:name,
-                args:generic_args
+                args:base_generic_args
             }];
             new_segments.extend(segments.into_iter().collect::<Option<Vec<_>>>()?);
             new_segments
@@ -265,7 +263,6 @@ impl<'a> AstLowerer<'a>{
     fn lower_pattern(&mut self,pattern:ast::ParsedPatternNode) -> Result<hir::Pattern,LoweringErr>{
         let span = pattern.location;
         let (kind,span) = match pattern.kind{
-            ast::ParsedPatternNodeKind::Array(.. ) => todo!("Array pattern lowering"),
             ast::ParsedPatternNodeKind::Is(name,matched_pattern ) => {
                 let name = self.intern_symbol(name);
                 let matched_pattern = self.lower_pattern(*matched_pattern);
@@ -338,7 +335,7 @@ impl<'a> AstLowerer<'a>{
             ),
             ast::ExprNodeKind::Unary { op, operand } => hir::ExprKind::Unary(
                 match op{
-                    ast::ParsedUnaryOp::Negate => UnaryOp::Negate,
+                    ast::ParsedUnaryOp::Negate => hir::UnaryOp::Negate,
                 }, 
                 Box::new(self.lower_expr(*operand)?)
             ),
@@ -347,16 +344,16 @@ impl<'a> AstLowerer<'a>{
                 let right = self.lower_expr(*right);
                 hir::ExprKind::Binary(
                     match op{
-                        ast::ParsedBinaryOp::Add => BinaryOp::Add,
-                        ast::ParsedBinaryOp::Subtract => BinaryOp::Subtract,
-                        ast::ParsedBinaryOp::Multiply => BinaryOp::Multiply,
-                        ast::ParsedBinaryOp::Divide => BinaryOp::Divide,
-                        ast::ParsedBinaryOp::Equals => BinaryOp::Equals,
-                        ast::ParsedBinaryOp::Greater => BinaryOp::Greater,
-                        ast::ParsedBinaryOp::GreaterEquals => BinaryOp::GreaterEquals,
-                        ast::ParsedBinaryOp::Lesser => BinaryOp::Lesser,
-                        ast::ParsedBinaryOp::LesserEquals => BinaryOp::LesserEquals,
-                        ast::ParsedBinaryOp::NotEquals => BinaryOp::NotEquals
+                        ast::ParsedBinaryOp::Add => hir::BinaryOp::Add,
+                        ast::ParsedBinaryOp::Subtract => hir::BinaryOp::Subtract,
+                        ast::ParsedBinaryOp::Multiply => hir::BinaryOp::Multiply,
+                        ast::ParsedBinaryOp::Divide => hir::BinaryOp::Divide,
+                        ast::ParsedBinaryOp::Equals => hir::BinaryOp::Equals,
+                        ast::ParsedBinaryOp::Greater => hir::BinaryOp::Greater,
+                        ast::ParsedBinaryOp::GreaterEquals => hir::BinaryOp::GreaterEquals,
+                        ast::ParsedBinaryOp::Lesser => hir::BinaryOp::Lesser,
+                        ast::ParsedBinaryOp::LesserEquals => hir::BinaryOp::LesserEquals,
+                        ast::ParsedBinaryOp::NotEquals => hir::BinaryOp::NotEquals
                     }, 
                     Box::new(left?), 
                     Box::new(right?)
@@ -433,8 +430,8 @@ impl<'a> AstLowerer<'a>{
                 let right = self.lower_expr(*right)?;
                 hir::ExprKind::Logical(
                     match op{
-                        ast::ParsedLogicalOp::And => LogicalOp::And,
-                        ast::ParsedLogicalOp::Or => LogicalOp::Or
+                        ast::ParsedLogicalOp::And => hir::LogicalOp::And,
+                        ast::ParsedLogicalOp::Or => hir::LogicalOp::Or
                     },
                     Box::new(left?),
                     Box::new(right)
@@ -513,7 +510,9 @@ impl<'a> AstLowerer<'a>{
                     _ => return Err(LoweringErr)
                 }
             },
-            ast::ExprNodeKind::MethodCall { receiver, method, args } => {
+            ast::ExprNodeKind::MethodCall { receiver, method:_method, args } => {
+                let _receiver = self.lower_expr(*receiver).map(Box::new);
+                let _args = args.into_iter().map(|arg| self.lower_expr(arg)).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>();
                 todo!("Method calls")
             }
         };
@@ -587,8 +586,8 @@ impl<'a> AstLowerer<'a>{
                 let function = self.lower_function(function_def.id, function_def.function)?;
                 let span = SourceLocation::new(name.span.start_line, function.body.span.end_line);
                 (hir::StmtKind::Item(self.add_item(Item::Function(FunctionDef { generics, name, function }))),span)
-            }
-            _ => todo!("Other stmts")
+            },
+            ast::StmtNode::Impl(_impl) => todo!("Impls")
         };
         Ok(hir::Stmt{
             kind,
