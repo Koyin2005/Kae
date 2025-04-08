@@ -1,6 +1,7 @@
 use std::io::Write;
 
-use pl4::{backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{ast_lowering::{ast_lower::AstLowerer, name_finding::NameFinder, SymbolInterner}, parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::typechecker::TypeChecker}};
+use pl4::{backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{ast_lowering::{ast_lower::AstLowerer, name_finding::NameFinder, SymbolInterner}, 
+parsing::parser::Parser, tokenizing::scanner::Scanner}};
 
 fn compile(source:&str)->Option<Program>{
     let Ok(tokens) = Scanner::new(source).scan() else {
@@ -17,10 +18,6 @@ fn compile(source:&str)->Option<Program>{
     let ast_lower = AstLowerer::new(&mut interner,names_found);
 
     let Ok((items,stmts)) = ast_lower.lower(stmts) else {
-        return None;
-    };
-    let typechecker = TypeChecker::new(&interner);
-    let Ok((context,stmts)) = typechecker.check(items,stmts) else {
         return None;
     };
     let Ok(code) = Compiler::new().compile() else {
