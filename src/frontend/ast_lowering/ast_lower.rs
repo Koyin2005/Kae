@@ -85,15 +85,6 @@ impl<'a> AstLowerer<'a>{
             Ok(Vec::new())
         }
     }
-    fn get_last_generic_param(&self,name:hir::Ident) -> Option<(GenericOwner,u32)>{
-        self.current_generic_stack.iter().rev().filter_map(|&generic_owner|{
-            self.name_info.generics[&generic_owner].iter().enumerate().rev().find(|(_,(_,param))|{
-                param.index == name.index
-            }).map(|(index,_)|{
-                (generic_owner,index as u32)
-            })
-        }).next()
-    }
     fn lower_generic_params(&mut self,owner:GenericOwner,generics:Option<ast::ParsedGenericParams>) -> (Generics,bool){
         let (generics,has_generics) = if let Some(ast::ParsedGenericParams(id,params)) = generics {
             self.begin_scope(id);

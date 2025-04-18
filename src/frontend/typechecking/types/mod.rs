@@ -6,6 +6,7 @@ use crate::{frontend::ast_lowering::hir::DefId, identifiers::SymbolIndex};
 pub mod lowering;
 pub mod generics;
 pub mod format;
+pub mod subst;
 pub mod collect;
 #[derive(Clone,Copy,Debug,PartialEq)]
 pub enum AdtKind {

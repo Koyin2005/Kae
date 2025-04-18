@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 
 use fxhash::{FxHashMap, FxHashSet};
 
-use crate::{data_structures::IndexVec, frontend::{ast_lowering::hir::{self, DefId, DefIdMap, HirId}, tokenizing::SourceLocation, typechecking::{context::{FuncSig, TypeContext}, error::TypeError, types::{format::TypeFormatter, generics::GenericArgs, lowering::TypeLower, AdtKind, Type}}}, identifiers::{ItemIndex, SymbolIndex, SymbolInterner}};
+use crate::{data_structures::IndexVec, frontend::{ast_lowering::hir::{self, DefIdMap, HirId}, tokenizing::SourceLocation, typechecking::{context::{FuncSig, TypeContext}, error::TypeError, types::{format::TypeFormatter, generics::GenericArgs, lowering::TypeLower, subst::TypeSubst, AdtKind, Type}}}, identifiers::{ItemIndex, SymbolIndex, SymbolInterner}};
 
 
 use super::{env::TypeEnv, Expectation};
@@ -19,11 +19,11 @@ pub struct TypeChecker<'a>{
     context : &'a TypeContext,
     ident_interner : &'a SymbolInterner,
     items : &'a IndexVec<ItemIndex,hir::Item>,
-    item_map:&'a DefIdMap<ItemIndex>
+    _item_map:&'a DefIdMap<ItemIndex>
 }
 
 impl<'a> TypeChecker<'a>{
-    pub fn new(context:&'a TypeContext,items:&'a IndexVec<ItemIndex,hir::Item>,item_map:&'a DefIdMap<ItemIndex>,interner:&'a SymbolInterner) -> Self{
+    pub fn new(context:&'a TypeContext,items:&'a IndexVec<ItemIndex,hir::Item>,_item_map:&'a DefIdMap<ItemIndex>,interner:&'a SymbolInterner) -> Self{
         Self { 
             node_types : RefCell::new(FxHashMap::default()),
             env : RefCell::new(TypeEnv::new()),
@@ -31,7 +31,7 @@ impl<'a> TypeChecker<'a>{
             prev_functions : RefCell::new(Vec::new()),
             checked_items : RefCell::new(FxHashSet::default()),
             context,
-            item_map,
+            _item_map,
             items,
             ident_interner: interner
         }
@@ -522,6 +522,29 @@ impl<'a> TypeChecker<'a>{
             }
         }
     }
+    fn get_generic_args(&self,path:&hir::Path) -> Option<GenericArgs>{
+        let generic_args = match path.final_res{
+            hir::Resolution::Definition(hir::DefKind::Function, id) => {
+                let segment = path.segments.iter().rev().find(|segment|{
+                    matches!(segment.res,hir::Resolution::Definition(hir::DefKind::Function, seg_id) if seg_id == id)
+                })?;
+                &segment.args
+            },
+            hir::Resolution::Definition(hir::DefKind::Struct, _id) => {
+                todo!("STRUCT GENERIC ARGS")
+            },
+            hir::Resolution::Definition(hir::DefKind::Enum, _id) => {
+                todo!("ENUM GENERIC ARGS")
+            },
+            hir::Resolution::Definition(hir::DefKind::Variant, _id) => {
+                todo!("ENUM GENERIC ARGS")
+            },
+            hir::Resolution::Primitive(_) | hir::Resolution::Variable(_) | hir::Resolution::Definition(hir::DefKind::Param, _) => return Some(GenericArgs::new_empty())
+        };
+        Some(GenericArgs::new(generic_args.iter().map(|arg|{
+            self.lower_type(&arg.ty)
+        }).collect()))
+    }
     fn check_expr_path(&self,path:&hir::Path,_expected:Expectation) -> Type{
         self.check_path(path);
         match path.final_res{
@@ -530,7 +553,8 @@ impl<'a> TypeChecker<'a>{
             },
             hir::Resolution::Definition(hir::DefKind::Function,function) => {
                 let def = &self.context.functions[function];
-                def.sig.as_type()
+                let generic_args = self.get_generic_args(path).expect("Should have found some generic args for this function");
+                TypeSubst::new(&generic_args).instantiate(&def.sig.as_type())
             }
             _ => todo!("The rest of the path exprs")
             
