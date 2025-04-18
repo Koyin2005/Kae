@@ -437,7 +437,7 @@ impl<'a> TypeChecker<'a>{
             self.error(format!("Missing field initializer for field '{}'.",self.ident_interner.get(field)), last_field_span);
         }
         match constructor_kind{
-            AdtKind::Enum => Type::new_enum(generic_args, id),
+            AdtKind::Enum => Type::new_enum(generic_args, self.context.expect_owner_of(id)),
             AdtKind::Struct => Type::new_struct(generic_args, id)
         }
     }
