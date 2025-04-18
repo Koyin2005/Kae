@@ -2,10 +2,20 @@ use std::cell::Cell;
 
 use fxhash::FxHashSet;
 
-use crate::{data_structures::{IndexVec, IntoIndex}, frontend::{ast_lowering::hir::{Generics, VariantDef}, parsing::ast::{self, NodeId, ParsedType, Symbol}, tokenizing::SourceLocation, 
-    }, identifiers::GenericParamIndex};
+use crate::{
+    data_structures::{IndexVec, IntoIndex}, 
+    frontend::{
+        ast_lowering::hir::{Generics, VariantDef}, parsing::ast::{self, NodeId, ParsedType, Symbol}, 
+        tokenizing::SourceLocation
+    }, 
+    identifiers::GenericParamIndex
+};
 
-use super::{hir::{self, FunctionDef, GenericArg, GenericOwner, Ident, Item, LiteralKind, PatternKind}, name_finding::{self, Record, ResolutionResult, Scope}, SymbolInterner};
+use super::{
+    hir::{self, FunctionDef, GenericArg, GenericOwner, HirId, Ident, Item, LiteralKind, PatternKind}, 
+    name_finding::{self, Record, ResolutionResult, Scope}, 
+    SymbolInterner
+};
 use crate::identifiers::{VariantIndex,ItemIndex,FieldIndex,ScopeIndex};
 
 pub struct LoweringErr;
@@ -15,6 +25,7 @@ pub struct AstLowerer<'a>{
     name_info : name_finding::NamesFound,
     current_scope : ScopeIndex,
     current_generic_stack : Vec<GenericOwner>,
+    next_id : HirId,
     had_error : Cell<bool>
 }
 
@@ -26,8 +37,14 @@ impl<'a> AstLowerer<'a>{
             current_scope:ScopeIndex::new(0),
             name_info,
             current_generic_stack:Vec::new(),
+            next_id : HirId::default(),
             had_error : false.into()
         }
+    }
+    fn next_id(&mut self) -> HirId{
+        let prev_id = self.next_id;
+        self.next_id = self.next_id.next();
+        prev_id
     }
     fn error(&self,msg:String,span:SourceLocation){
         eprintln!("Error on Line {}: {}",span.start_line,msg);
@@ -292,13 +309,8 @@ impl<'a> AstLowerer<'a>{
             },
             ast::ParsedPatternNodeKind::Struct { path, fields } => {
                 let path = self.resolve_path(path,hir::Namespace::Type).ok_or(LoweringErr);
-                let mut field_symbols = FxHashSet::default();
                 let fields:Vec<_> = fields.into_iter().filter_map(|(symbol,pattern)|{
                     let field_symbol = self.intern_symbol(symbol);
-                    if !field_symbols.insert(field_symbol.index){
-                        self.error(format!("Repeated field '{}'.",self.symbol_interner.get(field_symbol.index)), span);
-                        return None;
-                    }
                     let pattern = self.lower_pattern(pattern);
                     Some(pattern.map(|pattern|{
                         hir::FieldPattern { name: field_symbol, pattern }
@@ -309,6 +321,7 @@ impl<'a> AstLowerer<'a>{
             ast::ParsedPatternNodeKind::Wildcard => (PatternKind::Wildcard,span)
         };
         Ok(hir::Pattern{
+            id : self.next_id(),
             kind,
             span
         })
@@ -437,7 +450,7 @@ impl<'a> AstLowerer<'a>{
                     Box::new(right)
                 )
             },
-            ast::ExprNodeKind::TypenameOf(ty) => hir::ExprKind::Typename(self.lower_type(ty)?),
+            ast::ExprNodeKind::TypenameOf(ty) => hir::ExprKind::Typename(self.next_id(),self.lower_type(ty)?),
             ast::ExprNodeKind::Property(expr, field) => hir::ExprKind::Field(Box::new(self.lower_expr(*expr)?), self.intern_symbol(field)),
             ast::ExprNodeKind::Return(expr) => hir::ExprKind::Return(expr.map(|expr| self.lower_expr(*expr).map(Box::new)).map_or(Ok(None), |result| result.map(Some))?),
             ast::ExprNodeKind::StructInit { path, fields } => {
@@ -458,6 +471,7 @@ impl<'a> AstLowerer<'a>{
                         match self.resolve_path_def(interned_name, None,hir::Namespace::Value) {
                             Some(def) => {
                                 Ok(hir::Expr{
+                                    id : self.next_id(),
                                     kind : hir::ExprKind::Path(hir::Path { 
                                         span:interned_name.span,def, 
                                         segments: vec![hir::PathSegment{
@@ -480,6 +494,7 @@ impl<'a> AstLowerer<'a>{
                         let index = self.lower_expr(*index).map(Box::new);
                         match (indexed,index) {
                             (Ok(indexed),Ok(index)) => Ok(hir::Expr{
+                                id:self.next_id(),
                                 kind:hir::ExprKind::Index(indexed, index),
                                 span:lhs.location
                             }),
@@ -490,6 +505,7 @@ impl<'a> AstLowerer<'a>{
                         let receiver = self.lower_expr(*receiver);
                         receiver.map(|receiver|{
                             hir::Expr{
+                                id : self.next_id(),
                                 kind:hir::ExprKind::Field(Box::new(receiver), self.intern_symbol(field)),
                                 span:lhs.location
                             }
@@ -516,7 +532,7 @@ impl<'a> AstLowerer<'a>{
                 todo!("Method calls")
             }
         };
-        Ok(hir::Expr { span, kind})
+        Ok(hir::Expr { id:self.next_id(), span, kind})
     }
     fn lower_fields(&mut self,fields:Vec<(Symbol,ParsedType)>,field_names:IndexVec<FieldIndex,hir::Ident>)->Result<IndexVec<FieldIndex,hir::FieldDef>,LoweringErr>{
         let fields = field_names.into_iter().zip(fields.into_iter()).map(|(field,(_,field_ty))|{
@@ -543,9 +559,9 @@ impl<'a> AstLowerer<'a>{
             },
             ast::StmtNode::Let { id:_, pattern, expr, ty } => {
                 let span = SourceLocation::new(pattern.location.start_line, expr.location.end_line);
-                let pattern = self.define_bindings_and_lower_pattern(pattern);
                 let ty = ty.map(|ty| self.lower_type(ty));
                 let expr = self.lower_expr(expr);
+                let pattern = self.define_bindings_and_lower_pattern(pattern);
                 (hir::StmtKind::Let(pattern?, ty.map_or(Ok(None), |ty| ty.map(Some))?, expr?),span)
             },
             ast::StmtNode::Struct(struct_def) => {

@@ -1,4 +1,4 @@
-use std::{cell::Cell, collections::{BTreeMap, BTreeSet}};
+use std::{cell::Cell, collections::BTreeMap};
 
 use fxhash::{FxHashMap, FxHashSet};
 use indexmap::IndexMap;
@@ -347,14 +347,9 @@ impl<'a,'b> NameFinder<'a,'b>{
         self.end_scope();
     }
     fn find_fields(&mut self,fields:&[(ast::Symbol,ast::ParsedType)]) -> IndexVec<FieldIndex,Ident>{
-        let mut seen_fields = BTreeSet::new();
-        fields.iter().filter_map(|(field,_)|{
+        fields.iter().map(|(field,_)|{
             let field = self.interner.intern_symbol(field.clone());
-            if !seen_fields.insert(field.index){
-                self.error(format!("Repeated field '{}'.",self.interner.get(field.index)), field.span);
-                return None;
-            }
-            Some(field)
+            field
         }).collect()
     }
     fn find_names_in_stmt(&mut self,stmt:&'a ast::StmtNode){

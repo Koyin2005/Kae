@@ -3,6 +3,18 @@ use std::fmt::Display;
 use crate::{data_structures::IndexVec, frontend::tokenizing::SourceLocation, identifiers::GenericParamIndex};
 
 use crate::identifiers::{EnumIndex, FieldIndex, FuncIndex, ItemIndex, MethodIndex, StructIndex, SymbolIndex, VariantIndex, VariableIndex};
+#[derive(Debug,Clone, Copy,Hash,PartialEq,Eq,Default)]
+pub struct HirId(u32);
+
+impl HirId{
+    pub fn new(id : u32) -> Self{
+        HirId(id)
+    }
+
+    pub fn next(&self) -> Self{
+        Self(self.0 + 1)
+    }
+}
 pub struct FieldDef{
     pub name : Ident,
     pub ty : Type
@@ -47,6 +59,7 @@ pub enum Item {
 }
 #[derive(Clone,Debug)]
 pub struct Expr{
+    pub id : HirId,
     pub span : SourceLocation,
     pub kind : ExprKind
 }
@@ -134,7 +147,7 @@ pub enum ExprKind {
     Path(Path),
     Block(Vec<Stmt>,Option<Box<Expr>>),
     Function(Box<Function>),
-    Typename(Type),
+    Typename(HirId,Type),
     Field(Box<Expr>,Ident),
     Return(Option<Box<Expr>>),
     Index(Box<Expr>,Box<Expr>),
@@ -165,6 +178,7 @@ pub enum StmtKind {
 }
 #[derive(Clone,Debug)]
 pub struct Pattern{
+    pub id : HirId,
     pub kind : PatternKind,
     pub span : SourceLocation
 }

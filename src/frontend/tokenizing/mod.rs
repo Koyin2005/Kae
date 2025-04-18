@@ -1,6 +1,6 @@
 pub mod scanner;
 pub mod tokens;
-#[derive(Clone, Copy,Debug)]
+#[derive(Clone, Copy,Debug,PartialEq, Eq, PartialOrd, Ord)]
 pub struct SourceLocation{
     pub start_line : u32,
     pub end_line : u32
