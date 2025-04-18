@@ -1,4 +1,4 @@
-use std::{io::stdin, rc::Rc};
+use std::io::stdin;
 
 use super::{objects::Object, values::Value, vm::{RuntimeError, VM}};
 

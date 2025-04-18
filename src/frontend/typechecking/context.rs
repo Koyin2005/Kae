@@ -1,6 +1,6 @@
-use crate::frontend::ast_lowering::hir::{DefKind, Resolution, DefId, DefIdMap, Ident, Path};
+use crate::frontend::ast_lowering::hir::{DefId, DefIdMap, Ident};
 
-use super::types::{generics::GenericArgs, Type};
+use super::types::Type;
 
 pub struct FieldDef{
     pub name : Ident,
@@ -34,7 +34,6 @@ pub struct FunctionDef{
 pub struct TypeContext{
     pub(super) structs : DefIdMap<StructDef>,
     pub(super) functions : DefIdMap<FunctionDef>,
-    pub(super) variant_map : DefIdMap<DefId>,
     pub(super) generics_map : DefIdMap<Generics>,
     pub(super) params_to_indexes : DefIdMap<u32>,
     pub(super) child_to_owner_map : DefIdMap<DefId>,
@@ -44,7 +43,6 @@ impl TypeContext{
     pub fn new() -> Self{
         Self { structs: DefIdMap::new(), 
             functions : DefIdMap::new(), 
-            variant_map : DefIdMap::new(),
             name_map : DefIdMap::new(),
             generics_map:DefIdMap::new(),
             params_to_indexes : DefIdMap::new(),

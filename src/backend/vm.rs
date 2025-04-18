@@ -4,7 +4,7 @@ use fxhash::FxHashMap;
 
 use crate::backend::disassembly::disassemble_instruction;
 
-use super::{instructions::{Chunk, Constant, Instruction, Program, ProgramMetadata, StructInfo}, objects::{Heap, Object}, values::{Closure, FieldRef, Function, Record, Upvalue, Value, VariantRecord}};
+use super::{instructions::{Chunk, Constant, Instruction, Program, ProgramMetadata}, objects::{Heap, Object}, values::{Closure, FieldRef, Function, Record, Upvalue, Value, VariantRecord}};
 
 pub const DEBUG_TRACE_EXEC : bool = false;
 pub const MAX_STACK_SIZE : usize = 255;
@@ -58,12 +58,6 @@ impl VM{
         }
         self.stack.push(value);
         Ok(())
-    }
-    fn pop_size(&mut self)->usize{
-        let Value::Int(size) = self.pop() else {
-            unreachable!("Expected an int.")
-        };
-        size as usize
     }
     fn pop_n(&mut self,n:usize){
         self.stack.truncate(self.stack.len() - n);
