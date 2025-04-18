@@ -607,10 +607,9 @@ impl<'a> TypeChecker<'a>{
                 }
                 let generic_args = self.lowerer().get_generic_args(path).expect("Should have found some generic args for this enum variant");
                 Type::new_enum(generic_args, enum_id)
-
-            }
-            _ => todo!("The rest of the path exprs")
-            
+            },
+            hir::Resolution::Primitive(_) | hir::Resolution::Definition(hir::DefKind::Param|hir::DefKind::Struct|hir::DefKind::Enum,_) => 
+                self.new_error(format!("Cannot use type '{}' as expr.",path.format(self.ident_interner)), path.span),
         }
     }
 }
