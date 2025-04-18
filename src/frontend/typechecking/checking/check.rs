@@ -2,7 +2,15 @@ use std::cell::{Cell, RefCell};
 
 use fxhash::{FxHashMap, FxHashSet};
 
-use crate::{data_structures::IndexVec, frontend::{ast_lowering::hir::{self, DefIdMap, HirId}, tokenizing::SourceLocation, typechecking::{context::{FuncSig, TypeContext}, error::TypeError, types::{format::TypeFormatter, generics::GenericArgs, lowering::TypeLower, subst::TypeSubst, AdtKind, Type}}}, identifiers::{ItemIndex, SymbolIndex, SymbolInterner}};
+use crate::{
+    data_structures::IndexVec, 
+    frontend::{
+        ast_lowering::hir::{self, DefId, DefIdMap, HirId}, 
+        tokenizing::SourceLocation, 
+        typechecking::{context::{FuncSig, TypeContext}, error::TypeError, types::{format::TypeFormatter,lowering::TypeLower, subst::TypeSubst, AdtKind, Type}}
+    }, 
+    identifiers::{ItemIndex, SymbolIndex, SymbolInterner}
+};
 
 
 use super::{env::TypeEnv, Expectation};
@@ -15,7 +23,6 @@ pub struct TypeChecker<'a>{
     env : RefCell<TypeEnv>,
     had_error : Cell<bool>,
     prev_functions : RefCell<Vec<FuncContext>>,
-    checked_items : RefCell<FxHashSet<ItemIndex>>,
     context : &'a TypeContext,
     ident_interner : &'a SymbolInterner,
     items : &'a IndexVec<ItemIndex,hir::Item>,
@@ -29,15 +36,17 @@ impl<'a> TypeChecker<'a>{
             env : RefCell::new(TypeEnv::new()),
             had_error : Cell::new(false),
             prev_functions : RefCell::new(Vec::new()),
-            checked_items : RefCell::new(FxHashSet::default()),
             context,
             _item_map,
             items,
             ident_interner: interner
         }
     }
+    pub(super) fn lowerer(&self) -> TypeLower{
+        TypeLower::new(&self.ident_interner,self.context)
+    }
     pub(super) fn lower_type(&self,ty: &hir::Type) -> Type{
-        TypeLower::new(&self.ident_interner,self.context).lower(ty)
+        self.lowerer().lower_type(ty)
     }
     pub(super) fn format_type(&self,ty: &Type) -> String{
         TypeFormatter::new(&*self.ident_interner, &*self.context).format_type(ty)
@@ -93,22 +102,54 @@ impl<'a> TypeChecker<'a>{
         self.prev_functions.borrow_mut().pop();
 
     }
+    fn is_type_recursive(&self,ty:&Type,id:DefId)->bool{
+        match ty{
+            Type::Int | Type::Float | Type::Bool | Type::String | Type::Error | Type::Never | Type::Param(_,_) => false,
+            Type::Function(_,_) | Type::Array(_) => false,
+            Type::Tuple(elements) => {
+                elements.iter().any(|element| self.is_type_recursive(element, id))
+            },
+            &Type::Adt(ref generic_args,type_id, kind) => {
+                if type_id == id{
+                    true
+                }
+                else{
+                    match kind{
+                        AdtKind::Struct => {
+                            self.context.structs[type_id].fields.iter().any(|field|{
+                                self.is_type_recursive(&TypeSubst::new(generic_args).instantiate_type(&field.ty), id)
+                            })
+                        },
+                        AdtKind::Enum => {
+                            todo!("CHECK FOR RECURSIVE IN")
+                        }
+                    }
+                }
+            }
+
+        }
+    }
     fn check_item(&self,item:ItemIndex){
         match &self.items[item]{
             hir::Item::Struct(struct_def) => {
                 let mut repeated_fields = Vec::new();
                 let mut seen_fields = FxHashSet::default();
-                for field in struct_def.fields.iter(){
+                let mut is_recursive = false;
+                for (i,field) in struct_def.fields.iter().enumerate(){
                     if !seen_fields.insert(field.name.index){
                         repeated_fields.push(field.name);
                     }
                     self.check_type(&field.ty);
+                    if self.is_type_recursive(&self.context.structs[struct_def.id].fields[i].ty, struct_def.id){
+                        is_recursive = true;
+                    }
+                }
+                if is_recursive{
+                    self.error(format!("Recursive type '{}'.",self.ident_interner.get(struct_def.name.index)),struct_def.name.span);
                 }
                 for field in repeated_fields{
                     self.error(format!("Repeated field '{}'.",self.ident_interner.get(field.index)),field.span);
                 }
-                self.checked_items.borrow_mut().insert(item);
-            
             },
             hir::Item::Function(function) => {
                 let sig = (&self.context.functions[function.id].sig).clone();
@@ -337,6 +378,7 @@ impl<'a> TypeChecker<'a>{
     }
     fn check_struct_literal(&self,expr:&hir::Expr,path:&hir::Path,fields:&[hir::FieldExpr]) -> Type{
         self.check_path(path);
+        let generic_args = self.lowerer().get_generic_args(path).expect("There's gotta be some generic args");
         let (constructor_kind,id) = match path.final_res{
             hir::Resolution::Definition(hir::DefKind::Struct,index) => (AdtKind::Struct,index),
             hir::Resolution::Definition(hir::DefKind::Variant,index) => (AdtKind::Enum,index),
@@ -353,8 +395,9 @@ impl<'a> TypeChecker<'a>{
             }
         };
         let mut seen_fields = FxHashSet::default();
+        let mut last_field_span = expr.span;
         for field_expr in fields{
-            let field_ty= match field_tys.get(&field_expr.field.index).cloned(){
+            let field_ty= match field_tys.get(&field_expr.field.index).map(|ty| TypeSubst::new(&generic_args).instantiate_type(ty)){
                 Some(ty) => ty,
                 None => {
                     self.new_error(format!("Unkown field '{}'.",self.ident_interner.get(field_expr.field.index)), field_expr.field.span)
@@ -364,15 +407,16 @@ impl<'a> TypeChecker<'a>{
                 self.error(format!("Repeated field '{}'.",self.ident_interner.get(field_expr.field.index)), field_expr.field.span);
             }
             self.check_expr(&field_expr.expr, Expectation::CoercesTo(field_ty));
+            last_field_span = field_expr.span;
         }
         let field_names = field_tys.into_keys().collect::<FxHashSet<_>>();
         let missing_fields = field_names.difference(&seen_fields);
         for &field in missing_fields.into_iter(){
-            self.error(format!("Missing field initializer for field '{}'.",self.ident_interner.get(field)), expr.span);
+            self.error(format!("Missing field initializer for field '{}'.",self.ident_interner.get(field)), last_field_span);
         }
         match constructor_kind{
-            AdtKind::Enum => Type::new_enum(GenericArgs::new_empty(), id),
-            AdtKind::Struct => Type::new_struct(GenericArgs::new_empty(), id)
+            AdtKind::Enum => Type::new_enum(generic_args, id),
+            AdtKind::Struct => Type::new_struct(generic_args, id)
         }
     }
     pub(super) fn check_expr(&self,expr:&hir::Expr,expected:Expectation) -> Type{
@@ -471,10 +515,10 @@ impl<'a> TypeChecker<'a>{
             },
             hir::ExprKind::Field(base, field) => {
                 let base_ty = self.check_expr(base, Expectation::None);
-                let field_ty = if let &Type::Adt(ref _generic_args,index,AdtKind::Struct) = &base_ty{
+                let field_ty = if let &Type::Adt(ref generic_args,index,AdtKind::Struct) = &base_ty{
                     self.context.structs[index].fields.iter().find(|field_def|{
                         field_def.name.index == field.index
-                    }).map(|field_def| field_def.ty.clone())
+                    }).map(|field_def| TypeSubst::new(generic_args).instantiate_type(&field_def.ty))
                     
                 }
                 else{
@@ -522,29 +566,6 @@ impl<'a> TypeChecker<'a>{
             }
         }
     }
-    fn get_generic_args(&self,path:&hir::Path) -> Option<GenericArgs>{
-        let generic_args = match path.final_res{
-            hir::Resolution::Definition(hir::DefKind::Function, id) => {
-                let segment = path.segments.iter().rev().find(|segment|{
-                    matches!(segment.res,hir::Resolution::Definition(hir::DefKind::Function, seg_id) if seg_id == id)
-                })?;
-                &segment.args
-            },
-            hir::Resolution::Definition(hir::DefKind::Struct, _id) => {
-                todo!("STRUCT GENERIC ARGS")
-            },
-            hir::Resolution::Definition(hir::DefKind::Enum, _id) => {
-                todo!("ENUM GENERIC ARGS")
-            },
-            hir::Resolution::Definition(hir::DefKind::Variant, _id) => {
-                todo!("ENUM GENERIC ARGS")
-            },
-            hir::Resolution::Primitive(_) | hir::Resolution::Variable(_) | hir::Resolution::Definition(hir::DefKind::Param, _) => return Some(GenericArgs::new_empty())
-        };
-        Some(GenericArgs::new(generic_args.iter().map(|arg|{
-            self.lower_type(&arg.ty)
-        }).collect()))
-    }
     fn check_expr_path(&self,path:&hir::Path,_expected:Expectation) -> Type{
         self.check_path(path);
         match path.final_res{
@@ -553,8 +574,8 @@ impl<'a> TypeChecker<'a>{
             },
             hir::Resolution::Definition(hir::DefKind::Function,function) => {
                 let def = &self.context.functions[function];
-                let generic_args = self.get_generic_args(path).expect("Should have found some generic args for this function");
-                TypeSubst::new(&generic_args).instantiate(&def.sig.as_type())
+                let generic_args = self.lowerer().get_generic_args(path).expect("Should have found some generic args for this function");
+                TypeSubst::new(&generic_args).instantiate_type(&def.sig.as_type())
             }
             _ => todo!("The rest of the path exprs")
             

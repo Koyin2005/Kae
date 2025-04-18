@@ -1,3 +1,5 @@
+use crate::frontend::typechecking::context::FuncSig;
+
 use super::{generics::GenericArgs, Type};
 
 pub struct TypeSubst<'a>{
@@ -8,15 +10,15 @@ impl<'a> TypeSubst<'a>{
         Self { subst }
     }
 
-    pub fn instantiate(&self,ty:&Type) -> Type{
+    pub fn instantiate_type(&self,ty:&Type) -> Type{
         match ty{
             &Type::Param(index,_) => {
                 self.subst.get(index as usize).clone()
             },
-            Type::Function(params,return_type) => Type::new_function(params.iter().map(|param| self.instantiate(param)).collect(), self.instantiate(return_type)),
-            Type::Array(element_type) => Type::new_array(self.instantiate(element_type)),
-            &Type::Adt(ref generic_args,id,kind) => Type::Adt(GenericArgs::new(generic_args.iter().map(|arg| self.instantiate(arg)).collect()), id, kind),
-            Type::Tuple(elements) => Type::new_tuple(elements.iter().map(|element| self.instantiate(element)).collect()),
+            Type::Function(params,return_type) => Type::new_function(params.iter().map(|param| self.instantiate_type(param)).collect(), self.instantiate_type(return_type)),
+            Type::Array(element_type) => Type::new_array(self.instantiate_type(element_type)),
+            &Type::Adt(ref generic_args,id,kind) => Type::Adt(GenericArgs::new(generic_args.iter().map(|arg| self.instantiate_type(arg)).collect()), id, kind),
+            Type::Tuple(elements) => Type::new_tuple(elements.iter().map(|element| self.instantiate_type(element)).collect()),
             Type::Int => Type::Int,
             Type::Bool => Type::Bool,
             Type::Never => Type::Never,
@@ -25,5 +27,8 @@ impl<'a> TypeSubst<'a>{
             Type::Error => Type::Error
 
         }
+    }
+    pub fn instantiate_signature(&self,sig:&FuncSig) -> FuncSig{
+        FuncSig { params: sig.params.iter().map(|param|{ self.instantiate_type(param)}).collect(), return_type: self.instantiate_type(&sig.return_type) }
     }
 }

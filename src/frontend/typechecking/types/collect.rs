@@ -15,7 +15,7 @@ impl<'a> ItemCollector<'a>{
         }
     }
     fn lower_type(&self,ty:&hir::Type) -> Type{
-        TypeLower::new(self.interner, &self.context).lower(ty)
+        TypeLower::new(self.interner, &self.context).lower_type(ty)
     }
     fn add_name(&mut self,id:DefId,name:Ident){
         self.context.name_map.insert(id, name);

@@ -1,8 +1,8 @@
 use fxhash::FxHashMap;
 
-use crate::{identifiers::{SymbolIndex, VariableIndex}, SymbolInterner};
+use crate::identifiers::SymbolIndex;
 
-use super::hir::{DefId, DefIdMap, DefKind, Ident, PrimitiveType, Resolution};
+use super::hir::Resolution;
 
 #[derive(Debug,Clone,Copy)]
 pub enum ScopeKind {

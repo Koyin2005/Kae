@@ -3,18 +3,18 @@ use std::cell::Cell;
 use fxhash::FxHashSet;
 
 use crate::{
-    data_structures::{IndexVec, IntoIndex}, 
+    data_structures::IndexVec, 
     frontend::{
-        ast_lowering::{hir::{Generics, VariantDef}, scope::Scope}, parsing::ast::{self, NodeId, ParsedType, Symbol}, 
+        ast_lowering::hir::{Generics, VariantDef}, parsing::ast::{self, NodeId, ParsedType, Symbol}, 
         tokenizing::SourceLocation
     }
 };
 
 use super::{
-    hir::{self, DefId, DefIdMap, DefIdProvider, FunctionDef, GenericArg, GenericOwner, Hir, HirId, Ident, Item, LiteralKind, PatternKind}, name_finding::{self, NameScopes, Record}, 
+    hir::{self, DefId, DefIdMap,FunctionDef, GenericArg, GenericOwner, Hir, HirId, Ident, Item, LiteralKind, PatternKind}, name_finding::{self, NameScopes, Record}, 
     resolve::Resolver, SymbolInterner
 };
-use crate::identifiers::{ItemIndex,ScopeIndex};
+use crate::identifiers::ItemIndex;
 
 pub struct LoweringErr;
 pub struct PathLoweringErr;

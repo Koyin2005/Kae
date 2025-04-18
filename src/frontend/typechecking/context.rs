@@ -1,8 +1,6 @@
-use fxhash::FxHashMap;
+use crate::frontend::ast_lowering::hir::{DefKind, Resolution, DefId, DefIdMap, Ident, Path};
 
-use crate::frontend::ast_lowering::hir::{DefId, DefIdMap, Ident};
-
-use super::types::Type;
+use super::types::{generics::GenericArgs, Type};
 
 pub struct FieldDef{
     pub name : Ident,
@@ -64,6 +62,7 @@ impl TypeContext{
     }
     pub fn expect_generics_for(&self,owner_id:DefId) -> &Generics{
         self.generics_map.get(owner_id).expect("There should be some generics here")
+    
     }
     
 }
