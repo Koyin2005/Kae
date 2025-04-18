@@ -1,7 +1,5 @@
 use std::cell::{Cell, RefCell};
-
 use fxhash::{FxHashMap, FxHashSet};
-
 use crate::{
     data_structures::IndexVec, 
     frontend::{
@@ -11,10 +9,7 @@ use crate::{
     }, 
     identifiers::{ItemIndex, SymbolIndex, SymbolInterner}
 };
-
-
 use super::{env::TypeEnv, Expectation};
-
 struct FuncContext{
     return_type : Type
 }
@@ -28,7 +23,6 @@ pub struct TypeChecker<'a>{
     items : &'a IndexVec<ItemIndex,hir::Item>,
     _item_map:&'a DefIdMap<ItemIndex>
 }
-
 impl<'a> TypeChecker<'a>{
     pub fn new(context:&'a TypeContext,items:&'a IndexVec<ItemIndex,hir::Item>,_item_map:&'a DefIdMap<ItemIndex>,interner:&'a SymbolInterner) -> Self{
         Self { 
