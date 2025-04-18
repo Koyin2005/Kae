@@ -1,12 +1,17 @@
 use generics::GenericArgs;
 
-use crate::identifiers::{EnumIndex, StructIndex, SymbolIndex};
+use crate::{frontend::ast_lowering::hir::DefId, identifiers::SymbolIndex};
 
 
 pub mod lowering;
 pub mod generics;
 pub mod format;
-
+pub mod collect;
+#[derive(Clone,Copy,Debug,PartialEq)]
+pub enum AdtKind {
+    Struct,
+    Enum
+}
 #[derive(Clone,Debug,PartialEq)]
 pub enum Type {
     Int,
@@ -19,11 +24,26 @@ pub enum Type {
     Function(Vec<Type>,Box<Type>),
     Array(Box<Type>),
     Tuple(Vec<Type>),
-    Enum(GenericArgs,EnumIndex),
-    Struct(GenericArgs,StructIndex)
+    Adt(GenericArgs,DefId,AdtKind),
 }
 
 impl Type{
+    pub fn is_closed(&self) -> bool{
+        match self{
+            Type::Int | Type::Bool | Type::String | Type::Never | Type::Error | Type::Float => true,
+            Type::Array(elements) => elements.is_closed(),
+            Type::Function(params, return_ty) => return_ty.is_closed() && params.iter().all(|param| param.is_closed()),
+            Type::Adt(args, _,_) => args.iter().all(|param| param.is_closed()),
+            Type::Tuple(elements) => elements.iter().all(|element| element.is_closed()),
+            Type::Param(_,_) => false
+        }
+    }
+    pub fn new_struct(args:GenericArgs,id:DefId) -> Self{
+        Self::Adt(args, id, AdtKind::Struct)
+    }
+    pub fn new_enum(args:GenericArgs,id:DefId) -> Self{
+        Self::Adt(args, id, AdtKind::Enum)
+    }
     pub fn new_unit() -> Self{
         Self::Tuple(vec![])
     }

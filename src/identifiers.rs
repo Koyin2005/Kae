@@ -1,17 +1,32 @@
-use crate::define_id;
+
+
+use std::collections::HashMap;
+
+use crate::{data_structures::IndexVec, define_id};
 
 define_id!(SymbolIndex);
-define_id!(FieldIndex);
-define_id!(VariantIndex);
 define_id!(ItemIndex);
-define_id!(MethodIndex);
-define_id!(DefIndex);
-
-define_id!(StructIndex);
-define_id!(EnumIndex);
-define_id!(FuncIndex);
-define_id!(GenericParamIndex);
-define_id!(ImplIndex);
-
 define_id!(ScopeIndex);
 define_id!(VariableIndex);
+
+
+pub struct SymbolInterner{
+    idents : IndexVec<SymbolIndex,String>,
+    ident_map : HashMap<String,SymbolIndex>
+}
+impl SymbolInterner{
+    pub fn new()->Self{
+        Self { idents: Default::default() ,ident_map : HashMap::default() }
+    }
+    pub fn intern(&mut self,identifier : String) -> SymbolIndex{
+        if let Some(ident) = self.ident_map.get(&identifier){
+            return *ident;
+        }
+        let ident = self.idents.push(identifier.clone());
+        self.ident_map.insert(identifier, ident);
+        ident
+    }
+    pub fn get(&self,ident : SymbolIndex) -> &str{
+        &self.idents[ident]
+    }   
+}

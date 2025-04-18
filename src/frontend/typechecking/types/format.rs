@@ -1,4 +1,4 @@
-use crate::frontend::{ast_lowering::SymbolInterner, typechecking::context::TypeContext};
+use crate::{frontend::typechecking::context::TypeContext, identifiers::SymbolInterner};
 
 use super::Type;
 
@@ -47,17 +47,14 @@ impl<'b> TypeFormatter<'b>{
                 self.format_types(element_types.iter(), buffer);
                 buffer.push(')');
             },
-            &Type::Struct(ref args,index) => {
-                buffer.push_str(self.interner.get(self.context.expect_struct(index).name.index));
+            &Type::Adt(ref args,id,_) => {
+                buffer.push_str(self.interner.get(self.context.ident(id).index));
                 if !args.is_empty(){
                     buffer.push('[');
                     self.format_types(args.iter(), buffer);
                     buffer.push(']');
                 }
             },
-            Type::Enum(_args,_index) => {
-                todo!("ENUM")
-            }
         }
     }
 

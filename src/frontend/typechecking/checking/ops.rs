@@ -3,7 +3,7 @@ use crate::frontend::{ast_lowering::hir, tokenizing::SourceLocation, typecheckin
 use super::{check::TypeChecker, Expectation};
 
 impl TypeChecker<'_>{
-    pub(super) fn check_binary_expr(&mut self,op:hir::BinaryOp,left:&hir::Expr,right:&hir::Expr,span:SourceLocation) -> Type{
+    pub(super) fn check_binary_expr(&self,op:hir::BinaryOp,left:&hir::Expr,right:&hir::Expr,span:SourceLocation) -> Type{
         let left = self.check_expr(left, Expectation::None);
         let right = self.check_expr(right, Expectation::None);
         match (op,&left,&right){
@@ -32,9 +32,9 @@ impl TypeChecker<'_>{
         let right = self.format_type(&right);
         self.new_error(format!("Cannot apply '{}' to operands of type '{}' and '{}'.",op,left,right), span)
     }
-    pub(super) fn check_logical_expr(&mut self,op:hir::LogicalOp,left:&hir::Expr,right:&hir::Expr,span:SourceLocation) -> Type{
-        let left = self.check_expr(left, Expectation::CoercesTo(&Type::Bool));
-        let right = self.check_expr(right, Expectation::CoercesTo(&Type::Bool));
+    pub(super) fn check_logical_expr(&self,op:hir::LogicalOp,left:&hir::Expr,right:&hir::Expr,span:SourceLocation) -> Type{
+        let left = self.check_expr(left, Expectation::CoercesTo(Type::Bool));
+        let right = self.check_expr(right, Expectation::CoercesTo(Type::Bool));
         if left != right || left != Type::Bool || right != Type::Bool{
             let left = self.format_type(&left);
             let right = self.format_type(&right);
@@ -44,7 +44,7 @@ impl TypeChecker<'_>{
             Type::Bool
         }
     }
-    pub(super) fn check_unary_expr(&mut self,op:hir::UnaryOp,operand:&hir::Expr,span:SourceLocation) -> Type{
+    pub(super) fn check_unary_expr(&self,op:hir::UnaryOp,operand:&hir::Expr,span:SourceLocation) -> Type{
         let operand = self.check_expr(operand, Expectation::None);
         if matches!(op,hir::UnaryOp::Negate) && (operand != Type::Float || operand != Type::Float){
             let operand = self.format_type(&operand);

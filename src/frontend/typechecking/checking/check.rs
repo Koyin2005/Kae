@@ -1,8 +1,8 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use fxhash::{FxHashMap, FxHashSet};
 
-use crate::{data_structures::IndexVec, frontend::{ast_lowering::{hir::{self, HirId}, SymbolInterner}, tokenizing::SourceLocation, typechecking::{context::{FuncSig, TypeContext}, error::TypeError, types::{format::TypeFormatter, lowering::{LoweredItem, TypeLower}, Type}}}, identifiers::ItemIndex};
+use crate::{data_structures::IndexVec, frontend::{ast_lowering::hir::{self, DefId, DefIdMap, HirId}, tokenizing::SourceLocation, typechecking::{context::{FuncSig, TypeContext}, error::TypeError, types::{format::TypeFormatter, generics::GenericArgs, lowering::TypeLower, AdtKind, Type}}}, identifiers::{ItemIndex, SymbolIndex, SymbolInterner}};
 
 
 use super::{env::TypeEnv, Expectation};
@@ -11,35 +11,39 @@ struct FuncContext{
     return_type : Type
 }
 pub struct TypeChecker<'a>{
-    node_types : FxHashMap<HirId,Type>,
-    env : TypeEnv,
+    node_types : RefCell<FxHashMap<HirId,Type>>,
+    env : RefCell<TypeEnv>,
     had_error : Cell<bool>,
-    lowered_items : IndexVec<ItemIndex,Option<LoweredItem>>,
-    prev_functions : Vec<FuncContext>,
-    context : &'a mut TypeContext,
-    ident_interner : &'a mut SymbolInterner
+    prev_functions : RefCell<Vec<FuncContext>>,
+    checked_items : RefCell<FxHashSet<ItemIndex>>,
+    context : &'a TypeContext,
+    ident_interner : &'a SymbolInterner,
+    items : &'a IndexVec<ItemIndex,hir::Item>,
+    item_map:&'a DefIdMap<ItemIndex>
 }
 
 impl<'a> TypeChecker<'a>{
-    pub fn new(context:&'a mut TypeContext,items: IndexVec<ItemIndex,LoweredItem>,interner:&'a mut SymbolInterner) -> Self{
+    pub fn new(context:&'a TypeContext,items:&'a IndexVec<ItemIndex,hir::Item>,item_map:&'a DefIdMap<ItemIndex>,interner:&'a SymbolInterner) -> Self{
         Self { 
-            node_types : FxHashMap::default(),
-            env : TypeEnv::new(),
+            node_types : RefCell::new(FxHashMap::default()),
+            env : RefCell::new(TypeEnv::new()),
             had_error : Cell::new(false),
-            lowered_items : items.into_iter().map(Some).collect(),
-            prev_functions : Vec::new(),
+            prev_functions : RefCell::new(Vec::new()),
+            checked_items : RefCell::new(FxHashSet::default()),
             context,
+            item_map,
+            items,
             ident_interner: interner
         }
     }
     pub(super) fn lower_type(&self,ty: &hir::Type) -> Type{
-        TypeLower::new().lower(ty)
+        TypeLower::new(&self.ident_interner,self.context).lower(ty)
     }
-    pub(super) fn format_type(&mut self,ty: &Type) -> String{
-        TypeFormatter::new(&mut *self.ident_interner, &mut *self.context).format_type(ty)
+    pub(super) fn format_type(&self,ty: &Type) -> String{
+        TypeFormatter::new(&*self.ident_interner, &*self.context).format_type(ty)
     }
-    fn store_type(&mut self,id: HirId,ty: Type){
-        self.node_types.insert(id, ty);
+    fn store_type(&self,id: HirId,ty: Type){
+        self.node_types.borrow_mut().insert(id, ty);
     }
     fn error(&self,msg:String,span : SourceLocation){
         self.had_error.set(true);
@@ -50,7 +54,7 @@ impl<'a> TypeChecker<'a>{
         self.error(msg, span);
         Type::new_error()
     }
-    pub fn check(mut self,stmts : &[hir::Stmt]) -> Result<(),TypeError>{
+    pub fn check(self,stmts : &[hir::Stmt]) -> Result<(),TypeError>{
         self.check_stmts(stmts);
         if !self.had_error.get(){
             Ok(())
@@ -59,25 +63,65 @@ impl<'a> TypeChecker<'a>{
             Err(TypeError)
         }
     }
-    fn check_stmts(&mut self,stmts : &[hir::Stmt]){
+    fn check_stmts(&self,stmts : &[hir::Stmt]){
         for stmt in stmts{
             self.check_stmt(stmt);
         }
     }
-    fn check_function<'b>(&mut self,sig:&FuncSig,param_patterns:impl Iterator<Item = &'b hir::Pattern>,body:&hir::Expr){
+    fn check_type(&self,ty:&hir::Type){
+        match &ty.kind{
+            hir::TypeKind::Array(ty) => self.check_type(ty),
+            hir::TypeKind::Tuple(elements) => elements.iter().for_each(|element| self.check_type(element)),
+            hir::TypeKind::Function(params,return_type) => {
+                params.iter().for_each(|param| self.check_type(param));
+                if let Some(return_type) = return_type.as_ref(){
+                    self.check_type(return_type);
+                }
+            },
+            hir::TypeKind::Path(path) => {
+                self.check_path(path);
+            }
+        }
+    }
+    fn check_function<'b>(&self,sig:&FuncSig,param_patterns:impl Iterator<Item = &'b hir::Pattern>,body:&hir::Expr){
         let FuncSig { params:param_types, return_type } = sig;
         for (param_pattern,param_ty) in param_patterns.zip(param_types){
             self.check_pattern(param_pattern, param_ty.clone());
         }
-        self.prev_functions.push(FuncContext { return_type: return_type.clone() });
-        self.check_expr(body, Expectation::CoercesTo(&return_type));
-        self.prev_functions.pop();
+        self.prev_functions.borrow_mut().push(FuncContext { return_type: return_type.clone() });
+        self.check_expr(body, Expectation::CoercesTo(return_type.clone()));
+        self.prev_functions.borrow_mut().pop();
 
     }
-    fn check_stmt(&mut self,stmt : &hir::Stmt) {
+    fn check_item(&self,item:ItemIndex){
+        match &self.items[item]{
+            hir::Item::Struct(struct_def) => {
+                let mut repeated_fields = Vec::new();
+                let mut seen_fields = FxHashSet::default();
+                for field in struct_def.fields.iter(){
+                    if !seen_fields.insert(field.name.index){
+                        repeated_fields.push(field.name);
+                    }
+                    self.check_type(&field.ty);
+                }
+                for field in repeated_fields{
+                    self.error(format!("Repeated field '{}'.",self.ident_interner.get(field.index)),field.span);
+                }
+                self.checked_items.borrow_mut().insert(item);
+            
+            },
+            hir::Item::Function(function) => {
+                let sig = (&self.context.functions[function.id].sig).clone();
+                self.check_function(&sig,  function.function.params.iter().map(|param| &param.pattern), &function.function.body);
+            },
+            hir::Item::Enum(_) => todo!("Type checking for enum items"),
+            hir::Item::Impl(_,_) => todo!("Type checking for impl items"),
+        }
+    }
+    fn check_stmt(&self,stmt : &hir::Stmt) {
         match &stmt.kind{
             hir::StmtKind::Expr(expr) => {
-                self.check_expr(expr, Expectation::CoercesTo(&Type::new_unit()));
+                self.check_expr(expr, Expectation::CoercesTo(Type::new_unit()));
 
             },
             hir::StmtKind::Semi(expr) => {
@@ -88,7 +132,7 @@ impl<'a> TypeChecker<'a>{
                 let expr_ty = self.check_expr(expr, ty.as_ref().map_or(
                     Expectation::None,
                     |ty|{
-                        Expectation::CoercesTo(ty)
+                        Expectation::CoercesTo(ty.clone())
                     })
                 );
                 let ty = if let Some(ty) = (expr_ty.is_error() || expr_ty.is_never()).then_some(ty).flatten(){
@@ -100,33 +144,15 @@ impl<'a> TypeChecker<'a>{
                 self.check_pattern(pattern,ty);
                 
             }
-            hir::StmtKind::Item(item) => {
-                let item =  self.lowered_items[*item].take().expect("All items should only be checked once and should be some initially");
-                match item{
-                    LoweredItem::Struct(struct_index) => {
-                        let mut repeated_fields = Vec::new();
-                        let mut seen_fields = FxHashSet::default();
-                        for field in self.context.expect_struct(struct_index).fields.iter(){
-                            if !seen_fields.insert(field.name.index){
-                                repeated_fields.push(field.name);
-                            }
-                        }
-                        for field in repeated_fields{
-                            self.error(format!("Repeated field '{}'.",self.ident_interner.get(field.index)),field.span);
-                        }
-                    },
-                    LoweredItem::Function(index,ref param_patterns,ref body) => {
-                        let sig = self.context.expect_function(index).sig.clone();
-                        self.check_function(&sig, param_patterns.iter(), body);
-                    }
-                }
+            &hir::StmtKind::Item(item) => {
+                self.check_item(item);
             },
         }
     }
-    fn check_pattern(&mut self,pattern : &hir::Pattern, expected_type : Type){
+    fn check_pattern(&self,pattern : &hir::Pattern, expected_type : Type){
         let ty = match &pattern.kind{
             &hir::PatternKind::Binding(variable, _,ref binding_pattern) => {
-                self.env.define_variable_type(variable, expected_type.clone());
+                self.env.borrow_mut().define_variable_type(variable, expected_type.clone());
                 if let Some(pattern) = binding_pattern.as_ref(){
                     self.check_pattern(pattern, expected_type.clone());
                 }
@@ -162,7 +188,7 @@ impl<'a> TypeChecker<'a>{
         };
         self.store_type(pattern.id, ty);
     }
-    fn check_type_is_expected(&mut self, ty : Type, expected_type : &Type, span : SourceLocation) -> Type{
+    fn check_type_is_expected(&self, ty : Type, expected_type : &Type, span : SourceLocation) -> Type{
         self.check_type_equals_with(ty, expected_type.clone(), span, |this,span,ty,expected_type:&Type|{
             let expected_ty = this.format_type(&expected_type);
             let got_ty = this.format_type(&ty);
@@ -170,7 +196,7 @@ impl<'a> TypeChecker<'a>{
 
         })
     }
-    fn check_type_coerces_to(&mut self,from:Type,to:Type,span:SourceLocation) -> Type{
+    fn check_type_coerces_to(&self,from:Type,to:Type,span:SourceLocation) -> Type{
         if from == to || from.is_never() || from.is_error(){
             from
         }
@@ -183,7 +209,7 @@ impl<'a> TypeChecker<'a>{
             Type::new_error()
         }
     }
-    fn check_type_equals_with(&mut self,ty1:Type,ty2:Type,span:SourceLocation,mut err : impl FnMut(&mut Self,SourceLocation,&Type,&Type)) -> Type{
+    fn check_type_equals_with(&self,ty1:Type,ty2:Type,span:SourceLocation,mut err : impl FnMut(&Self,SourceLocation,&Type,&Type)) -> Type{
         if ty1 == ty2{
             ty1
         }
@@ -194,7 +220,7 @@ impl<'a> TypeChecker<'a>{
             Type::new_error()
         }
     }
-    fn check_array_expr(&mut self,span:SourceLocation,elements:&[hir::Expr],expected:Expectation) -> Type{
+    fn check_array_expr(&self,span:SourceLocation,elements:&[hir::Expr],expected:Expectation) -> Type{
         let mut element_type = match &expected{
             Expectation::HasType(Type::Array(element_type)) | Expectation::CoercesTo(Type::Array(element_type)) => 
                 Some(*element_type.clone()),
@@ -202,7 +228,7 @@ impl<'a> TypeChecker<'a>{
         };
         let element_type = if !elements.is_empty(){
             for element in elements{
-                let current_element = self.check_expr(element,element_type.as_ref().map_or(Expectation::None,|ty|Expectation::CoercesTo(ty)));
+                let current_element = self.check_expr(element,element_type.as_ref().map_or(Expectation::None,|ty|Expectation::CoercesTo(ty.clone())));
                 if element_type.as_ref().is_none(){
                     element_type = Some(current_element);
                 }
@@ -227,23 +253,23 @@ impl<'a> TypeChecker<'a>{
         };
         lit_ty
     }
-    fn check_tuple_expr(&mut self,elements:&[hir::Expr],expected : Expectation) -> Type{
+    fn check_tuple_expr(&self,elements:&[hir::Expr],expected : Expectation) -> Type{
         let element_types = if let Expectation::HasType(Type::Tuple(element_types)) | Expectation::CoercesTo(Type::Tuple(element_types)) = expected{
-            element_types.as_slice()
+            element_types
         } 
         else{
-            &[]
+            Vec::new()
         };
         let element_types = elements.iter().enumerate().map(|(i,element)|{
             let expected_element = match element_types.get(i){
-                Some(ty) => Expectation::CoercesTo(&ty),
+                Some(ty) => Expectation::CoercesTo(ty.clone()),
                 None => Expectation::None
             };
             self.check_expr(element, expected_element)
         }).collect();
         Type::new_tuple(element_types)
     }
-    fn check_match_expr(&mut self,matchee:&hir::Expr,arms:&[hir::MatchArm]) -> Type{
+    fn check_match_expr(&self,matchee:&hir::Expr,arms:&[hir::MatchArm]) -> Type{
         let matchee_ty = self.check_expr(matchee, Expectation::None);
         let mut result_ty = Type::Never;
         for arm in arms{
@@ -262,8 +288,8 @@ impl<'a> TypeChecker<'a>{
         }
         result_ty
     }
-    fn check_if_expr(&mut self,condition:&hir::Expr,then_branch:&hir::Expr,else_branch:Option<&hir::Expr>) -> Type{
-        self.check_expr(condition, Expectation::CoercesTo(&Type::Bool));
+    fn check_if_expr(&self,condition:&hir::Expr,then_branch:&hir::Expr,else_branch:Option<&hir::Expr>) -> Type{
+        self.check_expr(condition, Expectation::CoercesTo(Type::Bool));
         let then_ty = self.check_expr(then_branch, Expectation::None);
         if let Some(else_branch) = else_branch.as_ref(){
             let else_ty = self.check_expr(else_branch, Expectation::None);
@@ -280,7 +306,7 @@ impl<'a> TypeChecker<'a>{
             })
         }
     }
-    fn check_block_expr(&mut self,stmts:&[hir::Stmt],result_expr:Option<&hir::Expr>,expected : Expectation) -> Type{
+    fn check_block_expr(&self,stmts:&[hir::Stmt],result_expr:Option<&hir::Expr>,expected : Expectation) -> Type{
         self.check_stmts(stmts);
         let ty = if let Some(result_expr) = result_expr.as_ref(){
             self.check_expr(result_expr, expected)
@@ -290,18 +316,15 @@ impl<'a> TypeChecker<'a>{
         };
         ty
     }
-    fn check_call_expr(&mut self,callee:&hir::Expr,args:&[hir::Expr]) -> Type{
-        let (callee_ty,mut generic_args) = self.check_expr_with_holes(callee, Expectation::None);
-        if let Type::Function(params, return_type) = callee_ty{
+    fn check_call_expr(&self,callee:&hir::Expr,args:&[hir::Expr]) -> Type{
+        let callee_ty = self.check_expr(callee, Expectation::None);
+        if let Type::Function(params,return_type) = callee_ty{
             if params.len() == args.len(){
-                
-                if !generic_args.is_empty(){
-                        
-                }
+                let return_ty = *return_type;
                 params.iter().zip(args.iter()).for_each(|(param,arg)|{
-                    self.check_expr(arg, Expectation::CoercesTo(param));
+                    self.check_expr(arg,Expectation::CoercesTo(param.clone()));
                 });
-                *return_type
+                return_ty
             }
             else{
                 self.new_error(format!("Expected '{}' args got '{}'.",params.len(),args.len()), callee.span)
@@ -312,58 +335,81 @@ impl<'a> TypeChecker<'a>{
             self.new_error(format!("Cannot call '{}'.",callee_string), callee.span)
         }
     }
-    fn check_expr_with_holes(&mut self,expr:&hir::Expr,expected : Expectation) -> (Type,Vec<Option<Type>>){
-        if let hir::ExprKind::Path(path) =  &expr.kind{
-            match path.def{
-                hir::PathDef::Function(function) => {
-                    let func=  self.context.expect_function(function);
-                    if !func.generics.is_empty(){
-                        let last_segment = path.segments.last().expect("There has to be at least 1 path segment");
-                        if last_segment.args.is_empty(){
-                            return (func.sig.as_type(),func.generics.iter().map(|_| None).collect());
-                        }
-                    }
-                },
-                _ => {}
+    fn check_struct_literal(&self,expr:&hir::Expr,path:&hir::Path,fields:&[hir::FieldExpr]) -> Type{
+        self.check_path(path);
+        let (constructor_kind,id) = match path.final_res{
+            hir::Resolution::Definition(hir::DefKind::Struct,index) => (AdtKind::Struct,index),
+            hir::Resolution::Definition(hir::DefKind::Variant,index) => (AdtKind::Enum,index),
+            _ =>{
+                return self.new_error(format!("Cannot use '{}' as constructor.",path.format(self.ident_interner)),path.span);
+            } 
+        };
+        let field_tys = match constructor_kind{
+            AdtKind::Struct => self.context.structs[id].fields.iter().map(|field|{
+                (field.name.index,field.ty.clone())
+            }).collect::<FxHashMap<SymbolIndex,Type>>(),
+            AdtKind::Enum => {
+                todo!("ENUM VARIANTS GRR")
             }
+        };
+        let mut seen_fields = FxHashSet::default();
+        for field_expr in fields{
+            let field_ty= match field_tys.get(&field_expr.field.index).cloned(){
+                Some(ty) => ty,
+                None => {
+                    self.new_error(format!("Unkown field '{}'.",self.ident_interner.get(field_expr.field.index)), field_expr.field.span)
+                }
+            };
+            if !seen_fields.insert(field_expr.field.index){
+                self.error(format!("Repeated field '{}'.",self.ident_interner.get(field_expr.field.index)), field_expr.field.span);
+            }
+            self.check_expr(&field_expr.expr, Expectation::CoercesTo(field_ty));
         }
-        (self.check_expr(expr, expected),vec![])
+        let field_names = field_tys.into_keys().collect::<FxHashSet<_>>();
+        let missing_fields = field_names.difference(&seen_fields);
+        for &field in missing_fields.into_iter(){
+            self.error(format!("Missing field initializer for field '{}'.",self.ident_interner.get(field)), expr.span);
+        }
+        match constructor_kind{
+            AdtKind::Enum => Type::new_enum(GenericArgs::new_empty(), id),
+            AdtKind::Struct => Type::new_struct(GenericArgs::new_empty(), id)
+        }
     }
-    pub(super) fn check_expr(&mut self,expr:&hir::Expr,expected:Expectation) -> Type{
+    pub(super) fn check_expr(&self,expr:&hir::Expr,expected:Expectation) -> Type{
         let ty = match &expr.kind{
             hir::ExprKind::Literal(literal) => {
                 self.check_literal_expr(literal)
             },
             hir::ExprKind::Array(elements) => {
-                self.check_array_expr(expr.span,elements,expected)
+                self.check_array_expr(expr.span,elements,expected.clone())
             },
             hir::ExprKind::Tuple(elements) => {
-                self.check_tuple_expr(elements, expected)
+                self.check_tuple_expr(elements, expected.clone())
             },
             hir::ExprKind::If(condition, then_branch, else_branch) => {
                 self.check_if_expr(condition, then_branch, else_branch.as_ref().map(|else_branch| else_branch.as_ref()))
             },
             hir::ExprKind::Block(stmts, result_expr) => {
-                self.check_block_expr(stmts, result_expr.as_ref().map(|expr| expr.as_ref()), expected)
+                self.check_block_expr(stmts, result_expr.as_ref().map(|expr| expr.as_ref()), expected.clone())
             },
             hir::ExprKind::Path(path) => {
-                self.check_expr_path(path, expected)
+                self.check_expr_path(path, expected.clone())
             },
             hir::ExprKind::Index(base, index) => {
                 let base_ty = self.check_expr(base, Expectation::None);
-                self.check_expr(index, Expectation::HasType(&Type::Int));
+                self.check_expr(index, Expectation::HasType(Type::Int));
                 if let Type::Array(element_type) = base_ty{
                     *element_type
                 }
                 else{
-                    let base_ty_string = TypeFormatter::new(&mut *self.ident_interner, &mut self.context).format_type(&base_ty);
+                    let base_ty_string = TypeFormatter::new(&*self.ident_interner, &self.context).format_type(&base_ty);
                     self.new_error(format!("Cannot get element of '{}'.",base_ty_string), base.span)
                 }
 
             },
             hir::ExprKind::Assign(lhs, rhs) => {
                 let lhs_ty = self.check_expr(lhs, Expectation::None);
-                self.check_expr(rhs, Expectation::CoercesTo(&lhs_ty));
+                self.check_expr(rhs, Expectation::CoercesTo(lhs_ty));
                 Type::new_unit()
             },
             &hir::ExprKind::Typename(id,ref ty) => {
@@ -372,8 +418,8 @@ impl<'a> TypeChecker<'a>{
                 Type::String
             },
             hir::ExprKind::While(condition, body) => {
-                self.check_expr(condition, Expectation::CoercesTo(&Type::Bool));
-                self.check_expr(body, Expectation::CoercesTo(&Type::new_unit()))
+                self.check_expr(condition, Expectation::CoercesTo(Type::Bool));
+                self.check_expr(body, Expectation::CoercesTo(Type::new_unit()))
             },
             hir::ExprKind::Print(args) => {
                 for arg in args{
@@ -397,7 +443,7 @@ impl<'a> TypeChecker<'a>{
                 self.check_match_expr(matchee,arms)
             },
             hir::ExprKind::Return(return_expr) => {
-                let return_type = if let Some(FuncContext { return_type,.. }) = self.prev_functions.last(){
+                let return_type = if let Some(FuncContext { return_type,.. }) = self.prev_functions.borrow().last(){
                     Some(return_type.clone())
                 }
                 else{
@@ -405,7 +451,7 @@ impl<'a> TypeChecker<'a>{
                     None
                 };
                 if let Some(return_expr) = return_expr.as_ref(){
-                    self.check_expr(return_expr, return_type.as_ref().map_or(Expectation::None,|ty| Expectation::CoercesTo(ty)));
+                    self.check_expr(return_expr, return_type.as_ref().map_or(Expectation::None,|ty| Expectation::CoercesTo(ty.clone())));
                 }
                 else if let Some(return_type) = return_type{
                     if !return_type.is_unit() {
@@ -425,8 +471,8 @@ impl<'a> TypeChecker<'a>{
             },
             hir::ExprKind::Field(base, field) => {
                 let base_ty = self.check_expr(base, Expectation::None);
-                let field_ty = if let &Type::Struct(ref _generic_args,index) = &base_ty{
-                    self.context.expect_struct(index).fields.iter().find(|field_def|{
+                let field_ty = if let &Type::Adt(ref _generic_args,index,AdtKind::Struct) = &base_ty{
+                    self.context.structs[index].fields.iter().find(|field_def|{
                         field_def.name.index == field.index
                     }).map(|field_def| field_def.ty.clone())
                     
@@ -443,17 +489,17 @@ impl<'a> TypeChecker<'a>{
                     }
                 }
             },
-            hir::ExprKind::StructLiteral(_path, _fields) => {
-                todo!("STRUCT LITERALS")
+            hir::ExprKind::StructLiteral(path,fields) => {
+                self.check_struct_literal(expr,path,fields)
             }
         };
         
         let ty = match expected{
             Expectation::HasType(expected_type) => {
-                self.check_type_is_expected(ty, expected_type, expr.span)
+                self.check_type_is_expected(ty, &expected_type, expr.span)
             },
             Expectation::CoercesTo(expected_type) => {
-                self.check_type_coerces_to(ty, expected_type.clone(), expr.span)
+                self.check_type_coerces_to(ty, expected_type, expr.span)
             }
             Expectation::None => {
                 ty
@@ -462,14 +508,28 @@ impl<'a> TypeChecker<'a>{
         self.store_type(expr.id, ty.clone());
         ty
     }
-
-    fn check_expr_path(&mut self,path:&hir::Path,_expected:Expectation) -> Type{
-        match path.def{
-            hir::PathDef::Variable(variable) => {
-                self.env.get_variable_type(variable)
+    fn get_generic_count(&self,res:&hir::Resolution) -> usize{
+        match res{
+            &hir::Resolution::Definition(hir::DefKind::Struct|hir::DefKind::Enum|hir::DefKind::Function,id) => self.context.expect_generics_for(id).param_names.len(),
+            hir::Resolution::Variable(_) | hir::Resolution::Definition(hir::DefKind::Variant|hir::DefKind::Param, _) | hir::Resolution::Primitive(_) => 0
+        }
+    }
+    fn check_path(&self,path:&hir::Path){
+        for segment in &path.segments{
+            let expected_arg_count = self.get_generic_count(&segment.res);
+            if segment.args.len() != expected_arg_count{
+                self.error(format!("Expected '{}' generic args got '{}'.",expected_arg_count,segment.args.len()), segment.ident.span);
+            }
+        }
+    }
+    fn check_expr_path(&self,path:&hir::Path,_expected:Expectation) -> Type{
+        self.check_path(path);
+        match path.final_res{
+            hir::Resolution::Variable(variable) => {
+                self.env.borrow().get_variable_type(variable)
             },
-            hir::PathDef::Function(function) => {
-                let def = self.context.expect_function(function);
+            hir::Resolution::Definition(hir::DefKind::Function,function) => {
+                let def = &self.context.functions[function];
                 def.sig.as_type()
             }
             _ => todo!("The rest of the path exprs")

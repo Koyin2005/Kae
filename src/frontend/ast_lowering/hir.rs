@@ -1,11 +1,13 @@
 use std::fmt::Display;
 
-use crate::{data_structures::IndexVec, frontend::tokenizing::SourceLocation, identifiers::GenericParamIndex};
+use fxhash::FxHashMap;
 
-use crate::identifiers::{EnumIndex, FieldIndex, FuncIndex, ItemIndex, MethodIndex, StructIndex, SymbolIndex, VariantIndex, VariableIndex};
+use crate::define_id;
+use crate::{data_structures::IndexVec, frontend::tokenizing::SourceLocation};
+
+use crate::identifiers::{ItemIndex, SymbolIndex, SymbolInterner, VariableIndex};
 #[derive(Debug,Clone, Copy,Hash,PartialEq,Eq,Default)]
 pub struct HirId(u32);
-
 impl HirId{
     pub fn new(id : u32) -> Self{
         HirId(id)
@@ -15,15 +17,31 @@ impl HirId{
         Self(self.0 + 1)
     }
 }
+define_id!(DefId);
+pub struct DefIdProvider{
+    next : u32
+}
+impl DefIdProvider{
+    pub fn new() -> Self{
+        Self { next: 0 }
+    }
+    pub fn next(&mut self) -> DefId{
+        let prev_id = self.next;
+        self.next+=1;
+        DefId(prev_id)
+    }
+}
 pub struct FieldDef{
     pub name : Ident,
     pub ty : Type
 }
 pub struct VariantDef{
+    pub id : DefId,
     pub name : Ident,
-    pub fields : IndexVec<FieldIndex,FieldDef>
+    pub fields : Vec<FieldDef>
 }
 pub struct FunctionDef{
+    pub id : DefId,
     pub generics : Generics,
     pub name : Ident,
     pub function : Function
@@ -40,7 +58,7 @@ pub struct Param{
     pub pattern : Pattern,
     pub ty : Type
 }
-pub struct GenericParam(pub Ident);
+pub struct GenericParam(pub Ident,pub DefId);
 pub struct Generics{
     pub params : Vec<GenericParam>
 }
@@ -51,11 +69,23 @@ impl Generics{
         }
     }
 }
+pub struct StructDef{
+    pub id : DefId,
+    pub name : Ident,
+    pub generics: Generics,
+    pub fields : Vec<FieldDef>
+}
+pub struct EnumDef{
+    pub id : DefId,
+    pub name : Ident,
+    pub generics:Generics,
+    pub variants:Vec<VariantDef>
+}
 pub enum Item {
-    Struct(Generics,VariantDef),
-    Enum(Generics,Ident,IndexVec<VariantIndex,VariantDef>),
+    Struct(StructDef),
+    Enum(EnumDef),
     Function(FunctionDef),
-    Impl(Type,IndexVec<MethodIndex,FunctionDef>)
+    Impl(Type,Vec<FunctionDef>)
 }
 #[derive(Clone,Debug)]
 pub struct Expr{
@@ -91,8 +121,8 @@ pub enum UnaryOp{
 }
 #[derive(Clone,Copy,PartialEq,Debug,Hash,Eq)]
 pub enum ConstructorKind {
-    Struct(StructIndex),
-    Variant(EnumIndex,VariantIndex)
+    Struct,
+    Variant
 }
 impl Display for BinaryOp{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -209,7 +239,7 @@ pub enum TypeKind {
 }
 #[derive(Clone,Debug)]
 pub struct PathSegment{
-    pub def : PathDef,
+    pub res : Resolution,
     pub ident : Ident,
     pub args : Vec<GenericArg>,
 
@@ -221,8 +251,20 @@ pub struct GenericArg{
 #[derive(Clone,Debug)]
 pub struct Path{
     pub span : SourceLocation,
-    pub def : PathDef,
+    pub final_res : Resolution,
     pub segments : Vec<PathSegment>
+}
+impl Path{
+    pub fn format(&self,interner:&SymbolInterner) -> String{
+        let mut full_path = String::new();
+        for (i,segment) in self.segments.iter().enumerate(){
+            if i>0{
+                full_path+="::";
+            }
+            full_path+=interner.get(segment.ident.index);
+        }
+        full_path
+    }
 }
 #[derive(Clone,Copy,Debug,PartialEq, Eq,Hash)]
 pub enum PrimitiveType {
@@ -232,30 +274,21 @@ pub enum PrimitiveType {
     String,
     Never,
 }
-#[derive(Clone,Copy,PartialEq, Eq,Hash,Debug)]
-pub enum PathDef {
+#[derive(Debug,Clone,Copy,PartialEq,Hash,Eq)]
+pub enum Resolution {
+    Definition(DefKind,DefId),
+    Primitive(PrimitiveType),
     Variable(VariableIndex),
-    PrimitiveType(PrimitiveType),
-    Function(FuncIndex),
-    Struct(StructIndex),
-    Enum(EnumIndex),
-    Variant(EnumIndex,VariantIndex),
-    GenericParam(GenericParamIndex,SymbolIndex)
 }
 
 
 #[derive(Clone,Copy,PartialEq, Eq,Hash,Debug)]
 pub enum GenericOwner {
-    Struct(StructIndex),
-    Enum(EnumIndex),
-    Function(FuncIndex),
+    Struct(DefId),
+    Enum(DefId),
+    Function(DefId),
 }
 
-#[derive(Clone, Copy,Debug,PartialEq,Eq,Hash)]
-pub enum Namespace {
-    Value,
-    Type
-}
 
 
 #[derive(Clone, Copy,Debug,PartialEq,Eq,Hash)]
@@ -263,6 +296,7 @@ pub enum DefKind {
     Function,
     Struct,
     Enum,
+    Param,
     Variant,
 }
 #[derive(Clone,Debug)]
@@ -272,3 +306,40 @@ pub struct FieldExpr{
     pub span : SourceLocation
 }
 
+
+pub struct DefIdMap<T>(FxHashMap<DefId,T>);
+impl<T> DefIdMap<T>{
+    pub fn new() -> Self{
+        Self(FxHashMap::default())
+    }
+    pub fn insert(&mut self,id:DefId,value:T)->Option<T>{
+        self.0.insert(id, value)
+    }
+    pub fn get(&self,id:DefId) -> Option<&T>{
+        self.0.get(&id)
+    }
+}
+impl<T> std::ops::Index<DefId> for DefIdMap<T>{
+    type Output = T;
+    fn index(&self, index: DefId) -> &Self::Output {
+        &self.0[&index]
+    }
+}
+impl<T> std::ops::IndexMut<DefId> for DefIdMap<T>{
+
+    fn index_mut(&mut self, index: DefId) -> &mut Self::Output {
+        if let Some(value) = self.0.get_mut(&index){
+            value
+        }
+        else{
+            panic!("Expected a value with this id : {:?}",index)
+        }
+    }
+}
+
+
+pub struct Hir{
+    pub items : IndexVec<ItemIndex,Item>,
+    pub defs_to_items : DefIdMap<ItemIndex>,
+    pub stmts : Vec<Stmt>
+}

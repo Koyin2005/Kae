@@ -1,31 +1,34 @@
 use std::io::Write;
 
-use pl4::{backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{ast_lowering::{ast_lower::AstLowerer, name_finding::NameFinder, SymbolInterner}, 
-parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::{checking::check::TypeChecker, types::lowering::TypeLower}}};
+use pl4::{
+    backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, 
+    frontend::{ast_lowering::{ast_lower::AstLowerer, hir::DefIdProvider, name_finding::NameFinder}, 
+    parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::{checking::check::TypeChecker, types::collect::ItemCollector}}, 
+    SymbolInterner
+};
 
 fn compile(source:&str)->Option<Program>{
     let Ok(tokens) = Scanner::new(source).scan() else {
         return None;
     };
-    let parser = Parser::new(tokens);
+    let mut interner = SymbolInterner::new();
+    let parser = Parser::new(tokens,&mut interner);
     let Ok(stmts) = parser.parse() else{
         return None;
     };
-    let mut interner = SymbolInterner::new();
-    let Ok((names_found,_)) = NameFinder::new(&mut interner).find_names(&stmts) else {
+    let mut def_id_provider = DefIdProvider::new();
+    let Ok((names_found,name_scopes)) = NameFinder::new(&mut interner,&mut def_id_provider).find_names(&stmts) else {
         return None;
     };
-    let ast_lower = AstLowerer::new(&mut interner,names_found);
-    let Ok((items,stmts)) = ast_lower.lower(stmts) else {
+    let ast_lower = AstLowerer::new(&mut interner,names_found,name_scopes);
+    let Ok(hir) = ast_lower.lower(stmts) else {
         return None;
     };
-    let mut lower = TypeLower::new();
-    let items = items.into_iter().map(|item|{
-        lower.lower_item(item)
-    }).collect();
-    let mut context = lower.into_context();
-    let type_checker = TypeChecker::new(&mut context,items,&mut interner);
-    let Ok(()) = type_checker.check(&stmts) else {
+
+    let item_collector = ItemCollector::new(&interner);
+    let context = item_collector.collect(&hir.items);
+    let type_checker = TypeChecker::new(&context,&hir.items,&hir.defs_to_items,&interner);
+    let Ok(()) = type_checker.check(&hir.stmts) else {
         return None;
     };
     let Ok(code) = Compiler::new().compile() else {

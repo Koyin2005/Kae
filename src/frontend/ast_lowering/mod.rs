@@ -1,35 +1,17 @@
-use std::collections::HashMap;
-
-use crate::{data_structures::IndexVec, identifiers::SymbolIndex};
+use crate::identifiers::{SymbolIndex, SymbolInterner};
 use super::parsing::ast;
 
 pub mod hir;
 pub mod ast_lower;
 pub mod name_finding;
-pub struct SymbolInterner{
-    idents : IndexVec<SymbolIndex,String>,
-    ident_map : HashMap<String,SymbolIndex>
-}
-impl SymbolInterner{
-    pub fn new()->Self{
-        Self { idents: Default::default() ,ident_map : HashMap::default() }
-    }
-    pub fn intern(&mut self,identifier : String) -> SymbolIndex{
-        if let Some(ident) = self.ident_map.get(&identifier){
-            return *ident;
-        }
-        let ident = self.idents.push(identifier.clone());
-        self.ident_map.insert(identifier, ident);
-        ident
-    }
-    pub fn intern_symbol(&mut self,symbol:ast::Symbol) -> hir::Ident{
-        let index = self.intern(symbol.content);
+pub mod resolve;
+pub mod scope;
+
+impl From<ast::Symbol> for hir::Ident{
+    fn from(value: ast::Symbol) -> Self {
         hir::Ident{
-            span:symbol.location,
-            index
+            index:value.content,
+            span:value.location
         }
     }
-    pub fn get(&self,ident : SymbolIndex) -> &str{
-        &self.idents[ident]
-    }   
 }

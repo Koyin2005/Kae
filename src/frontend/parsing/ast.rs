@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::frontend::tokenizing::SourceLocation;
+use crate::{frontend::tokenizing::SourceLocation, identifiers::SymbolIndex};
 
 #[derive(Clone, Copy,Debug,Hash,PartialEq,Eq,PartialOrd, Ord)]
 pub struct NodeId(usize);
@@ -15,7 +15,7 @@ pub struct ParsedAssignmentTarget{
     pub kind : ParsedAssignmentTargetKind
 }
 pub enum ParsedAssignmentTargetKind {
-    Name(String),
+    Name(Path),
     Index{
         lhs : Box<ExprNode>,
         rhs : Box<ExprNode>
@@ -40,8 +40,7 @@ pub struct PatternMatchArmNode{
 }
 pub enum ExprNodeKind {
     Literal(LiteralKind),
-    Get(String),
-    GetPath(ParsedPath),
+    GetPath(Path),
     BinaryOp{
         op : ParsedBinaryOp,
         left : Box<ExprNode>,
@@ -94,7 +93,7 @@ pub enum ExprNodeKind {
     TypenameOf(ParsedType),
     Property(Box<ExprNode>,Symbol),
     StructInit{
-        path : ParsedPath,
+        path : Path,
         fields : Vec<(Symbol,ExprNode)>
     },
     MethodCall{
@@ -167,12 +166,7 @@ pub struct ExprNode{
 }
 
 pub struct ParsedGenericParam(pub Symbol);
-pub struct ParsedGenericParams(pub Vec<ParsedGenericParam>);
-impl ParsedGenericParams{
-    pub fn empty()->Self{
-        Self(Vec::new())
-    }
-}
+pub struct ParsedGenericParams(pub NodeId,pub Vec<ParsedGenericParam>);
 
 pub struct ParsedEnumVariant{
     pub name : Symbol,
@@ -223,11 +217,11 @@ pub enum StmtNode{
 #[derive(Clone)]
 pub enum ParsedPatternNodeKind {
     Is(Symbol,Box<ParsedPatternNode>),
-    Name(String),
+    Name(SymbolIndex),
     Tuple(Vec<ParsedPatternNode>),
     Literal(LiteralKind),
     Struct{
-        path : ParsedPath,
+        path : Path,
         fields : Vec<(Symbol,ParsedPatternNode)>
     },
     Wildcard
@@ -241,15 +235,15 @@ pub struct ParsedPatternNode{
     pub id : NodeId,
     pub kind : ParsedPatternNodeKind
 }
-#[derive(Clone,Debug)]
+#[derive(Clone,Debug,Copy)]
 pub struct Symbol{
-    pub content : String,
+    pub content : SymbolIndex,
     pub location : SourceLocation
 }
 
 #[derive(Clone,Debug)]
 pub enum ParsedType{
-    Path(ParsedPath),
+    Path(Path),
     Array(SourceLocation,Box<ParsedType>),
     Tuple(SourceLocation,Vec<ParsedType>),
     Fun(SourceLocation,Vec<ParsedType>,Option<Box<ParsedType>>),
@@ -287,8 +281,7 @@ pub struct PathSegment{
     pub location : SourceLocation
 }
 #[derive(Clone,Debug)]
-pub struct ParsedPath{
-    pub head : PathSegment,
+pub struct Path{
     pub segments : Vec<PathSegment>,
     pub location : SourceLocation
 }

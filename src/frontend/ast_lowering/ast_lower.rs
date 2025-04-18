@@ -5,40 +5,45 @@ use fxhash::FxHashSet;
 use crate::{
     data_structures::{IndexVec, IntoIndex}, 
     frontend::{
-        ast_lowering::hir::{Generics, VariantDef}, parsing::ast::{self, NodeId, ParsedType, Symbol}, 
+        ast_lowering::{hir::{Generics, VariantDef}, scope::Scope}, parsing::ast::{self, NodeId, ParsedType, Symbol}, 
         tokenizing::SourceLocation
-    }, 
-    identifiers::GenericParamIndex
+    }
 };
 
 use super::{
-    hir::{self, FunctionDef, GenericArg, GenericOwner, HirId, Ident, Item, LiteralKind, PatternKind}, 
-    name_finding::{self, Record, ResolutionResult, Scope}, 
-    SymbolInterner
+    hir::{self, DefId, DefIdMap, DefIdProvider, FunctionDef, GenericArg, GenericOwner, Hir, HirId, Ident, Item, LiteralKind, PatternKind}, name_finding::{self, NameScopes, Record}, 
+    resolve::Resolver, SymbolInterner
 };
-use crate::identifiers::{VariantIndex,ItemIndex,FieldIndex,ScopeIndex};
+use crate::identifiers::{ItemIndex,ScopeIndex};
 
 pub struct LoweringErr;
+pub struct PathLoweringErr;
 pub struct AstLowerer<'a>{
     symbol_interner : &'a mut SymbolInterner,
     items : IndexVec<ItemIndex,Item>,
     name_info : name_finding::NamesFound,
-    current_scope : ScopeIndex,
     current_generic_stack : Vec<GenericOwner>,
+    def_id_map : DefIdMap<ItemIndex>,
     next_id : HirId,
-    had_error : Cell<bool>
+    had_error : Cell<bool>,
+    resolver : Resolver
 }
 
 impl<'a> AstLowerer<'a>{
-    pub fn new(interner:&'a mut SymbolInterner,name_info:name_finding::NamesFound)->Self{
+    pub fn new(interner:&'a mut SymbolInterner,name_info:name_finding::NamesFound,name_scopes:NameScopes,)->Self{
         Self {
             symbol_interner:interner,
             items:IndexVec::new(),
-            current_scope:ScopeIndex::new(0),
             name_info,
             current_generic_stack:Vec::new(),
             next_id : HirId::default(),
-            had_error : false.into()
+            def_id_map : DefIdMap::new(),
+            had_error : false.into(),
+            resolver :  {
+                let mut resolver = Resolver::new(name_scopes.namespaces);
+                resolver.push_scope(name_scopes.base_scope);
+                resolver
+            }
         }
     }
     fn next_id(&mut self) -> HirId{
@@ -51,28 +56,24 @@ impl<'a> AstLowerer<'a>{
         self.had_error.set(true);
     }
     fn begin_scope(&mut self,id:NodeId){
-        let scope = self.name_info.scope_map[&id];
-        self.current_scope = scope;
+        let scope = self.name_info.scope_map.get_mut(&id).expect("There should be a scope for this id").take().expect("A scope should be here!");
+        self.resolver.push_scope(scope);
     }
     fn end_scope(&mut self){
-        self.current_scope = self.name_info.all_scopes[self.current_scope].prev_scope.expect("Non global scopes must have prev_scope");
+        self.resolver.pop_scope();
     }
-    fn get_current_scope_mut(&mut self)->&mut name_finding::Scope{
-        &mut self.name_info.all_scopes[self.current_scope]
-    }
-    fn get_current_scope(&self)->&name_finding::Scope{
-        &self.name_info.all_scopes[self.current_scope]
-    }
-    fn add_item(&mut self,item:Item) -> ItemIndex{
-        self.items.push(item)
-    }
-    fn intern_symbol(&mut self,symbol:ast::Symbol) -> hir::Ident{
-        let symbol_index = self.symbol_interner.intern(symbol.content);
-        let span = symbol.location;
-        hir::Ident{
-            index : symbol_index,
-            span
+    fn add_item_with_optional_def(&mut self,item:Item,def:Option<DefId>) -> ItemIndex{
+        let item = self.items.push(item);
+        if let Some(def) = def{
+            self.def_id_map.insert(def, item);
         }
+        item
+    }
+    fn add_item_with_def(&mut self,item:Item,def:DefId) -> ItemIndex{
+        self.add_item_with_optional_def(item, Some(def))
+    }
+    fn intern_symbol(&self,symbol:ast::Symbol) -> hir::Ident{
+        symbol.into()
     }
     fn lower_generic_args(&mut self,args:Option<ast::ParsedGenericArgs>) -> Result<Vec<GenericArg>,LoweringErr>{
         if let Some(args)=  args{
@@ -84,139 +85,64 @@ impl<'a> AstLowerer<'a>{
             Ok(Vec::new())
         }
     }
-    fn get_last_generic_param(&self,name:hir::Ident) -> Option<(GenericOwner,GenericParamIndex)>{
+    fn get_last_generic_param(&self,name:hir::Ident) -> Option<(GenericOwner,u32)>{
         self.current_generic_stack.iter().rev().filter_map(|&generic_owner|{
-            self.name_info.generics[&generic_owner].iter().enumerate().rev().find(|(_,param)|{
+            self.name_info.generics[&generic_owner].iter().enumerate().rev().find(|(_,(_,param))|{
                 param.index == name.index
             }).map(|(index,_)|{
-                (generic_owner,GenericParamIndex::new(index as u32))
+                (generic_owner,index as u32)
             })
         }).next()
     }
-    fn resolve_base_path_def(&self,name:hir::Ident) -> Option<hir::PathDef>{
-        Some(match self.symbol_interner.get(name.index){
-            "int" => hir::PathDef::PrimitiveType(hir::PrimitiveType::Int),
-            "float" => hir::PathDef::PrimitiveType(hir::PrimitiveType::Float),
-            "string" => hir::PathDef::PrimitiveType(hir::PrimitiveType::String),
-            "bool" => hir::PathDef::PrimitiveType(hir::PrimitiveType::Bool),
-            "never" => hir::PathDef::PrimitiveType(hir::PrimitiveType::Never),
-            _ => match self.get_current_scope().get_type(name.index, &self.name_info.all_scopes){
-                ResolutionResult::Type(ty) => match ty{
-                    name_finding::Type::Enum(enum_index) => hir::PathDef::Enum(enum_index),
-                    name_finding::Type::PrimitiveType(primitive_ty) => hir::PathDef::PrimitiveType(primitive_ty),
-                    name_finding::Type::Struct(struct_index) => hir::PathDef::Struct(struct_index),
-                },
-                ResolutionResult::None => match self.get_last_generic_param(name) {
-                    Some((_,index)) => {
-                       hir::PathDef::GenericParam(index, name.index)
-                    },
-                    None => return None
-                }
-                _ => return None
-            }
-        })
-
-    }
-    fn resolve_path_def(&self,name:hir::Ident,prev_def:Option<hir::PathDef>,namespace:hir::Namespace)->Option<hir::PathDef>{
-        if let Some(prev) = prev_def{
-            match &prev{
-                &hir::PathDef::Enum(enum_index) => {
-                    let (_,_,ref variant_names) = self.name_info.enum_defs[enum_index];
-                    if let Some(&variant) = variant_names.get(&name.index){
-                        return Some(hir::PathDef::Variant(enum_index, variant))
-                        
-                    }
-                    None
-                },
-                _ => None
-            }
-        }
-        else if namespace == hir::Namespace::Value{
-            let def = match Scope::get_value(self.current_scope,name.index, &self.name_info.all_scopes){
-                ResolutionResult::Function(function) => {
-                    hir::PathDef::Function(function)
-                },
-                ResolutionResult::Variable(variable,kind) => {
-                    if kind == name_finding::VariableUse::Upvar{
-                        self.error(format!("Cannot use variable '{}' from inner function.",self.symbol_interner.get(self.name_info.variables[variable].2.index)), name.span);
-                    }
-                    hir::PathDef::Variable(variable)
-                },
-                ResolutionResult::Type(_)|ResolutionResult::None => return None
-            };
-            Some(def)
-        }
-        else if namespace == hir::Namespace::Type {
-            self.resolve_base_path_def(name)
-        }
-        else{
-            None
-        }
-    }
-    fn resolve_path(&mut self,path:ast::ParsedPath,namespace:hir::Namespace)->Option<hir::Path>{
-        let name = self.intern_symbol(path.head.name);
-        let mut span = name.span;
-        let base_generic_args = self.lower_generic_args(path.head.generic_args).ok()?;
-        let base_path_def = if !path.segments.is_empty(){
-            self.resolve_base_path_def(name)
-        }
-        else{
-            self.resolve_path_def(name, None, namespace)
-        };
-        let Some(mut def) = base_path_def else {
-            self.error(format!("Unknown identifier '{}'.",self.symbol_interner.get(name.index)), name.span);
-            return None;
-        };
-        let base_path_def = def;
-        let segments = path.segments.into_iter().map(|segment|{
-            let name = self.intern_symbol(segment.name);
-            let generic_args = self.lower_generic_args(segment.generic_args).ok()?;
-            let Some(next_def) = self.resolve_path_def(name, Some(def),namespace) else {
-                self.error(format!("Unknown variant, or method '{}'.",self.symbol_interner.get(name.index)), name.span);
-                return None;
-            };
-            span.end_line = name.span.end_line;
-            def = next_def;
-            Some(hir::PathSegment{
-               def:next_def,
-               ident:name,
-               args:generic_args
-            })
-        }).collect::<Vec<_>>();
-        let segments = {
-            let mut new_segments = vec![hir::PathSegment{
-                def:base_path_def,
-                ident:name,
-                args:base_generic_args
-            }];
-            new_segments.extend(segments.into_iter().collect::<Option<Vec<_>>>()?);
-            new_segments
-        };
-        Some(hir::Path{
-            span,
-            def,
-            segments
-        })
-    }
-    fn lower_generic_params(&mut self,owner:GenericOwner,generics:Option<ast::ParsedGenericParams>) -> Generics{
-        let generics = if let Some(ast::ParsedGenericParams(params)) = generics {
+    fn lower_generic_params(&mut self,owner:GenericOwner,generics:Option<ast::ParsedGenericParams>) -> (Generics,bool){
+        let (generics,has_generics) = if let Some(ast::ParsedGenericParams(id,params)) = generics {
+            self.begin_scope(id);
             let mut generics = Generics::new(); 
             let mut seen_names = FxHashSet::default();
-            for ast::ParsedGenericParam(param) in params{
-                let name = self.intern_symbol(param);
+            for (ast::ParsedGenericParam(_),&(id,name)) in params.into_iter().zip(&self.name_info.generics[&owner]){
                 if !seen_names.insert(name.index){
                     self.error(format!("Repeated generic param '{}'.",self.symbol_interner.get(name.index)), name.span);
                     continue;
                 }
-                generics.params.push(hir::GenericParam(name));
+                generics.params.push(hir::GenericParam(name,id));
             }
-            generics
+            (generics,true)
         }
         else{
-            Generics::new()
+            (Generics::new(),false)
         };
         self.current_generic_stack.push(owner);
-        generics
+        (generics,has_generics)
+    }
+    fn lower_path(&mut self,path:ast::Path) -> Result<hir::Path,LoweringErr>{
+        let resolutions = self.resolver.resolve_path(path.segments.iter().map(|segment| segment.name.content));
+        if resolutions.len() != path.segments.len(){
+            let head = path.segments.first().expect("There must always be at least 1 segment");
+            if resolutions.is_empty(){
+                self.error(format!("Cannot find {} in scope.",self.symbol_interner.get(head.name.content)), head.location);
+                return Err(LoweringErr);
+            }
+            let mut base_path = String::new();
+            for (i,segment) in path.segments.iter().take(resolutions.len()).enumerate(){
+                if i>0{
+                    base_path += "::";
+                }
+                base_path += &self.symbol_interner.get(segment.name.content);
+            }
+            let last = path.segments[resolutions.len()].name;
+            let span = last.location;
+            self.error(format!("Cannot find {} in {}.",self.symbol_interner.get(last.content),base_path),span);
+            return Err(LoweringErr);
+        }
+        let final_res = resolutions.last().copied().expect("There should be at least one!");
+        let segments = resolutions.into_iter().zip(path.segments).map(|(resolution,segment)|{
+            Ok(hir::PathSegment{
+                res:resolution,
+                ident:segment.name.into(),
+                args:self.lower_generic_args(segment.generic_args)?
+            })
+        }).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>()?;
+        Ok(hir::Path{span:path.location,final_res,segments})
     }
     fn lower_type(&mut self,ty:ast::ParsedType) -> Result<hir::Type,LoweringErr>{
         let (kind,span) = match ty{
@@ -235,7 +161,7 @@ impl<'a> AstLowerer<'a>{
             },
             ast::ParsedType::Path(path) => {
                 let span = path.location;
-                (hir::TypeKind::Path(self.resolve_path(path,hir::Namespace::Type).ok_or(LoweringErr)?),span)
+                (hir::TypeKind::Path(self.lower_path(path)?),span)
             }
         };
         Ok(hir::Type{
@@ -272,8 +198,8 @@ impl<'a> AstLowerer<'a>{
     fn define_bindings_and_lower_pattern(&mut self,pattern:ast::ParsedPatternNode) -> Result<hir::Pattern,LoweringErr>{
         let variables = self.name_info.variable_def_map[&pattern.id].clone();
         for variable in variables{
-            let (_,_,Ident { index:name, span:_ }) = self.name_info.variables[variable];
-            self.get_current_scope_mut().define_variable(name, variable);
+            let (_,Ident { index:name, span:_ }) = self.name_info.variables[variable];
+            self.resolver.current_scope_mut().add_binding(name, hir::Resolution::Variable(variable));
         }
         self.lower_pattern(pattern)
     }
@@ -308,7 +234,7 @@ impl<'a> AstLowerer<'a>{
                 (PatternKind::Tuple(elements.into_iter().collect::<Result<Vec<_>,_>>()?),span)
             },
             ast::ParsedPatternNodeKind::Struct { path, fields } => {
-                let path = self.resolve_path(path,hir::Namespace::Type).ok_or(LoweringErr);
+                let path:Result<hir::Path,LoweringErr> = self.lower_path(path);
                 let fields:Vec<_> = fields.into_iter().filter_map(|(symbol,pattern)|{
                     let field_symbol = self.intern_symbol(symbol);
                     let pattern = self.lower_pattern(pattern);
@@ -416,27 +342,8 @@ impl<'a> AstLowerer<'a>{
             },
             ast::ExprNodeKind::Function(function) => hir::ExprKind::Function(Box::new(self.lower_function(expr.id,*function)?)),
             ast::ExprNodeKind::Print(args) => hir::ExprKind::Print(args.into_iter().map(|arg| self.lower_expr(arg)).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>()?),
-            ast::ExprNodeKind::Get(name) => {
-                let interned_name = self.symbol_interner.intern_symbol(Symbol { content: name, location: expr.location });
-                match self.resolve_path_def(interned_name, None,hir::Namespace::Value) {
-                    Some(def) => {
-                        hir::ExprKind::Path(hir::Path { 
-                            span:interned_name.span,def, 
-                            segments: vec![hir::PathSegment{
-                                def,
-                                ident:interned_name,
-                                args:Vec::new()
-                            }],
-                        })
-                    },
-                    None => {
-                        self.error(format!("Undefined variable, or function '{}'.",self.symbol_interner.get(interned_name.index)), span);
-                        return Err(LoweringErr);
-                    }
-                }
-            },
             ast::ExprNodeKind::GetPath(path) => {
-                hir::ExprKind::Path(self.resolve_path(path, hir::Namespace::Value).ok_or(LoweringErr)?)
+                hir::ExprKind::Path(self.lower_path(path)?)
             },
             ast::ExprNodeKind::Logical { op, left, right } => {
                 let left = self.lower_expr(*left);
@@ -454,7 +361,7 @@ impl<'a> AstLowerer<'a>{
             ast::ExprNodeKind::Property(expr, field) => hir::ExprKind::Field(Box::new(self.lower_expr(*expr)?), self.intern_symbol(field)),
             ast::ExprNodeKind::Return(expr) => hir::ExprKind::Return(expr.map(|expr| self.lower_expr(*expr).map(Box::new)).map_or(Ok(None), |result| result.map(Some))?),
             ast::ExprNodeKind::StructInit { path, fields } => {
-                let Some(path) = self.resolve_path(path, hir::Namespace::Type) else {
+                let Ok(path) = self.lower_path(path) else {
                     return Err(LoweringErr);
                 };
                 let fields = fields.into_iter().map(|(field_name,field_expr)|{
@@ -467,27 +374,12 @@ impl<'a> AstLowerer<'a>{
             ast::ExprNodeKind::Assign { lhs, rhs } => {
                 let lhs = match lhs.kind{
                     ast::ParsedAssignmentTargetKind::Name(name) => {
-                        let interned_name = self.symbol_interner.intern_symbol(Symbol { content: name, location: expr.location });
-                        match self.resolve_path_def(interned_name, None,hir::Namespace::Value) {
-                            Some(def) => {
-                                Ok(hir::Expr{
-                                    id : self.next_id(),
-                                    kind : hir::ExprKind::Path(hir::Path { 
-                                        span:interned_name.span,def, 
-                                        segments: vec![hir::PathSegment{
-                                            def,
-                                            ident:interned_name,
-                                            args:Vec::new()
-                                        }],
-                                    }),
-                                    span : interned_name.span
-                                })
-                            },
-                            None => {
-                                self.error(format!("Undefined variable, or function '{}'.",self.symbol_interner.get(interned_name.index)), span);
-                                return Err(LoweringErr);
-                            }
-                        }
+                        let span = name.location;
+                        self.lower_path(name).map(|path| hir::Expr{
+                            id:self.next_id(),
+                            span,
+                            kind:hir::ExprKind::Path(path)
+                        })
                     },
                     ast::ParsedAssignmentTargetKind::Index { lhs:indexed, rhs:index } => {
                         let indexed = self.lower_expr(*indexed).map(Box::new);
@@ -534,7 +426,7 @@ impl<'a> AstLowerer<'a>{
         };
         Ok(hir::Expr { id:self.next_id(), span, kind})
     }
-    fn lower_fields(&mut self,fields:Vec<(Symbol,ParsedType)>,field_names:IndexVec<FieldIndex,hir::Ident>)->Result<IndexVec<FieldIndex,hir::FieldDef>,LoweringErr>{
+    fn lower_fields(&mut self,fields:Vec<(Symbol,ParsedType)>,field_names:Vec<hir::Ident>)->Result<Vec<hir::FieldDef>,LoweringErr>{
         let fields = field_names.into_iter().zip(fields.into_iter()).map(|(field,(_,field_ty))|{
             let field_ty = self.lower_type(field_ty);
             field_ty.map(|field_ty| hir::FieldDef{
@@ -568,40 +460,54 @@ impl<'a> AstLowerer<'a>{
                 let name_finding::Item::Struct(struct_index) = self.name_info.items[&struct_def.id] else {
                     unreachable!("Should be a struct")
                 };
-                let generics = self.lower_generic_params(GenericOwner::Struct(struct_index),struct_def.generic_params);
+                let (generics,has_generics) = self.lower_generic_params(GenericOwner::Struct(struct_index),struct_def.generic_params);
                 let name = self.name_info.structs[struct_index].name;
-                let fields = self.lower_fields(struct_def.fields, self.name_info.structs[struct_index].fields.clone())?;
-                (hir::StmtKind::Item(self.add_item(Item::Struct(generics,VariantDef { name, fields }))),name.span)
+                let fields = self.lower_fields(struct_def.fields, self.name_info.structs[struct_index].fields.clone());
+                if has_generics { self.end_scope(); }
+                let item_id = self.add_item_with_def(Item::Struct(hir::StructDef{
+                    id:struct_index,
+                    name,
+                    generics,
+                    fields:fields?
+                }),struct_index);
+                (hir::StmtKind::Item(item_id),name.span)
             },
             ast::StmtNode::Enum(enum_def) => {
-                let name_finding::Item::Enum(enum_index) = self.name_info.items[&enum_def.id] else {
+                let name_finding::Item::Enum(enum_id) = self.name_info.items[&enum_def.id] else {
                     unreachable!("Should be an enum")
                 };
-                let generics = self.lower_generic_params(GenericOwner::Enum(enum_index),enum_def.generic_params);
-                let (name,ref variants,_) = self.name_info.enum_defs[enum_index];
-                let variants : Vec<_> = variants.iter().map(|variant|{
-                    Record{
+                let (generics,has_generics) = self.lower_generic_params(GenericOwner::Enum(enum_id),enum_def.generic_params);
+                let (name,ref variants) = self.name_info.enum_defs[enum_id];
+                let variants : Vec<_> = variants.iter().map(|(variant_id,variant)|{
+                    (*variant_id,Record{
                         name:variant.name,
                         fields:variant.fields.clone()
-                    }
+                    })
                 }).collect();
-                let variants = variants.iter().zip(enum_def.variants).map(|(variant_info,variant)|{
+                let variants = variants.iter().zip(enum_def.variants).map(|((variant_id,variant_info),variant)|{
                     let fields = variant_info.fields.clone();
                     self.lower_fields(variant.fields, fields).map(|fields|{
-                        VariantDef { name:variant_info.name, fields }
+                        VariantDef { id:*variant_id,name:variant_info.name, fields }
                     })
-                }).collect::<IndexVec<VariantIndex,_>>();
-                (hir::StmtKind::Item(self.add_item(Item::Enum(generics,name,variants.into_iter().collect::<Result<IndexVec<_,_>,_>>()?))),name.span)
+                }).collect::<Vec<_>>();
+                if has_generics{ self.end_scope();}
+                (hir::StmtKind::Item(self.add_item_with_def(Item::Enum(hir::EnumDef{
+                    id:enum_id,
+                    generics,
+                    name,
+                    variants : variants.into_iter().collect::<Result<_,_>>()?
+                }),enum_id)),name.span)
             },
             ast::StmtNode::Fun(function_def) => {
                 let name_finding::Item::Function(func_index) = self.name_info.items[&function_def.id] else {
                     unreachable!("Should be a function")
                 };
                 let name = self.name_info.functions[func_index];
-                let generics = self.lower_generic_params(GenericOwner::Function(func_index),function_def.generic_params);
+                let (generics,has_generics) = self.lower_generic_params(GenericOwner::Function(func_index),function_def.generic_params);
                 let function = self.lower_function(function_def.id, function_def.function)?;
+                if has_generics{ self.end_scope();}
                 let span = SourceLocation::new(name.span.start_line, function.body.span.end_line);
-                (hir::StmtKind::Item(self.add_item(Item::Function(FunctionDef { generics, name, function }))),span)
+                (hir::StmtKind::Item(self.add_item_with_def(Item::Function(FunctionDef { id : func_index, generics, name, function }),func_index)),span)
             },
             ast::StmtNode::Impl(_impl) => todo!("Impls")
         };
@@ -619,11 +525,11 @@ impl<'a> AstLowerer<'a>{
         }
         lowered_stmts
     }
-    pub fn lower(mut self,stmts:Vec<ast::StmtNode>) -> Result<(IndexVec<ItemIndex,Item>,Vec<hir::Stmt>),LoweringErr>{
+    pub fn lower(mut self,stmts:Vec<ast::StmtNode>) -> Result<Hir,LoweringErr>{
         let stmts = self.lower_stmts(stmts);
         if self.had_error.get(){
             return Err(LoweringErr);
         }
-        Ok((self.items,stmts))
+        Ok(Hir{items:self.items,stmts,defs_to_items:self.def_id_map})
     }
 }

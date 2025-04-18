@@ -1,6 +1,7 @@
-use crate::frontend::{parsing::ast::{ParsedGenericParam, ParsedMethod, ParsedParam, Symbol}, tokenizing::{tokens::{Token, TokenKind}, SourceLocation}};
+use crate::{frontend::{parsing::ast::{ParsedGenericParam, ParsedMethod, ParsedParam, Symbol}, tokenizing::{tokens::{Token, TokenKind}, SourceLocation}}, identifiers::SymbolInterner};
 
-use super::ast::{EnumDef, ExprNode, ExprNodeKind, FuncDef, Impl, LiteralKind, NodeId, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPath, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PathSegment, PatternMatchArmNode, StmtNode, StructDef};
+use super::ast::{EnumDef, ExprNode, ExprNodeKind, FuncDef, Impl, LiteralKind, NodeId, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, 
+    ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, Path, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PathSegment, PatternMatchArmNode, StmtNode, StructDef};
 
 #[repr(u8)]
 #[derive(Clone, Copy,PartialEq, Eq, PartialOrd, Ord)]
@@ -33,17 +34,19 @@ pub struct Parser<'a>{
     prev_token : Token<'a>,
     current_index : usize,
     had_error : bool,
+    interner:&'a mut SymbolInterner,
     current_node : NodeId
 }
 impl<'a> Parser<'a>{
-    pub fn new(tokens:Vec<Token<'a>>)->Self{
+    pub fn new(tokens:Vec<Token<'a>>,interner:&'a mut SymbolInterner)->Self{
         Self{
             current_token : tokens[0],
             prev_token : tokens[0] ,
             tokens,
             current_index:0,
             had_error:false,
-            current_node : NodeId::FIRST
+            current_node : NodeId::FIRST,
+            interner
         }
     }
     fn next_id(&mut self)->NodeId{
@@ -95,7 +98,7 @@ impl<'a> Parser<'a>{
     }
     fn parse_identifer(&mut self,error_message:&str)->Symbol{
         self.expect(TokenKind::Identifier, error_message);
-        Symbol { content: self.prev_token.lexeme.to_string(), location: SourceLocation::one_line(self.prev_token.line) }
+        Symbol { content: self.interner.intern(self.prev_token.lexeme.to_string()), location: SourceLocation::one_line(self.prev_token.line) }
     }
     fn unary(&mut self)->Result<ExprNode,ParsingFailed>{
         let op = match self.prev_token.kind {
@@ -285,6 +288,16 @@ impl<'a> Parser<'a>{
         self.expect(TokenKind::RightParen, "Expect ')'.");
         Ok(args)
     }
+    fn intern_symbol(&mut self,text:String,span:SourceLocation) -> Symbol{
+        Symbol { content: self.interner.intern(text), location: span }
+    }
+    fn into_path(&mut self,symbol:Symbol) -> Path{
+        Path { segments: vec![PathSegment{
+            name :symbol,
+            generic_args : None,
+            location : symbol.location
+        }], location: symbol.location }
+    }
     fn name(&mut self)->Result<ExprNode,ParsingFailed>{
         let path = self.parse_path(true)?;
         if self.matches(TokenKind::LeftBrace) {
@@ -298,12 +311,16 @@ impl<'a> Parser<'a>{
                     self.expression()?
                 }
                 else{
+                    let span = SourceLocation::one_line(field_name.line);
                     ExprNode{ id : self.next_id(),
-                        location : SourceLocation::one_line(field_name.line),
-                        kind : ExprNodeKind::Get(field_name.lexeme.to_string())
+                        location : span,
+                        kind : ExprNodeKind::GetPath({
+                            let symbol = self.intern_symbol(field_name.lexeme.to_string(), span);
+                            self.into_path(symbol)
+                        })
                     }
                 };
-                fields.push((Symbol{content:field_name.lexeme.to_string(),location:SourceLocation::one_line(field_name.line)},field_expr));
+                fields.push((self.intern_symbol(field_name.lexeme.to_string(), SourceLocation::one_line(field_name.line)),field_expr));
                 if !self.matches(TokenKind::Coma) {
                     break;
                 }
@@ -313,12 +330,6 @@ impl<'a> Parser<'a>{
                     location: SourceLocation::new(start, self.prev_token.line),
                     kind: ExprNodeKind::StructInit { path, fields } 
                 })
-        }
-        else if path.segments.is_empty() && path.head.generic_args.is_none(){
-            Ok(ExprNode{ id : self.next_id(),
-                location : path.head.location,
-                kind : ExprNodeKind::Get(path.head.name.content)
-            })
         }
         else{
             Ok(ExprNode{ id : self.next_id(),location:path.location,kind:ExprNodeKind::GetPath(path)})
@@ -475,14 +486,11 @@ impl<'a> Parser<'a>{
             ExprNodeKind::Index { lhs, rhs } => {
                 ParsedAssignmentTargetKind::Index { lhs, rhs }
             },
-            ExprNodeKind::Get(name) => {
-                ParsedAssignmentTargetKind::Name(name)
-            },
             ExprNodeKind::Property(lhs,field  ) => {
                 ParsedAssignmentTargetKind::Field { lhs, field }
             },
-            ExprNodeKind::GetPath(path) if path.segments.is_empty() => {
-                ParsedAssignmentTargetKind::Name(path.head.name.content)
+            ExprNodeKind::GetPath(path) => {
+                ParsedAssignmentTargetKind::Name(path)
             }
             _ => {
                 self.error("Invalid assignment target.");
@@ -640,21 +648,23 @@ impl<'a> Parser<'a>{
         else{
             None
         };
-        let name = Symbol{content:name.lexeme.to_string(),location:SourceLocation::one_line(name.line)};
+        let name = self.intern_symbol(name.lexeme.to_string(),SourceLocation::one_line(name.line));
         Ok(PathSegment {  location: SourceLocation::new(name.location.start_line, self.prev_token.line),name ,generic_args})
     }
-    fn parse_path(&mut self,include_colon:bool)->Result<ParsedPath,ParsingFailed>{
+    fn parse_path(&mut self,include_colon:bool)->Result<Path,ParsingFailed>{
         let head = self.parse_path_segment(include_colon)?;
-        let mut segments = Vec::new();
+        let start = head.location;
+        let mut segments = vec![head];
         while self.matches(TokenKind::DoubleColon){
             self.expect(TokenKind::Identifier, "Expected valid name for path segment.");
             segments.push(self.parse_path_segment(false)?);
         }
-        Ok(ParsedPath {location: SourceLocation::new(head.location.start_line, self.prev_token.line), head, segments  })
+        Ok(Path {location: SourceLocation::new(start.start_line, self.prev_token.line), segments  })
     }
     fn pattern(&mut self)->Result<ParsedPatternNode,ParsingFailed>{
         let (location,kind) = if self.matches(TokenKind::Identifier){
             let path = self.parse_path(false)?;
+            let head = path.segments.first().expect("Should be at least 1 segment").clone();
             if self.matches(TokenKind::LeftBrace){
                 let mut fields = Vec::new();
                 while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
@@ -666,7 +676,7 @@ impl<'a> Parser<'a>{
                         ParsedPatternNode{
                             id:self.next_id(),
                             location:field_name.location,
-                            kind:ParsedPatternNodeKind::Name(field_name.content.clone())
+                            kind:ParsedPatternNodeKind::Name(field_name.content)
                         }
                     };
                     fields.push((field_name,field_pattern));
@@ -682,15 +692,19 @@ impl<'a> Parser<'a>{
                     }
                 )
             }
-            else if path.head.name.content.chars().all(|char| char == '_') && path.segments.iter().all(|segment| segment.name.content.chars().all(|char| char == '_')){
+            else if self.interner.get(head.name.content).chars().all(|char| char == '_') && path.segments.iter().all(|segment| self.interner.get(segment.name.content).chars().all(|char| char == '_')){
                 (path.location,ParsedPatternNodeKind::Wildcard)
+            }
+            else if path.segments.len() > 1{
+                self.error("Invalid pattern");
+                return Err(ParsingFailed);
             }
             else if self.matches(TokenKind::Is){
                 let pattern = self.pattern()?;
-                (path.head.location,ParsedPatternNodeKind::Is(path.head.name, Box::new(pattern)))
+                (head.location,ParsedPatternNodeKind::Is(head.name, Box::new(pattern)))
             }
             else{
-                (path.head.location,ParsedPatternNodeKind::Name(path.head.name.content))
+                (head.location,ParsedPatternNodeKind::Name(head.name.content))
             }
             
         }
@@ -765,6 +779,7 @@ impl<'a> Parser<'a>{
         fn parse_generic_param(this:&mut Parser)->Result<ParsedGenericParam,ParsingFailed>{
             Ok(ParsedGenericParam(this.parse_identifer("Expect valid generic parameter name.")))
         }
+        let id = self.next_id();
         let params = if self.check(TokenKind::RightBracket) { Vec::new() } else {
             let mut params = Vec::new();
             loop{
@@ -776,7 +791,7 @@ impl<'a> Parser<'a>{
             }
         };
         self.expect(TokenKind::RightBracket, "Expect ']' after generic parameters.");
-        Ok(ParsedGenericParams(params))
+        Ok(ParsedGenericParams(id,params))
     }
     fn parse_enum_variant(&mut self)->Result<ParsedEnumVariant,ParsingFailed>{
         let variant_name = self.parse_identifer("Expect valid enum variant name.");
@@ -815,11 +830,11 @@ impl<'a> Parser<'a>{
         let field_name = self.prev_token;
         self.expect(TokenKind::Colon, "Expect ':' after field.");
         let field_type = self.parse_type()?;
-        Ok((Symbol{content:field_name.lexeme.to_string(),location:SourceLocation::one_line(field_name.line)},field_type))
+        Ok((self.intern_symbol(field_name.lexeme.to_string(),SourceLocation::one_line(field_name.line)),field_type))
     }
     fn struct_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
         self.expect(TokenKind::Identifier, "Expect valid structure name.");
-        let name = Symbol{content:self.prev_token.lexeme.to_string(),location:SourceLocation::one_line(self.prev_token.line)};
+        let name = self.intern_symbol(self.prev_token.lexeme.to_string(),SourceLocation::one_line(self.prev_token.line));
 
         let generic_params = self.optional_generic_params()?;
         self.expect(TokenKind::LeftBrace, "Expect '{'.");
@@ -835,7 +850,7 @@ impl<'a> Parser<'a>{
     }
     fn fun_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
         self.expect(TokenKind::Identifier, "Expect valid function name.");
-        let name = Symbol{content:self.prev_token.lexeme.to_string(),location:SourceLocation::one_line(self.prev_token.line)};
+        let name = self.intern_symbol(self.prev_token.lexeme.to_string(),SourceLocation::one_line(self.prev_token.line));
         let generic_params = self.optional_generic_params()?;
         
         self.expect(TokenKind::LeftParen, "Expect '(' after function name.");
@@ -868,7 +883,7 @@ impl<'a> Parser<'a>{
                     return Err(ParsingFailed);
                 }
                 has_self = true;
-                let self_name = Symbol{content:self.prev_token.lexeme.to_string(),location:SourceLocation::one_line(self.prev_token.line)};
+                let self_name = self.intern_symbol(self.prev_token.lexeme.to_string(), SourceLocation::one_line(self.prev_token.line));
                 ParsedParam{
                     pattern:
                         ParsedPatternNode{
@@ -876,16 +891,12 @@ impl<'a> Parser<'a>{
                             location: self_name.location,
                             kind : ParsedPatternNodeKind::Name(self_name.content.clone())
                         },
-                    ty : ParsedType::Path(ParsedPath{
-                        head: PathSegment{
-                           name: Symbol { 
-                               content: "Self".to_string(), 
-                               location: self_name.location 
-                           },
-                           location: self_name.location,
-                           generic_args : None,
-                       },
-                       segments:Vec::new(),location:name.location}
+                    ty : ParsedType::Path(Path{
+                       segments:vec![PathSegment{
+                        name: self.intern_symbol("Self".to_string(), self_name.location),
+                        location: self_name.location,
+                        generic_args : None,
+                    }],location:name.location}
                    ),
                    by_ref : self_param == SelfParam::ByRef
                 }
