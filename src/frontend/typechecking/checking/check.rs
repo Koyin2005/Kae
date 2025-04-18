@@ -110,23 +110,22 @@ impl<'a> TypeChecker<'a>{
                 elements.iter().any(|element| self.is_type_recursive(element, id))
             },
             &Type::Adt(ref generic_args,type_id, kind) => {
-                if type_id == id{
-                    true
-                }
-                else{
-                    match kind{
-                        AdtKind::Struct => {
-                            self.context.structs[type_id].fields.iter().any(|field|{
+                match kind{
+                    _ if type_id == id => true,
+                    AdtKind::Struct => {
+                        self.context.structs[type_id].fields.iter().any(|field|{
+                            self.is_type_recursive(&TypeSubst::new(generic_args).instantiate_type(&field.ty), id)
+                        })
+                    },
+                    AdtKind::Enum => {
+                        self.context.enums[type_id].variants.iter().any(|variant|{
+                            variant.fields.iter().any(|field|{
                                 self.is_type_recursive(&TypeSubst::new(generic_args).instantiate_type(&field.ty), id)
                             })
-                        },
-                        AdtKind::Enum => {
-                            todo!("CHECK FOR RECURSIVE IN")
-                        }
+                        })
                     }
                 }
             }
-
         }
     }
     fn check_item(&self,item:ItemIndex){
@@ -155,7 +154,28 @@ impl<'a> TypeChecker<'a>{
                 let sig = (&self.context.functions[function.id].sig).clone();
                 self.check_function(&sig,  function.function.params.iter().map(|param| &param.pattern), &function.function.body);
             },
-            hir::Item::Enum(_) => todo!("Type checking for enum items"),
+            hir::Item::Enum(enum_def) => {
+                for (i,variant) in enum_def.variants.iter().enumerate(){
+                    let mut repeated_fields = Vec::new();
+                    let mut seen_fields = FxHashSet::default();
+                    let mut is_recursive = false;
+                    for (j,field) in variant.fields.iter().enumerate(){
+                        if !seen_fields.insert(field.name.index){
+                            repeated_fields.push(field.name);
+                        }
+                        self.check_type(&field.ty);
+                        if self.is_type_recursive(&self.context.enums[enum_def.id].variants[i].fields[j].ty, enum_def.id){
+                            is_recursive = true;
+                        }
+                    }
+                    if is_recursive{
+                        self.error(format!("Recursive type '{}'.",self.ident_interner.get(enum_def.name.index)),enum_def.name.span);
+                    }
+                    for field in repeated_fields{
+                        self.error(format!("Repeated field '{}'.",self.ident_interner.get(field.index)),field.span);
+                    }
+                }
+            },
             hir::Item::Impl(_,_) => todo!("Type checking for impl items"),
         }
     }
@@ -391,7 +411,9 @@ impl<'a> TypeChecker<'a>{
                 (field.name.index,field.ty.clone())
             }).collect::<FxHashMap<SymbolIndex,Type>>(),
             AdtKind::Enum => {
-                todo!("ENUM VARIANTS GRR")
+                self.context.enums[self.context.expect_owner_of(id)].variants.iter().find(|variant| variant.id == id).expect("Should definitely be a variant with this id").fields.iter().map(|field|{
+                    (field.name.index,field.ty.clone())
+                }).collect()
             }
         };
         let mut seen_fields = FxHashSet::default();
@@ -576,6 +598,16 @@ impl<'a> TypeChecker<'a>{
                 let def = &self.context.functions[function];
                 let generic_args = self.lowerer().get_generic_args(path).expect("Should have found some generic args for this function");
                 TypeSubst::new(&generic_args).instantiate_type(&def.sig.as_type())
+            },
+            hir::Resolution::Definition(hir::DefKind::Variant,id) => {
+                let enum_id = self.context.expect_owner_of(id);
+                let def = &self.context.enums[enum_id];
+                if !def.variants.iter().find(|variant_def| variant_def.id == id).expect("There should be a variant here").fields.is_empty(){
+                    self.error(format!("Cannot initialize variant without fields."), path.span);
+                }
+                let generic_args = self.lowerer().get_generic_args(path).expect("Should have found some generic args for this enum variant");
+                Type::new_enum(generic_args, enum_id)
+
             }
             _ => todo!("The rest of the path exprs")
             

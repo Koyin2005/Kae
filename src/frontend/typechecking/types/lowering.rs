@@ -28,11 +28,17 @@ impl<'a> TypeLower<'a>{
                 })?;
                 &segment.args
             },
-            Resolution::Definition(DefKind::Enum, _id) => {
-                todo!("ENUM GENERIC ARGS")
+            Resolution::Definition(DefKind::Enum, id) => {
+                let segment = path.segments.iter().rev().find(|segment|{
+                    matches!(segment.res,Resolution::Definition(DefKind::Enum, seg_id) if seg_id == id)
+                })?;
+                &segment.args
             },
-            Resolution::Definition(DefKind::Variant, _id) => {
-                todo!("ENUM GENERIC ARGS")
+            Resolution::Definition(DefKind::Variant,id) => {
+                let segment = path.segments.iter().rev().find(|segment|{
+                    matches!(segment.res,Resolution::Definition(DefKind::Enum, seg_id) if seg_id == self.context.expect_owner_of(id))
+                })?;
+                &segment.args
             },
             Resolution::Primitive(_) | Resolution::Variable(_) | Resolution::Definition(DefKind::Param, _) => return Some(GenericArgs::new_empty())
         };

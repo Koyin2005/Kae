@@ -1,4 +1,4 @@
-use crate::{data_structures::IndexVec, frontend::{ast_lowering::hir::{self, DefId, Ident, Item}, typechecking::context::{FieldDef, FuncSig, FunctionDef, Generics, StructDef, TypeContext}}, identifiers::ItemIndex, SymbolInterner};
+use crate::{data_structures::IndexVec, frontend::{ast_lowering::hir::{self, DefId, Ident, Item}, typechecking::context::{EnumDef, FieldDef, FuncSig, FunctionDef, Generics, StructDef, TypeContext, VariantDef}}, identifiers::ItemIndex, SymbolInterner};
 
 use super::{lowering::TypeLower, Type};
 
@@ -54,7 +54,20 @@ impl<'a> ItemCollector<'a>{
             Item::Enum(enum_def) => {
                 self.add_name(enum_def.id, enum_def.name);
                 self.collect_generic_defs(enum_def.id, &enum_def.generics);
-                todo!("Enum collection")
+                let variants = enum_def.variants.iter().map(|variant|{
+                    self.add_child(enum_def.id, variant.id);
+                    self.add_name(variant.id, variant.name);
+                    VariantDef{
+                        id:variant.id,
+                        name:variant.name,
+                        fields:vec![]
+                    }
+                }).collect();
+                self.context.enums.insert(enum_def.id, EnumDef{
+                    name:enum_def.name,
+                    variants
+                });
+                true
             },
             Item::Impl(_ty,_methods) => {
                 todo!("Impl collection")
@@ -82,8 +95,16 @@ impl<'a> ItemCollector<'a>{
                     } 
                 });
             },
-            Item::Enum(_enum_def) => {
-                todo!("Enum collection")
+            Item::Enum(enum_def) => {
+                for (i,variant) in enum_def.variants.iter().enumerate(){
+                    let fields =  variant.fields.iter().map(|field|{
+                        FieldDef{
+                            name:field.name,
+                            ty : self.lower_type(&field.ty)
+                        }
+                    }).collect::<Vec<_>>();
+                    self.context.enums[enum_def.id].variants[i].fields.extend(fields);
+                }
             },
             Item::Impl(_ty,_methods) => {
                 todo!("Impl collection")

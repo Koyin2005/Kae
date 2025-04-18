@@ -10,6 +10,15 @@ pub struct StructDef{
     pub name : Ident,
     pub fields: Vec<FieldDef>
 }
+pub struct VariantDef{
+    pub id : DefId,
+    pub name : Ident,
+    pub fields : Vec<FieldDef>,
+}
+pub struct EnumDef{
+    pub name : Ident,
+    pub variants : Vec<VariantDef>
+}
 #[derive(Clone,Debug)]
 pub struct FuncSig{
     pub params : Vec<Type>,
@@ -33,6 +42,7 @@ pub struct FunctionDef{
 }
 pub struct TypeContext{
     pub(super) structs : DefIdMap<StructDef>,
+    pub(super) enums : DefIdMap<EnumDef>,
     pub(super) functions : DefIdMap<FunctionDef>,
     pub(super) generics_map : DefIdMap<Generics>,
     pub(super) params_to_indexes : DefIdMap<u32>,
@@ -45,12 +55,13 @@ impl TypeContext{
             functions : DefIdMap::new(), 
             name_map : DefIdMap::new(),
             generics_map:DefIdMap::new(),
+            enums:DefIdMap::new(),
             params_to_indexes : DefIdMap::new(),
             child_to_owner_map : DefIdMap::new()
         }
     }
     pub fn ident(&self,id:DefId) -> Ident{
-        self.name_map[id]
+        self.name_map.get(id).copied().expect(&format!("There should be an ident for this id {:?}",id))
     }
     pub fn expect_index_for(&self,param_def_id:DefId) -> u32{
         self.params_to_indexes[param_def_id]

@@ -241,12 +241,12 @@ impl<'b,'a> NameFinder<'b>{
     fn find_names_in_stmt(&mut self,stmt:&'a ast::StmtNode){
         match stmt {
             ast::StmtNode::Enum(enum_def) => {
-                self.begin_scope(ScopeKind::Type);
                 let enum_def_id = self.def_ids.next();
                 let name = enum_def.name.into();
                 self.info.items.insert(enum_def.id, Item::Enum(enum_def_id));
                 self.info.name_map.insert(enum_def_id, name);
                 let generics_id = self.find_generic_params(GenericOwner::Enum(enum_def_id), enum_def.generic_params.as_ref());
+                self.begin_scope(ScopeKind::Type);
                 let variants = 
                     enum_def.variants.iter().map(|variant|{
                         let id = self.def_ids.next();
@@ -262,10 +262,10 @@ impl<'b,'a> NameFinder<'b>{
                         })
                     }).collect();
                 self.info.enum_defs.insert(enum_def_id,(name,variants));
+                let name_scope = self.pop_scope();
                 if let Some(id) = generics_id{
                     self.end_scope(id);
                 }
-                let name_scope = self.pop_scope();
                 self.namespaces.define_namespace(Resolution::Definition(DefKind::Enum, enum_def_id),name_scope);
                 let index = enum_def.name.content;
                 if !self.get_current_scope_mut().add_binding(index,Resolution::Definition(DefKind::Enum, enum_def_id)).is_none(){
