@@ -11,8 +11,7 @@ use crate::{
 };
 
 use super::{
-    hir::{self, DefId, DefIdMap, FunctionDef, GenericArg, GenericOwner, Hir, HirId, Ident, Item, LiteralKind, PatternKind}, name_finding::{self, NameScopes, Record}, 
-    resolve::Resolver, SymbolInterner
+    hir::{self, DefId, DefIdMap, FunctionDef, GenericArg, GenericOwner, Hir, HirId, Ident, Item, LiteralKind, PatternKind}, name_finding::{self, NameScopes, Record}, resolve::Resolver, scope::ScopeKind, SymbolInterner
 };
 use crate::identifiers::ItemIndex;
 
@@ -75,9 +74,9 @@ impl<'a> AstLowerer<'a>{
     fn intern_symbol(&self,symbol:ast::Symbol) -> hir::Ident{
         symbol.into()
     }
-    fn lower_generic_args(&mut self,args:Option<ast::ParsedGenericArgs>) -> Result<Vec<GenericArg>,LoweringErr>{
+    fn lower_generic_args(&mut self,args:Option<&ast::ParsedGenericArgs>) -> Result<Vec<GenericArg>,LoweringErr>{
         if let Some(args)=  args{
-            Ok(args.types.into_iter().map(|arg|{
+            Ok(args.types.iter().map(|arg|{
                 Ok(GenericArg{ ty: self.lower_type(arg)?})
             }).collect::<Result<Vec<_>,_>>()?)
         }
@@ -105,7 +104,7 @@ impl<'a> AstLowerer<'a>{
         self.current_generic_stack.push(owner);
         (generics,has_generics)
     }
-    fn lower_path(&mut self,path:ast::Path) -> Result<hir::Path,LoweringErr>{
+    fn lower_path(&mut self,path:&ast::Path) -> Result<hir::Path,LoweringErr>{
         let resolutions = self.resolver.resolve_path(path.segments.iter().map(|segment| segment.name.content));
         if resolutions.len() != path.segments.len(){
             let head = path.segments.first().expect("There must always be at least 1 segment");
@@ -126,28 +125,28 @@ impl<'a> AstLowerer<'a>{
             return Err(LoweringErr);
         }
         let final_res = resolutions.last().copied().expect("There should be at least one!");
-        let segments = resolutions.into_iter().zip(path.segments).map(|(resolution,segment)|{
+        let segments = resolutions.into_iter().zip(&path.segments).map(|(resolution,segment)|{
             Ok(hir::PathSegment{
                 res:resolution,
                 ident:segment.name.into(),
-                args:self.lower_generic_args(segment.generic_args)?
+                args:self.lower_generic_args(segment.generic_args.as_ref())?
             })
         }).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>()?;
         Ok(hir::Path{span:path.location,final_res,segments})
     }
-    fn lower_type(&mut self,ty:ast::ParsedType) -> Result<hir::Type,LoweringErr>{
+    fn lower_type(&mut self,ty:&ast::ParsedType) -> Result<hir::Type,LoweringErr>{
         let (kind,span) = match ty{
-            ast::ParsedType::Array(span,element) => { 
-                let element_ty = self.lower_type(*element);
+            &ast::ParsedType::Array(span,ref element) => { 
+                let element_ty = self.lower_type(element);
                 (hir::TypeKind::Array(Box::new(element_ty?)),span)
             },
-            ast::ParsedType::Tuple(span,elements) => {
-                let element_types = elements.into_iter().map(|element| self.lower_type(element)).collect::<Vec<_>>();
+            &ast::ParsedType::Tuple(span,ref elements) => {
+                let element_types = elements.iter().map(|element| self.lower_type(element)).collect::<Vec<_>>();
                 (hir::TypeKind::Tuple(element_types.into_iter().collect::<Result<_,_>>()?),span)
             },
-            ast::ParsedType::Fun(span, params, return_type) => {
+            &ast::ParsedType::Fun(span, ref params, ref return_type) => {
                 let param_types = params.into_iter().map(|param| self.lower_type(param)).collect::<Vec<_>>();
-                let return_type = return_type.map(|return_type|self.lower_type(*return_type).map(Box::new)).map_or(Ok(None),|result| result.map(Some))?;
+                let return_type = return_type.as_ref().map(|return_type|self.lower_type(return_type).map(Box::new)).map_or(Ok(None),|result| result.map(Some))?;
                 (hir::TypeKind::Function(param_types.into_iter().collect::<Result<_,_>>()?, return_type),span)
             },
             ast::ParsedType::Path(path) => {
@@ -165,7 +164,7 @@ impl<'a> AstLowerer<'a>{
         let params =  (||{
             let params : Vec<_> = function.params.into_iter().map(|param|{
                 let pattern = self.define_bindings_and_lower_pattern(param.pattern);
-                (pattern,self.lower_type(param.ty))
+                (pattern,self.lower_type(&param.ty))
             }).collect();
             params.into_iter().map(|(pattern,ty)|{
                 let pattern = pattern?;
@@ -176,7 +175,7 @@ impl<'a> AstLowerer<'a>{
                 })
             }).collect::<Result<Vec<_>,_>>()
         })();
-        let return_type =  function.return_type.map(|ty| self.lower_type(ty)).map_or(Ok(None), |ty| ty.map(Some));
+        let return_type =  function.return_type.map(|ty| self.lower_type(&ty)).map_or(Ok(None), |ty| ty.map(Some));
         let body = self.lower_expr(function.body);
         self.end_scope();
         Ok(hir::Function{
@@ -225,7 +224,7 @@ impl<'a> AstLowerer<'a>{
                 (PatternKind::Tuple(elements.into_iter().collect::<Result<Vec<_>,_>>()?),span)
             },
             ast::ParsedPatternNodeKind::Struct { path, fields } => {
-                let path:Result<hir::Path,LoweringErr> = self.lower_path(path);
+                let path:Result<hir::Path,LoweringErr> = self.lower_path(&path);
                 let fields:Vec<_> = fields.into_iter().filter_map(|(symbol,pattern)|{
                     let field_symbol = self.intern_symbol(symbol);
                     let pattern = self.lower_pattern(pattern);
@@ -334,7 +333,28 @@ impl<'a> AstLowerer<'a>{
             ast::ExprNodeKind::Function(function) => hir::ExprKind::Function(Box::new(self.lower_function(expr.id,*function)?)),
             ast::ExprNodeKind::Print(args) => hir::ExprKind::Print(args.into_iter().map(|arg| self.lower_expr(arg)).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>()?),
             ast::ExprNodeKind::GetPath(path) => {
-                hir::ExprKind::Path(self.lower_path(path)?)
+                let lowered_path = self.lower_path(&path)?;
+                if matches!(lowered_path.final_res,hir::Resolution::Variable(_)){
+                    let mut seen_function_scope = false;
+                    let mut exited_function = false;
+                    self.resolver.traverse_path_with(std::iter::once(path.segments[0].name.content), |scope_index,scope|{
+                        if let Some(_) = scope_index{
+                            if seen_function_scope{
+                                exited_function = true;
+                                return false;
+                            }
+                            else if scope.kind() == ScopeKind::Function{
+                                seen_function_scope = true;
+                            }
+                        }
+                        true
+                    });
+                    if exited_function{
+                        self.error(format!("Cannot use variable '{}' from outside function.",self.symbol_interner.get(path.segments[0].name.content)), path.location);
+                    }
+
+                }
+                hir::ExprKind::Path(lowered_path)
             },
             ast::ExprNodeKind::Logical { op, left, right } => {
                 let left = self.lower_expr(*left);
@@ -348,11 +368,11 @@ impl<'a> AstLowerer<'a>{
                     Box::new(right)
                 )
             },
-            ast::ExprNodeKind::TypenameOf(ty) => hir::ExprKind::Typename(self.next_id(),self.lower_type(ty)?),
+            ast::ExprNodeKind::TypenameOf(ty) => hir::ExprKind::Typename(self.next_id(),self.lower_type(&ty)?),
             ast::ExprNodeKind::Property(expr, field) => hir::ExprKind::Field(Box::new(self.lower_expr(*expr)?), self.intern_symbol(field)),
             ast::ExprNodeKind::Return(expr) => hir::ExprKind::Return(expr.map(|expr| self.lower_expr(*expr).map(Box::new)).map_or(Ok(None), |result| result.map(Some))?),
             ast::ExprNodeKind::StructInit { path, fields } => {
-                let Ok(path) = self.lower_path(path) else {
+                let Ok(path) = self.lower_path(&path) else {
                     return Err(LoweringErr);
                 };
                 let fields = fields.into_iter().map(|(field_name,field_expr)|{
@@ -366,7 +386,7 @@ impl<'a> AstLowerer<'a>{
                 let lhs = match lhs.kind{
                     ast::ParsedAssignmentTargetKind::Name(name) => {
                         let span = name.location;
-                        self.lower_path(name).map(|path| hir::Expr{
+                        self.lower_path(&name).map(|path| hir::Expr{
                             id:self.next_id(),
                             span,
                             kind:hir::ExprKind::Path(path)
@@ -419,7 +439,7 @@ impl<'a> AstLowerer<'a>{
     }
     fn lower_fields(&mut self,fields:Vec<(Symbol,ParsedType)>,field_names:Vec<hir::Ident>)->Result<Vec<hir::FieldDef>,LoweringErr>{
         let fields = field_names.into_iter().zip(fields.into_iter()).map(|(field,(_,field_ty))|{
-            let field_ty = self.lower_type(field_ty);
+            let field_ty = self.lower_type(&field_ty);
             field_ty.map(|field_ty| hir::FieldDef{
                 name : field,
                 ty : field_ty
@@ -442,7 +462,7 @@ impl<'a> AstLowerer<'a>{
             },
             ast::StmtNode::Let { id:_, pattern, expr, ty } => {
                 let span = SourceLocation::new(pattern.location.start_line, expr.location.end_line);
-                let ty = ty.map(|ty| self.lower_type(ty));
+                let ty = ty.as_ref().map(|ty| self.lower_type(ty));
                 let expr = self.lower_expr(expr);
                 let pattern = self.define_bindings_and_lower_pattern(pattern);
                 (hir::StmtKind::Let(pattern?, ty.map_or(Ok(None), |ty| ty.map(Some))?, expr?),span)

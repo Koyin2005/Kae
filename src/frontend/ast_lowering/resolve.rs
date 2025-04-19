@@ -22,6 +22,32 @@ impl Resolver{
     pub fn pop_scope(&mut self){
         self.scopes.pop();
     }
+    pub fn traverse_path_with(&self,path:impl Iterator<Item = SymbolIndex>,mut f:impl FnMut(Option<usize>,&Scope)->bool){
+        let mut path_iter = path;
+        let mut prev_res: Option<Resolution> = None;
+        while let Some(name) = path_iter.next() {
+                if let Some(res) = prev_res{
+                    if let Some(res) = self.name_spaces.get_namespace(res).and_then(|scope|{
+                        f(None,scope).then_some(()).and_then(|_| scope.get_binding(name))
+                    }){
+                        prev_res = Some(res);
+                    }
+                    else{
+                        break;
+                    }
+                } 
+                else if let Some(res) = self.scopes.iter().rev().enumerate().filter_map(|(index,scope)|{
+                    f(Some(index),scope).then_some(()).and_then(|_| scope.get_binding(name))
+                }).next(){
+                    prev_res = Some(res);
+                }
+                else{
+                    break;
+                } 
+            
+        }
+
+    }
     pub fn resolve_path(&self,path:impl Iterator<Item = SymbolIndex>) -> Vec<Resolution>{
         let mut path_iter = path;
         let mut prev_res: Option<Resolution> = None;

@@ -4,7 +4,7 @@ use crate::identifiers::SymbolIndex;
 
 use super::hir::Resolution;
 
-#[derive(Debug,Clone,Copy)]
+#[derive(Debug,Clone,Copy,PartialEq, Eq)]
 pub enum ScopeKind {
     Normal,
     Function,
