@@ -473,7 +473,11 @@ impl<'a> TypeChecker<'a>{
     fn check_struct_literal(&self,expr:&hir::Expr,path:&hir::Path,fields:&[hir::FieldExpr]) -> Type{
         self.check_path(path);
         let (generic_args,Some((constructor_kind,id))) = self.get_constructor_with_generic_args(path) else {
-            return self.new_error(format!("Cannot use '{}' as constructor.",path.format(self.ident_interner)),path.span);
+            let err = self.new_error(format!("Cannot use '{}' as constructor.",path.format(self.ident_interner)),path.span);
+            for field in fields{
+                self.check_expr(&field.expr, Expectation::None);
+            }
+            return err;
         };
         let field_tys = match constructor_kind{
             AdtKind::Struct => self.context.structs[id].fields.iter().map(|field|{
