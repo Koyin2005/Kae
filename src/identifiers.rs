@@ -10,11 +10,13 @@ define_id!(ScopeIndex);
 define_id!(VariableIndex);
 
 pub struct GlobalSymbols{
-    len_symbol : SymbolIndex
+    len_symbol : SymbolIndex,
 }
 impl GlobalSymbols{
     pub fn new(interner:&mut SymbolInterner) -> Self{
-        Self { len_symbol: interner.intern("len".to_string()) }
+        Self{ 
+            len_symbol: interner.intern("len".to_string())
+        }
     }
     pub fn len_symbol(&self) -> SymbolIndex{
         self.len_symbol
