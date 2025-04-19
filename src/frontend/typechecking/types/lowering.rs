@@ -1,4 +1,4 @@
-use crate::{frontend::{ast_lowering::hir::{self, DefKind, Path, Resolution}, typechecking::{context::TypeContext, error::TypeError}}, SymbolInterner};
+use crate::{frontend::{ast_lowering::hir::{self, DefKind, GenericArg, Path, Resolution}, typechecking::{context::TypeContext, error::TypeError}}, SymbolInterner};
 
 use super::{generics::GenericArgs, AdtKind, Type};
 
@@ -13,7 +13,11 @@ impl<'a> TypeLower<'a>{
             context
         }
     }
-    
+    pub fn lower_generic_args(&self,generic_args:&[GenericArg]) -> GenericArgs{
+        GenericArgs::new(generic_args.iter().map(|arg|{
+            self.lower_type(&arg.ty)
+        }).collect())
+    }
     pub fn get_generic_args(&self,path:&Path) -> Option<GenericArgs>{
         let generic_args = match path.final_res{
             Resolution::Definition(DefKind::Function, id) => {
@@ -42,9 +46,7 @@ impl<'a> TypeLower<'a>{
             },
             Resolution::Primitive(_) | Resolution::Variable(_) | Resolution::Definition(DefKind::Param, _) => return Some(GenericArgs::new_empty())
         };
-        Some(GenericArgs::new(generic_args.iter().map(|arg|{
-            self.lower_type(&arg.ty)
-        }).collect()))
+        Some(self.lower_generic_args(generic_args))
     }
     pub fn lower_type(&self,ty:&hir::Type) -> Type{
         match &ty.kind{

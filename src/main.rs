@@ -1,10 +1,8 @@
 use std::io::Write;
 
 use pl4::{
-    backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, 
-    frontend::{ast_lowering::{ast_lower::AstLowerer, hir::DefIdProvider, name_finding::NameFinder}, 
-    parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::{checking::check::TypeChecker, types::collect::ItemCollector}}, 
-    SymbolInterner
+    backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{ast_lowering::{ast_lower::AstLowerer, hir::DefIdProvider, name_finding::NameFinder}, 
+    parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::{checking::check::TypeChecker, types::collect::ItemCollector}}, GlobalSymbols, SymbolInterner
 };
 
 fn compile(source:&str)->Option<Program>{
@@ -27,7 +25,8 @@ fn compile(source:&str)->Option<Program>{
 
     let item_collector = ItemCollector::new(&interner);
     let context = item_collector.collect(&hir.items);
-    let type_checker = TypeChecker::new(&context,&hir.items,&hir.defs_to_items,&interner);
+    let symbols = GlobalSymbols::new(&mut interner);
+    let type_checker = TypeChecker::new(&context,&hir.items,&symbols,&hir.defs_to_items,&interner);
     let Ok(()) = type_checker.check(&hir.stmts) else {
         return None;
     };

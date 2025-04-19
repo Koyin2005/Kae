@@ -182,6 +182,7 @@ pub enum ExprKind {
     Return(Option<Box<Expr>>),
     Index(Box<Expr>,Box<Expr>),
     Assign(Box<Expr>,Box<Expr>),
+    MethodCall(Box<Expr>,Ident,Vec<GenericArg>,Vec<Expr>),
     StructLiteral(Path,Vec<FieldExpr>),
 }
 #[derive(Clone,Debug)]

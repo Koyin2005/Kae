@@ -9,10 +9,20 @@ define_id!(ItemIndex);
 define_id!(ScopeIndex);
 define_id!(VariableIndex);
 
-
+pub struct GlobalSymbols{
+    len_symbol : SymbolIndex
+}
+impl GlobalSymbols{
+    pub fn new(interner:&mut SymbolInterner) -> Self{
+        Self { len_symbol: interner.intern("len".to_string()) }
+    }
+    pub fn len_symbol(&self) -> SymbolIndex{
+        self.len_symbol
+    }
+}
 pub struct SymbolInterner{
     idents : IndexVec<SymbolIndex,String>,
-    ident_map : HashMap<String,SymbolIndex>
+    ident_map : HashMap<String,SymbolIndex>,
 }
 impl SymbolInterner{
     pub fn new()->Self{

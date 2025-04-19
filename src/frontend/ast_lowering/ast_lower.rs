@@ -11,7 +11,7 @@ use crate::{
 };
 
 use super::{
-    hir::{self, DefId, DefIdMap,FunctionDef, GenericArg, GenericOwner, Hir, HirId, Ident, Item, LiteralKind, PatternKind}, name_finding::{self, NameScopes, Record}, 
+    hir::{self, DefId, DefIdMap, FunctionDef, GenericArg, GenericOwner, Hir, HirId, Ident, Item, LiteralKind, PatternKind}, name_finding::{self, NameScopes, Record}, 
     resolve::Resolver, SymbolInterner
 };
 use crate::identifiers::ItemIndex;
@@ -409,10 +409,10 @@ impl<'a> AstLowerer<'a>{
                     _ => return Err(LoweringErr)
                 }
             },
-            ast::ExprNodeKind::MethodCall { receiver, method:_method, args } => {
-                let _receiver = self.lower_expr(*receiver).map(Box::new);
-                let _args = args.into_iter().map(|arg| self.lower_expr(arg)).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>();
-                todo!("Method calls")
+            ast::ExprNodeKind::MethodCall { receiver, method, args } => {
+                let receiver = self.lower_expr(*receiver).map(Box::new);
+                let args = args.into_iter().map(|arg| self.lower_expr(arg)).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>();
+                hir::ExprKind::MethodCall(receiver?, self.intern_symbol(method), vec![],args?)
             }
         };
         Ok(hir::Expr { id:self.next_id(), span, kind})

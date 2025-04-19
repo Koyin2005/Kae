@@ -5,9 +5,9 @@ use crate::{
     frontend::{
         ast_lowering::hir::{self, DefId, DefIdMap, HirId}, 
         tokenizing::SourceLocation, 
-        typechecking::{context::{FuncSig, TypeContext}, error::TypeError, types::{format::TypeFormatter,lowering::TypeLower, subst::TypeSubst, AdtKind, Type}}
+        typechecking::{context::{FuncSig, Generics, TypeContext}, error::TypeError, types::{format::TypeFormatter,lowering::TypeLower, subst::TypeSubst, AdtKind, Type}}
     }, 
-    identifiers::{ItemIndex, SymbolIndex, SymbolInterner}
+    identifiers::{GlobalSymbols, ItemIndex, SymbolIndex, SymbolInterner}
 };
 use super::{env::TypeEnv, Expectation};
 struct FuncContext{
@@ -21,10 +21,11 @@ pub struct TypeChecker<'a>{
     context : &'a TypeContext,
     ident_interner : &'a SymbolInterner,
     items : &'a IndexVec<ItemIndex,hir::Item>,
+    symbols:&'a GlobalSymbols,
     _item_map:&'a DefIdMap<ItemIndex>
 }
 impl<'a> TypeChecker<'a>{
-    pub fn new(context:&'a TypeContext,items:&'a IndexVec<ItemIndex,hir::Item>,_item_map:&'a DefIdMap<ItemIndex>,interner:&'a SymbolInterner) -> Self{
+    pub fn new(context:&'a TypeContext,items:&'a IndexVec<ItemIndex,hir::Item>,symbols:&'a GlobalSymbols,_item_map:&'a DefIdMap<ItemIndex>,interner:&'a SymbolInterner) -> Self{
         Self { 
             node_types : RefCell::new(FxHashMap::default()),
             env : RefCell::new(TypeEnv::new()),
@@ -33,7 +34,8 @@ impl<'a> TypeChecker<'a>{
             context,
             _item_map,
             items,
-            ident_interner: interner
+            ident_interner: interner,
+            symbols
         }
     }
     pub(super) fn lowerer(&self) -> TypeLower{
@@ -390,6 +392,34 @@ impl<'a> TypeChecker<'a>{
             self.new_error(format!("Cannot call '{}'.",callee_string), callee.span)
         }
     }
+    fn get_method(&self,ty:&Type,method:SymbolIndex) -> Option<(Option<&Generics>,FuncSig)>{
+        if let Type::Array(_) = ty{
+            if method == self.symbols.len_symbol(){
+                return Some((None,FuncSig { params: vec![], return_type: Type::Int }));
+            }
+        }
+        None
+    }
+    fn check_method_call(&self,receiver:&hir::Expr,name:hir::Ident,generic_args:&[hir::GenericArg],args:&[hir::Expr]) -> Type{
+        let receiver_ty = self.check_expr(receiver, Expectation::None);
+        let generic_args = self.lowerer().lower_generic_args(generic_args);
+        let Some((generic_params,method_sig)) = self.get_method(&receiver_ty, name.index) else {
+            return self.new_error(format!("{} has no method '{}'.",self.format_type(&receiver_ty),self.ident_interner.get(name.index)), name.span)
+        };
+        let generic_param_len = generic_params.map_or(0, |generics| generics.param_names.len());
+        if generic_param_len != generic_args.len(){
+            return self.new_error(format!("Expected {} generic args got {}.",generic_param_len,generic_args.len()),name.span);
+        }
+        let method_sig = TypeSubst::new(&generic_args).instantiate_signature(&method_sig);
+        if method_sig.params.len() != args.len(){
+            self.error(format!("Expected {} args got {}.",method_sig.params.len(),args.len()), name.span);
+            return method_sig.return_type;
+        }
+        for (param,arg) in method_sig.params.into_iter().zip(args){
+            self.check_expr(arg, Expectation::CoercesTo(param));
+        }
+        method_sig.return_type
+    }
     fn check_struct_literal(&self,expr:&hir::Expr,path:&hir::Path,fields:&[hir::FieldExpr]) -> Type{
         self.check_path(path);
         let generic_args = self.lowerer().get_generic_args(path).expect("There's gotta be some generic args");
@@ -551,6 +581,9 @@ impl<'a> TypeChecker<'a>{
             },
             hir::ExprKind::StructLiteral(path,fields) => {
                 self.check_struct_literal(expr,path,fields)
+            },
+            &hir::ExprKind::MethodCall(ref receiver,method_name,ref generic_args,ref args) => {
+                self.check_method_call(receiver,method_name,generic_args,args)
             }
         };
         
