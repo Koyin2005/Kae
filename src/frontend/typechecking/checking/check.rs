@@ -665,6 +665,9 @@ impl<'a> TypeChecker<'a>{
         }
     }
     fn check_expr_path(&self,path:&hir::Path,_expected:Expectation) -> Type{
+        enum A<T>{
+            V{p:std::marker::PhantomData<T>}
+        }
         self.check_path(path);
         match path.final_res{
             hir::Resolution::Variable(variable) => {
@@ -679,7 +682,7 @@ impl<'a> TypeChecker<'a>{
                 let enum_id = self.context.expect_owner_of(id);
                 let def = &self.context.enums[enum_id];
                 if !def.variants.iter().find(|variant_def| variant_def.id == id).expect("There should be a variant here").fields.is_empty(){
-                    self.error(format!("Cannot initialize variant without fields."), path.span);
+                    self.error(format!("Cannot initialize variant '{}' without fields.",path.format(self.ident_interner)), path.span);
                 }
                 let generic_args = self.lowerer().get_generic_args(path).expect("Should have found some generic args for this enum variant");
                 Type::new_enum(generic_args, enum_id)
