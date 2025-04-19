@@ -283,14 +283,6 @@ pub enum Resolution {
 }
 
 
-#[derive(Clone,Copy,PartialEq, Eq,Hash,Debug)]
-pub enum GenericOwner {
-    Struct(DefId),
-    Enum(DefId),
-    Function(DefId),
-}
-
-
 
 #[derive(Clone, Copy,Debug,PartialEq,Eq,Hash)]
 pub enum DefKind {

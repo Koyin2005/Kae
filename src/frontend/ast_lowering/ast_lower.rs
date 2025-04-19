@@ -11,7 +11,7 @@ use crate::{
 };
 
 use super::{
-    hir::{self, DefId, DefIdMap, FunctionDef, GenericArg, GenericOwner, Hir, HirId, Ident, Item, LiteralKind, PatternKind}, name_finding::{self, NameScopes, Record}, resolve::Resolver, scope::ScopeKind, SymbolInterner
+    hir::{self, DefId, DefIdMap, FunctionDef, GenericArg, Hir, HirId, Ident, Item, LiteralKind, PatternKind}, name_finding::{self, NameScopes, Record}, resolve::Resolver, scope::ScopeKind, SymbolInterner
 };
 use crate::identifiers::ItemIndex;
 
@@ -21,7 +21,6 @@ pub struct AstLowerer<'a>{
     symbol_interner : &'a mut SymbolInterner,
     items : IndexVec<ItemIndex,Item>,
     name_info : name_finding::NamesFound,
-    current_generic_stack : Vec<GenericOwner>,
     def_id_map : DefIdMap<ItemIndex>,
     next_id : HirId,
     had_error : Cell<bool>,
@@ -34,7 +33,6 @@ impl<'a> AstLowerer<'a>{
             symbol_interner:interner,
             items:IndexVec::new(),
             name_info,
-            current_generic_stack:Vec::new(),
             next_id : HirId::default(),
             def_id_map : DefIdMap::new(),
             had_error : false.into(),
@@ -84,12 +82,12 @@ impl<'a> AstLowerer<'a>{
             Ok(Vec::new())
         }
     }
-    fn lower_generic_params(&mut self,owner:GenericOwner,generics:Option<ast::ParsedGenericParams>) -> (Generics,bool){
+    fn lower_generic_params(&mut self,owner:DefId,generics:Option<ast::ParsedGenericParams>) -> (Generics,bool){
         let (generics,has_generics) = if let Some(ast::ParsedGenericParams(id,params)) = generics {
             self.begin_scope(id);
             let mut generics = Generics::new(); 
             let mut seen_names = FxHashSet::default();
-            for (ast::ParsedGenericParam(_),&(id,name)) in params.into_iter().zip(&self.name_info.generics[&owner]){
+            for (ast::ParsedGenericParam(_),&(id,name)) in params.into_iter().zip(&self.name_info.generics[owner]){
                 if !seen_names.insert(name.index){
                     self.error(format!("Repeated generic param '{}'.",self.symbol_interner.get(name.index)), name.span);
                     continue;
@@ -101,7 +99,6 @@ impl<'a> AstLowerer<'a>{
         else{
             (Generics::new(),false)
         };
-        self.current_generic_stack.push(owner);
         (generics,has_generics)
     }
     fn lower_path(&mut self,path:&ast::Path) -> Result<hir::Path,LoweringErr>{
@@ -468,26 +465,22 @@ impl<'a> AstLowerer<'a>{
                 (hir::StmtKind::Let(pattern?, ty.map_or(Ok(None), |ty| ty.map(Some))?, expr?),span)
             },
             ast::StmtNode::Struct(struct_def) => {
-                let name_finding::Item::Struct(struct_index) = self.name_info.items[&struct_def.id] else {
-                    unreachable!("Should be a struct")
-                };
-                let (generics,has_generics) = self.lower_generic_params(GenericOwner::Struct(struct_index),struct_def.generic_params);
-                let name = self.name_info.structs[struct_index].name;
-                let fields = self.lower_fields(struct_def.fields, self.name_info.structs[struct_index].fields.clone());
+                let struct_id = self.name_info.expect_def_id_with_message(struct_def.id, "Should be a struct");
+                let (generics,has_generics) = self.lower_generic_params(struct_id,struct_def.generic_params);
+                let name = self.name_info.structs[struct_id].name;
+                let fields = self.lower_fields(struct_def.fields, self.name_info.structs[struct_id].fields.clone());
                 if has_generics { self.end_scope(); }
                 let item_id = self.add_item_with_def(Item::Struct(hir::StructDef{
-                    id:struct_index,
+                    id:struct_id,
                     name,
                     generics,
                     fields:fields?
-                }),struct_index);
+                }),struct_id);
                 (hir::StmtKind::Item(item_id),name.span)
             },
             ast::StmtNode::Enum(enum_def) => {
-                let name_finding::Item::Enum(enum_id) = self.name_info.items[&enum_def.id] else {
-                    unreachable!("Should be an enum")
-                };
-                let (generics,has_generics) = self.lower_generic_params(GenericOwner::Enum(enum_id),enum_def.generic_params);
+                let enum_id = self.name_info.expect_def_id_with_message(enum_def.id, "Should be an enum");
+                let (generics,has_generics) = self.lower_generic_params(enum_id,enum_def.generic_params);
                 let (name,ref variants) = self.name_info.enum_defs[enum_id];
                 let variants : Vec<_> = variants.iter().map(|(variant_id,variant)|{
                     (*variant_id,Record{
@@ -510,17 +503,45 @@ impl<'a> AstLowerer<'a>{
                 }),enum_id)),name.span)
             },
             ast::StmtNode::Fun(function_def) => {
-                let name_finding::Item::Function(func_index) = self.name_info.items[&function_def.id] else {
-                    unreachable!("Should be a function")
-                };
-                let name = self.name_info.functions[func_index];
-                let (generics,has_generics) = self.lower_generic_params(GenericOwner::Function(func_index),function_def.generic_params);
+                let func_id = self.name_info.expect_def_id_with_message(function_def.id, "Should be a function");
+                let name = self.name_info.name_map[func_id];
+                let (generics,has_generics) = self.lower_generic_params(func_id,function_def.generic_params);
                 let function = self.lower_function(function_def.id, function_def.function)?;
                 if has_generics{ self.end_scope();}
                 let span = SourceLocation::new(name.span.start_line, function.body.span.end_line);
-                (hir::StmtKind::Item(self.add_item_with_def(Item::Function(FunctionDef { id : func_index, generics, name, function }),func_index)),span)
+                (hir::StmtKind::Item(self.add_item_with_def(Item::Function(FunctionDef { id : func_id, generics, name, function }),func_id)),span)
             },
-            ast::StmtNode::Impl(_impl) => todo!("Impls")
+            ast::StmtNode::Impl(impl_) => {
+                let impl_id =  self.name_info.expect_def_id_with_message(impl_.id,"There should be an impl");
+                let ty = self.lower_type(&impl_.ty);
+                let methods = {
+                    let mut had_error = false;
+                    let mut methods = Vec::with_capacity(impl_.methods.len());
+                    for method in impl_.methods{
+                        let method = (||{
+                            let method_id = self.name_info.expect_def_id_with_message(method.id, "Should be a method");
+                            let name = self.name_info.name_map[method_id];
+                            let (generics,has_generics) = self.lower_generic_params(method_id,method.generic_params);
+                            let function = self.lower_function(method.id, method.function)?;
+                            if has_generics{ self.end_scope();}
+                            Ok(FunctionDef { id:method_id, generics, name, function })
+                        })();
+                        match method {
+                            Ok(method) => {
+                                methods.push(method);
+                            },
+                            Err(LoweringErr) => {
+                                had_error = true;
+                            }
+                        }
+                    }
+                    if had_error{
+                        return Err(LoweringErr);
+                    }
+                    methods
+                };
+                (hir::StmtKind::Item(self.add_item_with_def(Item::Impl(ty?, methods), impl_id)),impl_.span)
+            }
         };
         Ok(hir::Stmt{
             kind,

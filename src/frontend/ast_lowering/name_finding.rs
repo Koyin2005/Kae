@@ -8,7 +8,7 @@ use crate::{
     identifiers::VariableIndex
 };
 
-use super::{hir::{DefId, DefIdMap, DefIdProvider, DefKind, GenericOwner, PrimitiveType, Resolution}, scope::{NameSpaces, Scope, ScopeKind}};
+use super::{hir::{DefId, DefIdMap, DefIdProvider, DefKind, PrimitiveType, Resolution}, scope::{NameSpaces, Scope, ScopeKind}};
 
 pub struct Record{
     pub name : Ident,
@@ -22,10 +22,14 @@ pub struct NamesFound{
     pub(super) variable_def_map : FxHashMap<NodeId,Vec<VariableIndex>>,
     pub(super) structs : DefIdMap<Record>,
     pub(super) enum_defs : DefIdMap<(Ident,Vec<(DefId,Record)>)>,
-    pub(super) functions : DefIdMap<Ident>,
-    pub(super) generics : FxHashMap<GenericOwner,Vec<(DefId,Ident)>>,
-    pub(super) items : NodeMap<Item>,
+    pub(super) generics : DefIdMap<Vec<(DefId,Ident)>>,
+    pub(super) node_to_def_map : NodeMap<DefId>,
     pub(super) name_map : DefIdMap<Ident>,
+}
+impl NamesFound{
+    pub fn expect_def_id_with_message(&self,node:NodeId,msg:&str) -> DefId{
+        self.node_to_def_map.get(&node).copied().expect(msg)
+    }
 }
 pub struct NameScopes{
     pub(super) namespaces : NameSpaces,
@@ -53,11 +57,10 @@ impl<'b,'a> NameFinder<'b>{
                 scope_map:FxHashMap::default(),
                 variable_def_map:FxHashMap::default(),
                 variable_defs:FxHashMap::default(),
-                items: NodeMap::default(), 
+                node_to_def_map: NodeMap::default(), 
                 structs: DefIdMap::new(), 
-                enum_defs: DefIdMap::new(), 
-                functions: DefIdMap::new(), 
-                generics : FxHashMap::default(),
+                enum_defs: DefIdMap::new(),
+                generics : DefIdMap::new(),
 
             },
             namespaces : NameSpaces::new(),
@@ -99,6 +102,9 @@ impl<'b,'a> NameFinder<'b>{
     fn end_scope(&mut self,id:NodeId){
         let scope = self.pop_scope();
         self.info.scope_map.insert(id,Some(scope));
+    }
+    fn add_node_to_def(&mut self,id:NodeId,def_id:DefId){
+        self.info.node_to_def_map.insert(id, def_id);
     }
     fn find_names_in_stmts(&mut self,stmts:&'a [ast::StmtNode]){
         for stmt in stmts{
@@ -196,7 +202,7 @@ impl<'b,'a> NameFinder<'b>{
             ast::ParsedPatternNodeKind::Wildcard | ast::ParsedPatternNodeKind::Literal(_) => ()
         }
     }
-    fn find_generic_params(&mut self,owner:GenericOwner,generic_params:Option<&'a ast::ParsedGenericParams>)->Option<NodeId>{
+    fn find_generic_params(&mut self,owner:DefId,generic_params:Option<&'a ast::ParsedGenericParams>)->Option<NodeId>{
         let mut seen_generic_params = FxHashSet::default();
         let (generic_params,id) = if let Some(generic_params) = generic_params { 
             self.begin_scope(ScopeKind::Type);
@@ -243,9 +249,9 @@ impl<'b,'a> NameFinder<'b>{
             ast::StmtNode::Enum(enum_def) => {
                 let enum_def_id = self.def_ids.next();
                 let name = enum_def.name.into();
-                self.info.items.insert(enum_def.id, Item::Enum(enum_def_id));
+                self.info.node_to_def_map.insert(enum_def.id, enum_def_id);
                 self.info.name_map.insert(enum_def_id, name);
-                let generics_id = self.find_generic_params(GenericOwner::Enum(enum_def_id), enum_def.generic_params.as_ref());
+                let generics_id = self.find_generic_params(enum_def_id, enum_def.generic_params.as_ref());
                 self.begin_scope(ScopeKind::Type);
                 let variants = 
                     enum_def.variants.iter().map(|variant|{
@@ -275,13 +281,13 @@ impl<'b,'a> NameFinder<'b>{
             ast::StmtNode::Struct(struct_def) => {
                 let struct_def_id = self.def_ids.next();
                 let name = struct_def.name.into();
-                let generics_id = self.find_generic_params(GenericOwner::Struct(struct_def_id), struct_def.generic_params.as_ref());
+                let generics_id = self.find_generic_params(struct_def_id, struct_def.generic_params.as_ref());
                 let fields = self.find_fields(&struct_def.fields);
                 if let Some(id) = generics_id{
                     self.end_scope(id);
                 }
                 self.info.structs.insert(struct_def_id,Record { name, fields});
-                self.info.items.insert(struct_def.id, Item::Struct(struct_def_id));
+                self.add_node_to_def(struct_def.id, struct_def_id);
                 self.info.name_map.insert(struct_def_id, name);
                 let index = struct_def.name.content;
                 if !self.get_current_scope_mut().add_binding(index,Resolution::Definition(DefKind::Struct, struct_def_id)).is_none(){
@@ -300,23 +306,32 @@ impl<'b,'a> NameFinder<'b>{
                 self.find_names_in_expr(expr);
             },
             ast::StmtNode::Fun(function_def) => {
-                let id = self.def_ids.next();
-                self.info.functions.insert(id,function_def.name.into());
-                self.info.items.insert(function_def.id, Item::Function(id));
-                self.info.name_map.insert(id, function_def.name.into());
-                let generics_id = self.find_generic_params(GenericOwner::Function(id),function_def.generic_params.as_ref());
+                let func_def_id = self.def_ids.next();
+                self.add_node_to_def(function_def.id, func_def_id);
+                self.info.name_map.insert(func_def_id, function_def.name.into());
+                let generics_id = self.find_generic_params(func_def_id,function_def.generic_params.as_ref());
                 self.find_names_in_function(function_def.id,&function_def.function);
                 if let Some(id) = generics_id{
                     self.end_scope(id);
                 }
                 let symbol = function_def.name.content;
-                if !self.get_current_scope_mut().add_binding(symbol,Resolution::Definition(DefKind::Function,id)).is_none(){
+                if !self.get_current_scope_mut().add_binding(symbol,Resolution::Definition(DefKind::Function,func_def_id)).is_none(){
                     self.error(format!("Repeated item '{}'.",self.interner.get(function_def.name.content)), function_def.name.location);
                 }
             },
             ast::StmtNode::Impl(impl_) => {
+                let impl_id = self.def_ids.next();
+                self.add_node_to_def(impl_.id,impl_id);
                 for method in &impl_.methods{
-                    self.find_names_in_function(method.id,&method.function);
+                    let function = &method.function;
+                    let method_id = self.def_ids.next();
+                    self.add_node_to_def(method.id, method_id);
+                    self.info.name_map.insert(method_id, method.name.into());
+                    let generics_id = self.find_generic_params(method_id,method.generic_params.as_ref());
+                    self.find_names_in_function(method.id,&function);
+                    if let Some(id) = generics_id{
+                        self.end_scope(id);
+                    }
                 }
             }
         }
@@ -352,5 +367,6 @@ pub enum Item {
     Variant(DefId),
     Enum(DefId),
     Struct(DefId),
-    Impl(DefId)
+    Impl(DefId),
+    Method(DefId)
 }
