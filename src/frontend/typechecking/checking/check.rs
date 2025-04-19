@@ -393,7 +393,7 @@ impl<'a> TypeChecker<'a>{
         }
     }
     fn get_method(&self,ty:&Type,method:SymbolIndex) -> Option<(Option<&Generics>,FuncSig)>{
-        if let Type::Array(_) = ty{
+        if let Type::Array(_) | Type::String = ty{
             if method == self.symbols.len_symbol(){
                 return Some((None,FuncSig { params: vec![], return_type: Type::Int }));
             }
