@@ -4,13 +4,15 @@ use super::{generics::GenericArgs, AdtKind, Type};
 
 pub struct TypeLower<'a>{
     interner:&'a SymbolInterner,
-    context:&'a TypeContext
+    context:&'a TypeContext,
+    self_type : Option<&'a Type>
 }
 impl<'a> TypeLower<'a>{
-    pub fn new(interner:&'a SymbolInterner,context:&'a TypeContext)->Self{
+    pub fn new(interner:&'a SymbolInterner,context:&'a TypeContext,self_type:Option<&'a Type>)->Self{
         Self { 
             interner,
-            context
+            context,
+            self_type
         }
     }
     pub fn lower_generic_args(&self,generic_args:&[GenericArg]) -> GenericArgs{
@@ -44,7 +46,7 @@ impl<'a> TypeLower<'a>{
                 })?;
                 &segment.args
             },
-            Resolution::Primitive(_) | Resolution::Variable(_) | Resolution::Definition(DefKind::Param, _) => return Some(GenericArgs::new_empty())
+            Resolution::Primitive(_) | Resolution::Variable(_) | Resolution::Definition(DefKind::Param, _) | Resolution::SelfType  => return Some(GenericArgs::new_empty())
         };
         Some(self.lower_generic_args(generic_args))
     }
@@ -72,6 +74,9 @@ impl<'a> TypeLower<'a>{
                         let index = self.context.expect_index_for(id);
                         let symbol = generics.param_names[index as usize].index;
                         Type::Param(index, symbol)
+                    },
+                    Resolution::SelfType => {
+                        self.self_type.cloned().expect("Should always have a self type whenever Self appears")
                     }
                     _ => {
                         TypeError.emit(format!("Cannot use '{}' as type.",path.format(self.interner)), path.span);

@@ -1,5 +1,5 @@
 use super::Type;
-#[derive(Clone,Debug,PartialEq)]
+#[derive(Clone,Debug,PartialEq,Eq,Hash)]
 pub struct GenericArgs(Vec<Type>);
 
 impl GenericArgs{

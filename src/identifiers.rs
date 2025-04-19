@@ -11,12 +11,22 @@ define_id!(VariableIndex);
 
 pub struct GlobalSymbols{
     len_symbol : SymbolIndex,
+    upper_self_symbol : SymbolIndex,
+    lower_self_symbol : SymbolIndex,
 }
 impl GlobalSymbols{
     pub fn new(interner:&mut SymbolInterner) -> Self{
         Self{ 
-            len_symbol: interner.intern("len".to_string())
+            len_symbol: interner.intern("len".to_string()),
+            upper_self_symbol : interner.intern("Self".to_string()),
+            lower_self_symbol : interner.intern("self".to_string())
         }
+    }
+    pub fn upper_self_symbol(&self) -> SymbolIndex{
+        self.upper_self_symbol
+    }
+    pub fn lower_self_symbol(&self) -> SymbolIndex{
+        self.lower_self_symbol
     }
     pub fn len_symbol(&self) -> SymbolIndex{
         self.len_symbol

@@ -1,4 +1,7 @@
-use crate::frontend::ast_lowering::hir::{DefId, DefIdMap, Ident};
+use fxhash::FxBuildHasher;
+use indexmap::IndexMap;
+
+use crate::frontend::{ast_lowering::hir::{DefId, DefIdMap, Ident}, tokenizing::SourceLocation};
 
 use super::types::Type;
 
@@ -40,6 +43,11 @@ pub struct FunctionDef{
     pub name : Ident,
     pub sig : FuncSig
 }
+pub struct Impl{
+    pub span : SourceLocation,
+    pub ty : Type,
+    pub methods : Vec<(DefId,bool,FunctionDef)>
+}
 pub struct TypeContext{
     pub(super) structs : DefIdMap<StructDef>,
     pub(super) enums : DefIdMap<EnumDef>,
@@ -47,17 +55,22 @@ pub struct TypeContext{
     pub(super) generics_map : DefIdMap<Generics>,
     pub(super) params_to_indexes : DefIdMap<u32>,
     pub(super) child_to_owner_map : DefIdMap<DefId>,
-    pub(super) name_map : DefIdMap<Ident>
+    pub(super) impls : DefIdMap<Impl>,
+    pub(super) name_map : DefIdMap<Ident>,
+    pub(super) ty_impl_map : IndexMap<Type,Vec<DefId>,FxBuildHasher>,
 }
 impl TypeContext{
     pub fn new() -> Self{
-        Self { structs: DefIdMap::new(), 
+        Self { 
+            structs: DefIdMap::new(), 
             functions : DefIdMap::new(), 
             name_map : DefIdMap::new(),
             generics_map:DefIdMap::new(),
             enums:DefIdMap::new(),
             params_to_indexes : DefIdMap::new(),
-            child_to_owner_map : DefIdMap::new()
+            child_to_owner_map : DefIdMap::new(),
+            impls : DefIdMap::new(),
+            ty_impl_map : IndexMap::default()
         }
     }
     pub fn ident(&self,id:DefId) -> Ident{

@@ -1,21 +1,26 @@
-use crate::{data_structures::IndexVec, frontend::{ast_lowering::hir::{self, DefId, Ident, Item}, typechecking::context::{EnumDef, FieldDef, FuncSig, FunctionDef, Generics, StructDef, TypeContext, VariantDef}}, identifiers::ItemIndex, SymbolInterner};
+use crate::{data_structures::IndexVec, frontend::{ast_lowering::hir::{self, DefId, Ident, Item}, typechecking::context::{EnumDef, FieldDef, FuncSig, FunctionDef, Generics, Impl, StructDef, TypeContext, VariantDef}}, identifiers::ItemIndex, GlobalSymbols, SymbolInterner};
 
 use super::{lowering::TypeLower, Type};
 
 pub struct ItemCollector<'a>{
     context : TypeContext,
     interner : &'a SymbolInterner,
+    symbols : &'a GlobalSymbols
 }
 
 impl<'a> ItemCollector<'a>{
-    pub fn new(interner:&'a SymbolInterner)->Self{
+    pub fn new(interner:&'a SymbolInterner,symbols:&'a GlobalSymbols)->Self{
         Self { 
             context: TypeContext::new(), 
             interner,
+            symbols
         }
     }
+    fn lower_type_with(&self,ty:&hir::Type,lowered_ty:&Type) -> Type{
+        TypeLower::new(self.interner, &self.context,Some(lowered_ty)).lower_type(ty)
+    }
     fn lower_type(&self,ty:&hir::Type) -> Type{
-        TypeLower::new(self.interner, &self.context).lower_type(ty)
+        TypeLower::new(self.interner, &self.context,None).lower_type(ty)
     }
     fn add_name(&mut self,id:DefId,name:Ident){
         self.context.name_map.insert(id, name);
@@ -69,8 +74,12 @@ impl<'a> ItemCollector<'a>{
                 });
                 true
             },
-            Item::Impl(_ty,_methods) => {
-                todo!("Impl collection")
+            &Item::Impl(id,_,ref methods) => {
+                for method in methods{
+                    self.add_child(id, method.id);
+                    self.collect_generic_defs(method.id, &method.generics);
+                }
+                true
             }
         }
     }
@@ -106,8 +115,24 @@ impl<'a> ItemCollector<'a>{
                     self.context.enums[enum_def.id].variants[i].fields.extend(fields);
                 }
             },
-            Item::Impl(_ty,_methods) => {
-                todo!("Impl collection")
+            &Item::Impl(id,ref ty,ref methods) => {
+                let self_type = self.lower_type(ty);
+                let methods = methods.iter().map(|method|{
+                    let has_receiver = method.function.params.first().is_some_and(|param| matches!(param.pattern.kind,hir::PatternKind::Binding(_,name,_) if name.index == self.symbols.lower_self_symbol()));
+                    (method.id,has_receiver,FunctionDef{
+                        name:method.name,
+                        sig: FuncSig { 
+                            params: method.function.params.iter().map(|param| self.lower_type_with(&param.ty,&self_type)).collect(), 
+                            return_type: method.function.return_type.as_ref().map_or(Type::new_unit(), |ty| self.lower_type_with(&ty,&self_type))
+                        } 
+                    })
+                }).collect::<Vec<_>>();
+                self.context.ty_impl_map.entry(self_type.clone()).or_insert(Vec::new()).push(id);
+                self.context.impls.insert(id, Impl{
+                    span:ty.span,
+                    ty:self_type,
+                    methods
+                });
             }
         }
     }

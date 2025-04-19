@@ -5,7 +5,7 @@ use crate::{
     data_structures::IndexVec, 
     frontend::{ast_lowering::{hir::Ident, SymbolIndex, SymbolInterner}, 
     parsing::ast::{self, NodeId, ParsedAssignmentTargetKind}, tokenizing::SourceLocation, }, 
-    identifiers::VariableIndex
+    identifiers::VariableIndex, GlobalSymbols
 };
 
 use super::{hir::{DefId, DefIdMap, DefIdProvider, DefKind, PrimitiveType, Resolution}, scope::{NameSpaces, Scope, ScopeKind}};
@@ -44,9 +44,10 @@ pub struct NameFinder<'b>{
     def_ids : &'b mut DefIdProvider,
     had_error : Cell<bool>,
     namespaces : NameSpaces,
+    global_symbols : &'b GlobalSymbols
 }
 impl<'b,'a> NameFinder<'b>{
-    pub fn new(interner:&'b mut SymbolInterner,def_id_provider:&'b mut DefIdProvider)->Self{
+    pub fn new(interner:&'b mut SymbolInterner,def_id_provider:&'b mut DefIdProvider,symbols:&'b GlobalSymbols)->Self{
         let mut scopes = Vec::new();
         scopes.push(Scope::new(ScopeKind::Normal));
         Self { 
@@ -63,6 +64,7 @@ impl<'b,'a> NameFinder<'b>{
                 generics : DefIdMap::new(),
 
             },
+            global_symbols:symbols,
             namespaces : NameSpaces::new(),
             scopes,
             interner,
@@ -322,6 +324,9 @@ impl<'b,'a> NameFinder<'b>{
             ast::StmtNode::Impl(impl_) => {
                 let impl_id = self.def_ids.next();
                 self.add_node_to_def(impl_.id,impl_id);
+                self.begin_scope(ScopeKind::Type);
+                let self_symbol = self.global_symbols.upper_self_symbol();
+                self.get_current_scope_mut().add_binding(self_symbol,Resolution::SelfType);
                 for method in &impl_.methods{
                     let function = &method.function;
                     let method_id = self.def_ids.next();
@@ -333,6 +338,7 @@ impl<'b,'a> NameFinder<'b>{
                         self.end_scope(id);
                     }
                 }
+                self.end_scope(impl_.id);
             }
         }
     }

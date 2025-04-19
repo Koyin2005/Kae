@@ -8,12 +8,12 @@ pub mod generics;
 pub mod format;
 pub mod subst;
 pub mod collect;
-#[derive(Clone,Copy,Debug,PartialEq)]
+#[derive(Clone,Copy,Debug,PartialEq,Eq,Hash)]
 pub enum AdtKind {
     Struct,
     Enum
 }
-#[derive(Clone,Debug,PartialEq)]
+#[derive(Clone,Debug,PartialEq,Eq,Hash)]
 pub enum Type {
     Int,
     Float,

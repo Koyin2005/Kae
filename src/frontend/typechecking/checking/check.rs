@@ -1,5 +1,6 @@
 use std::cell::{Cell, RefCell};
-use fxhash::{FxHashMap, FxHashSet};
+use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
+use indexmap::IndexMap;
 use crate::{
     data_structures::IndexVec, 
     frontend::{
@@ -22,6 +23,7 @@ pub struct TypeChecker<'a>{
     ident_interner : &'a SymbolInterner,
     items : &'a IndexVec<ItemIndex,hir::Item>,
     symbols:&'a GlobalSymbols,
+    self_type : Option<Type>,
     _item_map:&'a DefIdMap<ItemIndex>
 }
 impl<'a> TypeChecker<'a>{
@@ -34,12 +36,13 @@ impl<'a> TypeChecker<'a>{
             context,
             _item_map,
             items,
+            self_type:None,
             ident_interner: interner,
             symbols
         }
     }
     pub(super) fn lowerer(&self) -> TypeLower{
-        TypeLower::new(&self.ident_interner,self.context)
+        TypeLower::new(&self.ident_interner,self.context,self.self_type.as_ref())
     }
     pub(super) fn lower_type(&self,ty: &hir::Type) -> Type{
         self.lowerer().lower_type(ty)
@@ -59,7 +62,27 @@ impl<'a> TypeChecker<'a>{
         self.error(msg, span);
         Type::new_error()
     }
+    fn check_repeated_impls(&self) {
+        for (ty,impls_) in self.context.ty_impl_map.iter().filter(|(_,impls_)| impls_.len() > 1){
+            let impls  = impls_.iter().map(|&impl_| &self.context.impls[impl_]).collect::<Vec<_>>();
+            let mut seen_methods = IndexMap::<_,usize,FxBuildHasher>::default();
+            let mut span = None;
+            for impl_ in impls{
+                span = Some(impl_.span);
+                for (_,_,method) in impl_.methods.iter(){
+                    let count = seen_methods.entry(method.name.index).or_insert(0);
+                    *count = *count + 1;
+                }
+            }
+            for (name,count) in seen_methods{
+                if count>1{
+                    self.error(format!("Repeated method '{}' for '{}'.",self.ident_interner.get(name),self.format_type(ty)),span.expect("Already checked impls greater than 1"));
+                }
+            }
+        }
+    }
     pub fn check(self,stmts : &[hir::Stmt]) -> Result<(),TypeError>{
+        self.check_repeated_impls();
         self.check_stmts(stmts);
         if !self.had_error.get(){
             Ok(())
@@ -172,7 +195,13 @@ impl<'a> TypeChecker<'a>{
                     }
                 }
             },
-            hir::Item::Impl(_,_) => todo!("Type checking for impl items"),
+            &hir::Item::Impl(id,ref ty,ref methods) => {
+                self.check_type(ty);
+                let impl_ = &self.context.impls[id];
+                for (method,method_sig) in methods.iter().zip(impl_.methods.iter().map(|(_,_,def)| def.sig.clone())){
+                    self.check_function(&method_sig,  method.function.params.iter().map(|param| &param.pattern), &method.function.body);
+                }
+            },
         }
     }
     fn check_stmt(&self,stmt : &hir::Stmt) {
@@ -434,6 +463,23 @@ impl<'a> TypeChecker<'a>{
                 return Some((None,FuncSig { params: vec![], return_type: Type::Int }));
             }
         }
+        if let Some(impls) = self.context.ty_impl_map.get(ty){
+            for &impl_ in impls{
+                if let Some((generics,method)) = self.context.impls[impl_].methods.iter().find_map(|&(id,has_receiver,ref method_def)|{
+                    if has_receiver && method_def.name.index == method{
+                        let mut sig = method_def.sig.clone();
+                        sig.params.pop();
+                        Some((self.context.expect_generics_for(id),sig))
+                    }
+                    else{
+                        None
+                    }  
+                    
+                }){
+                    return Some((Some(generics),method));
+                }
+            }
+        }
         None
     }
     fn check_method_call(&self,receiver:&hir::Expr,name:hir::Ident,generic_args:&[hir::GenericArg],args:&[hir::Expr]) -> Type{
@@ -654,7 +700,10 @@ impl<'a> TypeChecker<'a>{
     fn get_generic_count(&self,res:&hir::Resolution) -> usize{
         match res{
             &hir::Resolution::Definition(hir::DefKind::Struct|hir::DefKind::Enum|hir::DefKind::Function,id) => self.context.expect_generics_for(id).param_names.len(),
-            hir::Resolution::Variable(_) | hir::Resolution::Definition(hir::DefKind::Variant|hir::DefKind::Param, _) | hir::Resolution::Primitive(_) => 0
+            hir::Resolution::Variable(_) | 
+            hir::Resolution::Definition(hir::DefKind::Variant|hir::DefKind::Param, _) | 
+            hir::Resolution::Primitive(_) | 
+            hir::Resolution::SelfType => 0
         }
     }
     fn check_path(&self,path:&hir::Path){
@@ -685,7 +734,9 @@ impl<'a> TypeChecker<'a>{
                 let generic_args = self.lowerer().get_generic_args(path).expect("Should have found some generic args for this enum variant");
                 Type::new_enum(generic_args, enum_id)
             },
-            hir::Resolution::Primitive(_) | hir::Resolution::Definition(hir::DefKind::Param|hir::DefKind::Struct|hir::DefKind::Enum,_) => 
+            hir::Resolution::Primitive(_) | 
+            hir::Resolution::Definition(hir::DefKind::Param|hir::DefKind::Struct|hir::DefKind::Enum,_) |
+            hir::Resolution::SelfType => 
                 self.new_error(format!("Cannot use type '{}' as expr.",path.format(self.ident_interner)), path.span),
         }
     }

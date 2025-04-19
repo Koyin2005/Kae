@@ -514,6 +514,7 @@ impl<'a> AstLowerer<'a>{
             ast::StmtNode::Impl(impl_) => {
                 let impl_id =  self.name_info.expect_def_id_with_message(impl_.id,"There should be an impl");
                 let ty = self.lower_type(&impl_.ty);
+                self.begin_scope(impl_.id);
                 let methods = {
                     let mut had_error = false;
                     let mut methods = Vec::with_capacity(impl_.methods.len());
@@ -540,7 +541,8 @@ impl<'a> AstLowerer<'a>{
                     }
                     methods
                 };
-                (hir::StmtKind::Item(self.add_item_with_def(Item::Impl(ty?, methods), impl_id)),impl_.span)
+                self.end_scope();
+                (hir::StmtKind::Item(self.add_item_with_def(Item::Impl(impl_id,ty?, methods), impl_id)),impl_.span)
             }
         };
         Ok(hir::Stmt{

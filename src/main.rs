@@ -10,12 +10,13 @@ fn compile(source:&str)->Option<Program>{
         return None;
     };
     let mut interner = SymbolInterner::new();
+    let symbols = GlobalSymbols::new(&mut interner);
     let parser = Parser::new(tokens,&mut interner);
     let Ok(stmts) = parser.parse() else{
         return None;
     };
     let mut def_id_provider = DefIdProvider::new();
-    let Ok((names_found,name_scopes)) = NameFinder::new(&mut interner,&mut def_id_provider).find_names(&stmts) else {
+    let Ok((names_found,name_scopes)) = NameFinder::new(&mut interner,&mut def_id_provider,&symbols).find_names(&stmts) else {
         return None;
     };
     let ast_lower = AstLowerer::new(&mut interner,names_found,name_scopes);
@@ -23,9 +24,8 @@ fn compile(source:&str)->Option<Program>{
         return None;
     };
 
-    let item_collector = ItemCollector::new(&interner);
+    let item_collector = ItemCollector::new(&interner,&symbols);
     let context = item_collector.collect(&hir.items);
-    let symbols = GlobalSymbols::new(&mut interner);
     let type_checker = TypeChecker::new(&context,&hir.items,&symbols,&hir.defs_to_items,&interner);
     let Ok(()) = type_checker.check(&hir.stmts) else {
         return None;

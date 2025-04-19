@@ -85,7 +85,7 @@ pub enum Item {
     Struct(StructDef),
     Enum(EnumDef),
     Function(FunctionDef),
-    Impl(Type,Vec<FunctionDef>)
+    Impl(DefId,Type,Vec<FunctionDef>)
 }
 #[derive(Clone,Debug)]
 pub struct Expr{
@@ -280,6 +280,7 @@ pub enum Resolution {
     Definition(DefKind,DefId),
     Primitive(PrimitiveType),
     Variable(VariableIndex),
+    SelfType
 }
 
 
@@ -311,6 +312,9 @@ impl<T> DefIdMap<T>{
     pub fn get(&self,id:DefId) -> Option<&T>{
         self.0.get(&id)
     }
+    pub fn iter(&self) -> DefIdMapIter<'_,T>{
+        DefIdMapIter(self.0.iter())
+    }
 }
 impl<T> std::ops::Index<DefId> for DefIdMap<T>{
     type Output = T;
@@ -330,6 +334,13 @@ impl<T> std::ops::IndexMut<DefId> for DefIdMap<T>{
     }
 }
 
+pub struct DefIdMapIter<'a,T>(std::collections::hash_map::Iter<'a, DefId, T>);
+impl<'a,T> Iterator for DefIdMapIter<'a,T> {
+    type Item = (DefId,&'a T);
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|(&id,val)| (id,val))
+    }
+}
 
 pub struct Hir{
     pub items : IndexVec<ItemIndex,Item>,
