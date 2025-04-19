@@ -13,9 +13,12 @@ impl GenericArgs{
     pub fn is_empty(&self) -> bool{
         self.0.is_empty()
     }
-
-    pub fn get(&self,index : usize) -> Type{
+    pub fn expect(&self,index : usize) -> Type{
         self.0[index].clone()
+    }
+
+    pub fn get(&self,index : usize) -> Option<Type>{
+        self.0.get(index).cloned()
     }
     pub fn iter(&self) -> GenericArgsIter<'_>{
        GenericArgsIter(self.0.iter())

@@ -5,7 +5,7 @@ use crate::{
     frontend::{
         ast_lowering::hir::{self, DefId, DefIdMap, HirId}, 
         tokenizing::SourceLocation, 
-        typechecking::{context::{FuncSig, Generics, TypeContext}, error::TypeError, types::{format::TypeFormatter,lowering::TypeLower, subst::TypeSubst, AdtKind, Type}}
+        typechecking::{context::{FuncSig, Generics, TypeContext}, error::TypeError, types::{format::TypeFormatter, generics::GenericArgs, lowering::TypeLower, subst::TypeSubst, AdtKind, Type}}
     }, 
     identifiers::{GlobalSymbols, ItemIndex, SymbolIndex, SymbolInterner}
 };
@@ -241,7 +241,47 @@ impl<'a> TypeChecker<'a>{
                 };
                 self.check_type_is_expected(literal_ty, &expected_type, pattern.span)
             },
-            _ => todo!("REST")
+            hir::PatternKind::Struct(path, fields) => {
+                let (generic_args,Some((constructor_kind,id))) = self.get_constructor_with_generic_args(path) else{
+                    self.error(format!("Cannot use '{}' as constructor.",path.format(self.ident_interner)),path.span);
+                    return;
+                };
+                let field_tys = match constructor_kind{
+                    AdtKind::Struct => self.context.structs[id].fields.iter().map(|field|{
+                        (field.name.index,field.ty.clone())
+                    }).collect::<FxHashMap<SymbolIndex,Type>>(),
+                    AdtKind::Enum => {
+                        self.context.enums[self.context.expect_owner_of(id)].variants.iter().find(|variant| variant.id == id).expect("Should definitely be a variant with this id").fields.iter().map(|field|{
+                            (field.name.index,field.ty.clone())
+                        }).collect()
+                    }
+                };
+                let mut seen_fields = FxHashSet::default();
+                let mut last_field_span = pattern.span;
+                for field_pattern in fields{
+                    let field_ty= match field_tys.get(&field_pattern.name.index).map(|ty| TypeSubst::new(&generic_args).instantiate_type(ty)){
+                        Some(ty) => ty,
+                        None => {
+                            self.new_error(format!("Unkown field '{}'.",self.ident_interner.get(field_pattern.name.index)), field_pattern.name.span)
+                        }
+                    };
+                    if !seen_fields.insert(field_pattern.name.index){
+                        self.error(format!("Repeated field '{}'.",self.ident_interner.get(field_pattern.name.index)), field_pattern.name.span);
+                    }
+                    self.check_pattern(&field_pattern.pattern, field_ty);
+                    last_field_span = field_pattern.name.span;
+                }
+                let field_names = field_tys.into_keys().collect::<FxHashSet<_>>();
+                let missing_fields = field_names.difference(&seen_fields);
+                for &field in missing_fields.into_iter(){
+                    self.error(format!("Missing field initializer for field '{}'.",self.ident_interner.get(field)), last_field_span);
+                }
+                match constructor_kind{
+                    AdtKind::Enum => Type::new_enum(generic_args, self.context.expect_owner_of(id)),
+                    AdtKind::Struct => Type::new_struct(generic_args, id)
+                }
+
+            }
         };
         self.store_type(pattern.id, ty);
     }
@@ -420,15 +460,20 @@ impl<'a> TypeChecker<'a>{
         }
         method_sig.return_type
     }
+    fn get_constructor_with_generic_args(&self,path:&hir::Path) -> (GenericArgs,Option<(AdtKind,DefId)>){
+        let generic_args = self.lowerer().get_generic_args(path).expect("There's gotta be some generic args");
+        match path.final_res{
+            hir::Resolution::Definition(hir::DefKind::Struct,id) => (generic_args,Some((AdtKind::Struct,id))),
+            hir::Resolution::Definition(hir::DefKind::Variant,id) => (generic_args,Some((AdtKind::Enum,id))),
+            _ =>{
+                return (generic_args,None);
+            } 
+        }
+    }
     fn check_struct_literal(&self,expr:&hir::Expr,path:&hir::Path,fields:&[hir::FieldExpr]) -> Type{
         self.check_path(path);
-        let generic_args = self.lowerer().get_generic_args(path).expect("There's gotta be some generic args");
-        let (constructor_kind,id) = match path.final_res{
-            hir::Resolution::Definition(hir::DefKind::Struct,index) => (AdtKind::Struct,index),
-            hir::Resolution::Definition(hir::DefKind::Variant,index) => (AdtKind::Enum,index),
-            _ =>{
-                return self.new_error(format!("Cannot use '{}' as constructor.",path.format(self.ident_interner)),path.span);
-            } 
+        let (generic_args,Some((constructor_kind,id))) = self.get_constructor_with_generic_args(path) else {
+            return self.new_error(format!("Cannot use '{}' as constructor.",path.format(self.ident_interner)),path.span);
         };
         let field_tys = match constructor_kind{
             AdtKind::Struct => self.context.structs[id].fields.iter().map(|field|{

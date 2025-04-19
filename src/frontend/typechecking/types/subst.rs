@@ -13,7 +13,7 @@ impl<'a> TypeSubst<'a>{
     pub fn instantiate_type(&self,ty:&Type) -> Type{
         match ty{
             &Type::Param(index,_) => {
-                self.subst.get(index as usize).clone()
+                self.subst.get(index as usize).unwrap_or(Type::Error)
             },
             Type::Function(params,return_type) => Type::new_function(params.iter().map(|param| self.instantiate_type(param)).collect(), self.instantiate_type(return_type)),
             Type::Array(element_type) => Type::new_array(self.instantiate_type(element_type)),

@@ -11,12 +11,16 @@ impl TypeChecker<'_>{
                 match (left,right) {
                     (Type::Float,Type::Float) => return Type::Float,
                     (Type::Int,Type::Int) => return Type::Int,
+                    (Type::Float,Type::Error) |(Type::Error,Type::Float) => return Type::Float,
+                    (Type::Int,Type::Error) |(Type::Error,Type::Int) => return Type::Int,
                     _ => ()
                 }
             },
             (hir::BinaryOp::Lesser|hir::BinaryOp::LesserEquals|hir::BinaryOp::Greater|hir::BinaryOp::GreaterEquals,left,right) => {
                 match (left,right) {
                     (Type::Float,Type::Float) | (Type::Int,Type::Int) => return Type::Bool,
+                    (Type::Float,Type::Error) |(Type::Error,Type::Float) => return Type::Float,
+                    (Type::Int,Type::Error) |(Type::Error,Type::Int) => return Type::Int,
                     _ => ()
                 }
 
@@ -35,7 +39,7 @@ impl TypeChecker<'_>{
     pub(super) fn check_logical_expr(&self,op:hir::LogicalOp,left:&hir::Expr,right:&hir::Expr,span:SourceLocation) -> Type{
         let left = self.check_expr(left, Expectation::CoercesTo(Type::Bool));
         let right = self.check_expr(right, Expectation::CoercesTo(Type::Bool));
-        if left != right || left != Type::Bool || right != Type::Bool{
+        if (left != right || left != Type::Bool || right != Type::Bool) && (left != Type::Error || right != Type::Error){
             let left = self.format_type(&left);
             let right = self.format_type(&right);
             self.new_error(format!("Cannot apply '{}' to operands of type '{}' and '{}'.",op,left,right), span)
@@ -46,7 +50,7 @@ impl TypeChecker<'_>{
     }
     pub(super) fn check_unary_expr(&self,op:hir::UnaryOp,operand:&hir::Expr,span:SourceLocation) -> Type{
         let operand = self.check_expr(operand, Expectation::None);
-        if matches!(op,hir::UnaryOp::Negate) && (operand != Type::Float || operand != Type::Float){
+        if (matches!(op,hir::UnaryOp::Negate) && (operand != Type::Float || operand != Type::Float ))|| operand != Type::Error{
             let operand = self.format_type(&operand);
             self.new_error(format!("Cannot apply '{}' to operand of type '{}'.",op,operand), span)
         }
