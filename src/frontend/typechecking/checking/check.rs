@@ -376,11 +376,7 @@ impl<'a> TypeChecker<'a>{
                 result_ty = body_ty;
             }
             else{
-                result_ty = self.check_type_equals_with(body_ty, result_ty,arm.pat.span,|this,span,body_ty,result_ty|{
-                    let prev = this.format_type(body_ty);
-                    let got = this.format_type(result_ty);
-                    this.error(format!("'match' arms have incompatible types '{}' and '{}'.",prev,got), span);
-                });
+                result_ty = self.check_type_coerces_to(body_ty, result_ty, arm.body.span);
             }
         }
         result_ty
@@ -665,9 +661,6 @@ impl<'a> TypeChecker<'a>{
         }
     }
     fn check_expr_path(&self,path:&hir::Path,_expected:Expectation) -> Type{
-        enum A<T>{
-            V{p:std::marker::PhantomData<T>}
-        }
         self.check_path(path);
         match path.final_res{
             hir::Resolution::Variable(variable) => {
