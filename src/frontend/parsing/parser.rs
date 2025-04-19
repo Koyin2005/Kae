@@ -96,9 +96,12 @@ impl<'a> Parser<'a>{
             self.error_at_current(message);
         }
     }
+    fn new_symbol(&mut self,text:String,span:SourceLocation) -> Symbol{
+        Symbol { content: self.interner.intern(text), location:span }
+    }
     fn parse_identifer(&mut self,error_message:&str)->Symbol{
         self.expect(TokenKind::Identifier, error_message);
-        Symbol { content: self.interner.intern(self.prev_token.lexeme.to_string()), location: SourceLocation::one_line(self.prev_token.line) }
+        self.new_symbol(self.prev_token.lexeme.to_string(), SourceLocation::one_line(self.prev_token.line))
     }
     fn unary(&mut self)->Result<ExprNode,ParsingFailed>{
         let op = match self.prev_token.kind {
@@ -477,7 +480,23 @@ impl<'a> Parser<'a>{
     }
     fn property(&mut self,left:ExprNode)->Result<ExprNode,ParsingFailed>{
         let start = self.prev_token.line;
-        let property_symbol = self.parse_identifer("Expect valid property name.");
+        let property_symbol = if self.matches(TokenKind::Int){
+            self.new_symbol(self.prev_token.lexeme.to_string(), SourceLocation::one_line(self.prev_token.line))
+        }
+        else{
+            if self.matches(TokenKind::Float){
+                let fields = self.prev_token.lexeme.split(".");
+                if fields.clone().all(|field| field.parse::<usize>().is_ok()){
+                    let mut expr = left;
+                    for field in fields{
+                        let span = SourceLocation::one_line(self.prev_token.line);
+                        expr = ExprNode{ id : self.next_id(), location: SourceLocation::new(start, self.prev_token.line), kind: ExprNodeKind::Property(Box::new(expr), self.new_symbol(field.to_string(), span)) };
+                    }
+                    return Ok(expr);
+                }
+            }
+            self.parse_identifer("Expect valid property name.")
+        };
         Ok(ExprNode{ id : self.next_id(), location: SourceLocation::new(start, self.prev_token.line), kind: ExprNodeKind::Property(Box::new(left), property_symbol) })
     }
     fn assign(&mut self,left:ExprNode)->Result<ExprNode,ParsingFailed>{

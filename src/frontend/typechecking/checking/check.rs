@@ -612,6 +612,11 @@ impl<'a> TypeChecker<'a>{
                     }).map(|field_def| TypeSubst::new(generic_args).instantiate_type(&field_def.ty))
                     
                 }
+                else if let Type::Tuple(elements) = &base_ty{
+                    self.ident_interner.get(field.index).parse::<usize>().ok().and_then(|index|{
+                        elements.get(index)
+                    }).cloned()
+                }
                 else{
                     let base_string = self.format_type(&base_ty);
                     Some(self.new_error(format!("'{}' doesn't have fields.",base_string), field.span))
