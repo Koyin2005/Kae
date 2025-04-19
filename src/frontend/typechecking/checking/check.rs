@@ -408,7 +408,8 @@ impl<'a> TypeChecker<'a>{
         };
         let generic_param_len = generic_params.map_or(0, |generics| generics.param_names.len());
         if generic_param_len != generic_args.len(){
-            return self.new_error(format!("Expected {} generic args got {}.",generic_param_len,generic_args.len()),name.span);
+            self.error(format!("Expected {} generic args got {}.",generic_param_len,generic_args.len()),name.span);
+            return method_sig.return_type;
         }
         let method_sig = TypeSubst::new(&generic_args).instantiate_signature(&method_sig);
         if method_sig.params.len() != args.len(){
