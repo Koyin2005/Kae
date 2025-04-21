@@ -1,4 +1,4 @@
-use crate::{data_structures::IndexVec, frontend::{ast_lowering::hir::{self, DefId, Ident, Item}, typechecking::context::{EnumDef, FieldDef, FuncSig, FunctionDef, Generics, Impl, StructDef, TypeContext, VariantDef}}, identifiers::ItemIndex, GlobalSymbols, SymbolInterner};
+use crate::{data_structures::IndexVec, frontend::{ast_lowering::hir::{self, DefId, Ident, Item}, typechecking::context::{EnumDef, FieldDef, FuncSig, FunctionDef, Generics, Impl, MethodDef, StructDef, TypeContext, VariantDef}}, identifiers::ItemIndex, GlobalSymbols, SymbolInterner};
 
 use super::{lowering::TypeLower, Type};
 
@@ -117,21 +117,24 @@ impl<'a> ItemCollector<'a>{
             },
             &Item::Impl(id,ref ty,ref methods) => {
                 let self_type = self.lower_type(ty);
-                let methods = methods.iter().map(|method|{
+                let mut method_ids = Vec::new();
+                for method in methods{
                     let has_receiver = method.function.params.first().is_some_and(|param| matches!(param.pattern.kind,hir::PatternKind::Binding(_,name,_) if name.index == self.symbols.lower_self_symbol()));
-                    (method.id,has_receiver,FunctionDef{
+                    method_ids.push(method.id);
+                    self.context.methods.insert(method.id, MethodDef{
                         name:method.name,
-                        sig: FuncSig { 
+                        has_receiver,
+                        sig:FuncSig { 
                             params: method.function.params.iter().map(|param| self.lower_type_with(&param.ty,&self_type)).collect(), 
                             return_type: method.function.return_type.as_ref().map_or(Type::new_unit(), |ty| self.lower_type_with(&ty,&self_type))
                         } 
-                    })
-                }).collect::<Vec<_>>();
+                    });
+                }
                 self.context.ty_impl_map.entry(self_type.clone()).or_insert(Vec::new()).push(id);
                 self.context.impls.insert(id, Impl{
                     span:ty.span,
                     ty:self_type,
-                    methods
+                    methods:method_ids
                 });
             }
         }

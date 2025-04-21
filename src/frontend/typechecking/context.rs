@@ -1,7 +1,7 @@
 use fxhash::FxBuildHasher;
 use indexmap::IndexMap;
 
-use crate::frontend::{ast_lowering::hir::{DefId, DefIdMap, Ident}, tokenizing::SourceLocation};
+use crate::{frontend::{ast_lowering::hir::{DefId, DefIdMap, Ident}, tokenizing::SourceLocation}, identifiers::SymbolIndex};
 
 use super::types::Type;
 
@@ -43,10 +43,15 @@ pub struct FunctionDef{
     pub name : Ident,
     pub sig : FuncSig
 }
+pub struct MethodDef{
+    pub name : Ident,
+    pub has_receiver : bool,
+    pub sig : FuncSig
+}
 pub struct Impl{
     pub span : SourceLocation,
     pub ty : Type,
-    pub methods : Vec<(DefId,bool,FunctionDef)>
+    pub methods : Vec<DefId>
 }
 pub struct TypeContext{
     pub(super) structs : DefIdMap<StructDef>,
@@ -54,6 +59,7 @@ pub struct TypeContext{
     pub(super) functions : DefIdMap<FunctionDef>,
     pub(super) generics_map : DefIdMap<Generics>,
     pub(super) params_to_indexes : DefIdMap<u32>,
+    pub(super) methods : DefIdMap<MethodDef>,
     pub(super) child_to_owner_map : DefIdMap<DefId>,
     pub(super) impls : DefIdMap<Impl>,
     pub(super) name_map : DefIdMap<Ident>,
@@ -66,12 +72,26 @@ impl TypeContext{
             functions : DefIdMap::new(), 
             name_map : DefIdMap::new(),
             generics_map:DefIdMap::new(),
-            enums:DefIdMap::new(),
+            methods: DefIdMap::new(),
+            enums: DefIdMap::new(),
             params_to_indexes : DefIdMap::new(),
             child_to_owner_map : DefIdMap::new(),
             impls : DefIdMap::new(),
             ty_impl_map : IndexMap::default()
         }
+    }
+    pub fn get_methods(&self,ty:&Type,method_name:SymbolIndex) -> Vec<(DefId,&MethodDef)>{
+        let mut valid_methods = Vec::new();
+        if let Some(impls) =  self.ty_impl_map.get(ty){
+            for impl_ in impls.iter().map(|&impl_| &self.impls[impl_]){
+                valid_methods.extend(impl_.methods.iter().filter_map(|&method|{
+                    let method_def = &self.methods[method];
+                    (method_def.name.index == method_name).then_some((method,method_def))
+                }));
+            }
+        }
+        
+        valid_methods
     }
     pub fn ident(&self,id:DefId) -> Ident{
         self.name_map.get(id).copied().expect(&format!("There should be an ident for this id {:?}",id))

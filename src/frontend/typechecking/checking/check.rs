@@ -69,8 +69,8 @@ impl<'a> TypeChecker<'a>{
             let mut span = None;
             for impl_ in impls{
                 span = Some(impl_.span);
-                for (_,_,method) in impl_.methods.iter(){
-                    let count = seen_methods.entry(method.name.index).or_insert(0);
+                for &method in impl_.methods.iter(){
+                    let count = seen_methods.entry(self.context.ident(method).index).or_insert(0);
                     *count = *count + 1;
                 }
             }
@@ -198,8 +198,8 @@ impl<'a> TypeChecker<'a>{
             &hir::Item::Impl(id,ref ty,ref methods) => {
                 self.check_type(ty);
                 let impl_ = &self.context.impls[id];
-                for (method,method_sig) in methods.iter().zip(impl_.methods.iter().map(|(_,_,def)| def.sig.clone())){
-                    self.check_function(&method_sig,  method.function.params.iter().map(|param| &param.pattern), &method.function.body);
+                for (method_def,method) in methods.iter().zip(impl_.methods.iter().map(|&id| &self.context.methods[id])){
+                    self.check_function(&method.sig,  method_def.function.params.iter().map(|param| &param.pattern), &method_def.function.body);
                 }
             },
         }
@@ -463,24 +463,17 @@ impl<'a> TypeChecker<'a>{
                 return Some((None,FuncSig { params: vec![], return_type: Type::Int }));
             }
         }
-        if let Some(impls) = self.context.ty_impl_map.get(ty){
-            for &impl_ in impls{
-                if let Some((generics,method)) = self.context.impls[impl_].methods.iter().find_map(|&(id,has_receiver,ref method_def)|{
-                    if has_receiver && method_def.name.index == method{
-                        let mut sig = method_def.sig.clone();
-                        sig.params.pop();
-                        Some((self.context.expect_generics_for(id),sig))
-                    }
-                    else{
-                        None
-                    }  
-                    
-                }){
-                    return Some((Some(generics),method));
+        self.context.get_methods(ty, method).first().map(|&(id,method)|{
+            let generics = self.context.expect_generics_for(id);
+            let sig = {
+                let mut sig = method.sig.clone();
+                if method.has_receiver{
+                    sig.params.remove(0);
                 }
-            }
-        }
-        None
+                sig
+            };
+            (Some(generics),sig)
+        })
     }
     fn check_method_call(&self,receiver:&hir::Expr,name:hir::Ident,generic_args:&[hir::GenericArg],args:&[hir::Expr]) -> Type{
         let receiver_ty = self.check_expr(receiver, Expectation::None);
