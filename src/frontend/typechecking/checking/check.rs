@@ -696,6 +696,7 @@ impl<'a> TypeChecker<'a>{
             hir::Resolution::Variable(_) | 
             hir::Resolution::Definition(hir::DefKind::Variant|hir::DefKind::Param, _) | 
             hir::Resolution::Primitive(_) | 
+            hir::Resolution::Builtin(hir::BuiltinKind::Panic)|
             hir::Resolution::SelfType => 0
         }
     }
@@ -726,6 +727,9 @@ impl<'a> TypeChecker<'a>{
                 }
                 let generic_args = self.lowerer().get_generic_args(path).expect("Should have found some generic args for this enum variant");
                 Type::new_enum(generic_args, enum_id)
+            },
+            hir::Resolution::Builtin(hir::BuiltinKind::Panic) => {
+                Type::new_function(vec![Type::String], Type::Never)
             },
             hir::Resolution::Primitive(_) | 
             hir::Resolution::Definition(hir::DefKind::Param|hir::DefKind::Struct|hir::DefKind::Enum,_) |

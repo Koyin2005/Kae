@@ -8,7 +8,7 @@ use crate::{
     identifiers::VariableIndex, GlobalSymbols
 };
 
-use super::{hir::{DefId, DefIdMap, DefIdProvider, DefKind, PrimitiveType, Resolution}, scope::{NameSpaces, Scope, ScopeKind}};
+use super::{hir::{BuiltinKind, DefId, DefIdMap, DefIdProvider, DefKind, PrimitiveType, Resolution}, scope::{NameSpaces, Scope, ScopeKind}};
 
 pub struct Record{
     pub name : Ident,
@@ -349,12 +349,14 @@ impl<'b,'a> NameFinder<'b>{
             let bool_symbol = self.interner.intern("bool".to_string());
             let never_symbol = self.interner.intern("never".to_string());
             let string_symbol = self.interner.intern("string".to_string());
+            let panic_symbol = self.interner.intern("panic".to_string());
             let root_scope = self.get_current_scope_mut();
             root_scope.add_binding(int_symbol, Resolution::Primitive(PrimitiveType::Int));
             root_scope.add_binding(float_symbol, Resolution::Primitive(PrimitiveType::Float));
             root_scope.add_binding(bool_symbol, Resolution::Primitive(PrimitiveType::Bool));
             root_scope.add_binding(never_symbol, Resolution::Primitive(PrimitiveType::Never));
             root_scope.add_binding(string_symbol, Resolution::Primitive(PrimitiveType::String));
+            root_scope.add_binding(panic_symbol, Resolution::Builtin(BuiltinKind::Panic));
         }
         self.find_names_in_stmts(stmts);
         if self.had_error.get(){

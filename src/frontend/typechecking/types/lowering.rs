@@ -46,7 +46,7 @@ impl<'a> TypeLower<'a>{
                 })?;
                 &segment.args
             },
-            Resolution::Primitive(_) | Resolution::Variable(_) | Resolution::Definition(DefKind::Param, _) | Resolution::SelfType  => return Some(GenericArgs::new_empty())
+            Resolution::Primitive(_) | Resolution::Variable(_) | Resolution::Definition(DefKind::Param, _) | Resolution::SelfType | Resolution::Builtin(_) => return Some(GenericArgs::new_empty())
         };
         Some(self.lower_generic_args(generic_args))
     }

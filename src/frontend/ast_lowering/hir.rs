@@ -275,11 +275,16 @@ pub enum PrimitiveType {
     String,
     Never,
 }
+#[derive(Clone,Copy,Debug,PartialEq, Eq,Hash)]
+pub enum BuiltinKind {
+    Panic,
+}
 #[derive(Debug,Clone,Copy,PartialEq,Hash,Eq)]
 pub enum Resolution {
     Definition(DefKind,DefId),
     Primitive(PrimitiveType),
     Variable(VariableIndex),
+    Builtin(BuiltinKind),
     SelfType
 }
 
