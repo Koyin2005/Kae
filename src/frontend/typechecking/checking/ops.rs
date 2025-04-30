@@ -6,6 +6,11 @@ impl TypeChecker<'_>{
     pub(super) fn check_binary_expr(&self,op:hir::BinaryOp,left:&hir::Expr,right:&hir::Expr,span:SourceLocation) -> Type{
         let left = self.check_expr(left, Expectation::None);
         let right = self.check_expr(right, Expectation::None);
+        fn operand_error(this:&TypeChecker,left:&Type,right:&Type,op:hir::BinaryOp,span: SourceLocation) -> Type{
+            let left = this.format_type(left);
+            let right = this.format_type(right);
+            this.new_error(format!("Cannot apply '{}' to operands of type '{}' and '{}'.",op,left,right), span)
+        }
         match (op,&left,&right){
             (hir::BinaryOp::Add|hir::BinaryOp::Subtract|hir::BinaryOp::Multiply|hir::BinaryOp::Divide,left,right) => {
                 match (left,right) {
@@ -13,7 +18,7 @@ impl TypeChecker<'_>{
                     (Type::Int,Type::Int) => return Type::Int,
                     (Type::Float,Type::Error) |(Type::Error,Type::Float) => return Type::Float,
                     (Type::Int,Type::Error) |(Type::Error,Type::Int) => return Type::Int,
-                    _ => ()
+                    _ => operand_error(&self, left, right, op, span)
                 }
             },
             (hir::BinaryOp::Lesser|hir::BinaryOp::LesserEquals|hir::BinaryOp::Greater|hir::BinaryOp::GreaterEquals,left,right) => {
@@ -21,20 +26,18 @@ impl TypeChecker<'_>{
                     (Type::Float,Type::Float) | (Type::Int,Type::Int) => return Type::Bool,
                     (Type::Float,Type::Error) |(Type::Error,Type::Float) => return Type::Float,
                     (Type::Int,Type::Error) |(Type::Error,Type::Int) => return Type::Int,
-                    _ => ()
+                    _ => operand_error(&self, left, right, op, span)
                 }
 
             },
-            (hir::BinaryOp::Equals|hir::BinaryOp::NotEquals,left,right) => {
-                if left == right{
-                    return Type::Bool;
-                }
+            (hir::BinaryOp::Equals|hir::BinaryOp::NotEquals,left,right) if left == right => {
+                Type::Bool
                 
+            },
+            (_,left,right) => {
+                operand_error(&self, left, right,op,span)
             }
-        };
-        let left = self.format_type(&left);
-        let right = self.format_type(&right);
-        self.new_error(format!("Cannot apply '{}' to operands of type '{}' and '{}'.",op,left,right), span)
+        }
     }
     pub(super) fn check_logical_expr(&self,op:hir::LogicalOp,left:&hir::Expr,right:&hir::Expr,span:SourceLocation) -> Type{
         let left = self.check_expr(left, Expectation::CoercesTo(Type::Bool));
