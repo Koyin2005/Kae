@@ -303,7 +303,7 @@ impl<'a> TypeChecker<'a>{
                 let field_names = field_tys.into_keys().collect::<FxHashSet<_>>();
                 let missing_fields = field_names.difference(&seen_fields);
                 for &field in missing_fields.into_iter(){
-                    self.error(format!("Missing field initializer for field '{}'.",self.ident_interner.get(field)), last_field_span);
+                    self.error(format!("Missing field pattern for field '{}'.",self.ident_interner.get(field)), last_field_span);
                 }
                 match constructor_kind{
                     AdtKind::Enum => Type::new_enum(generic_args, self.context.expect_owner_of(id)),
