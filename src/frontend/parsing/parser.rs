@@ -715,8 +715,7 @@ impl<'a> Parser<'a>{
                 (path.location,ParsedPatternNodeKind::Wildcard)
             }
             else if path.segments.len() > 1{
-                self.error("Invalid pattern");
-                return Err(ParsingFailed);
+                (head.location,ParsedPatternNodeKind::Path(path))
             }
             else if self.matches(TokenKind::Is){
                 let pattern = self.pattern()?;

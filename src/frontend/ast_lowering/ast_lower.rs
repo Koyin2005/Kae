@@ -214,6 +214,10 @@ impl<'a> AstLowerer<'a>{
                 let id = *self.name_info.variable_defs.get(&pattern.id).expect("All bindings should be defined before lowered");
                 (PatternKind::Binding(id,name, None),span)
             },
+            ast::ParsedPatternNodeKind::Path(path) => {
+                let path:Result<hir::Path,LoweringErr> = self.lower_path(&path);
+                (PatternKind::Struct(path?, vec![]),span)
+            },
             ast::ParsedPatternNodeKind::Tuple(elements) => {
                 let elements:Vec<_> = elements.into_iter().map(|element|{
                     self.lower_pattern(element)

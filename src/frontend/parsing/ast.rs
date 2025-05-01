@@ -224,6 +224,7 @@ pub enum ParsedPatternNodeKind {
         path : Path,
         fields : Vec<(Symbol,ParsedPatternNode)>
     },
+    Path(Path),
     Wildcard
 }
 
