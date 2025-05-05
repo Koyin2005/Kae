@@ -933,6 +933,7 @@ impl<'a> Parser<'a>{
     }
     fn impl_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
         let start_line = self.current_token.line;
+        let generic_params = self.optional_generic_params()?;
         let ty = self.parse_type()?;
         self.expect(TokenKind::LeftBrace, "Expect '{' after impl type.");
         let mut methods = Vec::new();
@@ -944,7 +945,7 @@ impl<'a> Parser<'a>{
         }
         self.expect(TokenKind::RightBrace, "Expect '}'.");
         let end_line = self.current_token.line;
-        Ok(StmtNode::Impl(Impl{ id : self.next_id(), span : SourceLocation { start_line, end_line }, ty, methods }))
+        Ok(StmtNode::Impl(Impl{ id : self.next_id(), span : SourceLocation { start_line, end_line }, ty,generic_params, methods }))
     }
     fn try_non_expr_stmt(&mut self)->Option<Result<StmtNode,ParsingFailed>>{
         Some(if self.matches(TokenKind::Let){

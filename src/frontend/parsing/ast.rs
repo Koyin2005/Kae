@@ -188,6 +188,7 @@ pub struct EnumDef{
 pub struct Impl{
     pub span : SourceLocation,
     pub id : NodeId,
+    pub generic_params : Option<ParsedGenericParams>,
     pub ty : ParsedType,
     pub methods : Vec<ParsedMethod>
 }
