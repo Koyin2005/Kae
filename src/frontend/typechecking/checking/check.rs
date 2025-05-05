@@ -322,18 +322,20 @@ impl<'a> TypeChecker<'a>{
 
         })
     }
-    fn check_type_coerces_to(&self,from:Type,to:Type,span:SourceLocation) -> Type{
+    fn check_type_coerces_to_with_message(&self,from:Type,to:Type,span:SourceLocation,msg:String) -> Type{
         if from == to || from.is_never() || from.is_error(){
             from
         }
         else{
             if !(from.is_error()|| to.is_error()){
-                let expected_ty = self.format_type(&to);
-                let got_ty = self.format_type(&from);
-                self.error(format!("Expected type '{}' got '{}'.",expected_ty,got_ty), span)
+                self.error(msg, span)
             }
             Type::new_error()
         }
+    }
+    fn check_type_coerces_to(&self,from:Type,to:Type,span:SourceLocation) -> Type{
+        let msg = format!("Expected '{}' got '{}'.",self.format_type(&to),self.format_type(&from));
+        self.check_type_coerces_to_with_message(from, to, span,msg)
     }
     fn check_type_equals_with(&self,ty1:Type,ty2:Type,span:SourceLocation,mut err : impl FnMut(&Self,SourceLocation,&Type,&Type)) -> Type{
         if ty1 == ty2{
@@ -415,17 +417,23 @@ impl<'a> TypeChecker<'a>{
         let then_ty = self.check_expr(then_branch, Expectation::None);
         if let Some(else_branch) = else_branch.as_ref(){
             let else_ty = self.check_expr(else_branch, Expectation::None);
-            self.check_type_equals_with(then_ty, else_ty,else_branch.span,|this,span,then_ty,else_ty|{
-                let then = this.format_type(&then_ty);
-                let else_ = this.format_type(else_ty);
-                this.error(format!("'if' and 'else' branches have incompatible types '{}' and '{}'.",then,else_), span);
-            })
+            if else_ty == Type::Never{
+                return then_ty;
+            }
+            else if then_ty == Type::Never{
+                return else_ty;
+            }
+            else{
+                self.check_type_equals_with(then_ty, else_ty,else_branch.span,|this,span,then_ty,else_ty|{
+                    let then = this.format_type(&then_ty);
+                    let else_ = this.format_type(else_ty);
+                    this.error(format!("'if' and 'else' branches have incompatible types '{}' and '{}'.",then,else_), span);
+                })
+            }
         }
         else{
-            self.check_type_equals_with(then_ty, Type::new_unit(),then_branch.span,|this,span,then_ty,_|{
-                let then = this.format_type(&then_ty);
-                this.error(format!("'if' of type '{}' must have else.",then), span);
-            })
+            let then = self.format_type(&then_ty);
+            self.check_type_coerces_to_with_message(then_ty, Type::new_unit(),then_branch.span,format!("'if' of type '{}' must have else.",then))
         }
     }
     fn check_block_expr(&self,stmts:&[hir::Stmt],result_expr:Option<&hir::Expr>,expected : Expectation) -> Type{
@@ -478,8 +486,28 @@ impl<'a> TypeChecker<'a>{
     fn check_method_call(&self,receiver:&hir::Expr,name:hir::Ident,generic_args:&[hir::GenericArg],args:&[hir::Expr]) -> Type{
         let receiver_ty = self.check_expr(receiver, Expectation::None);
         let generic_args = self.lowerer().lower_generic_args(generic_args);
-        let Some((generic_params,method_sig)) = self.get_method(&receiver_ty, name.index) else {
-            return self.new_error(format!("{} has no method '{}'.",self.format_type(&receiver_ty),self.ident_interner.get(name.index)), name.span)
+        let (generic_params,method_sig) = match self.get_method(&receiver_ty, name.index) {
+            Some((generic_params,method_sig)) => (generic_params,method_sig),
+            None => {
+                let field_ty = if let &Type::Adt(ref generic_args,index,AdtKind::Struct) = &receiver_ty{
+                    self.context.structs[index].fields.iter().find(|field_def|{
+                        field_def.name.index == name.index
+                    }).map(|field_def| TypeSubst::new(generic_args).instantiate_type(&field_def.ty))
+                }
+                else if let Type::Tuple(elements) = &receiver_ty{
+                    self.ident_interner.get(name.index).parse::<usize>().ok().and_then(|index|{
+                        elements.get(index)
+                    }).cloned()
+                }
+                else{
+                    None
+                };
+                let Some(Type::Function(params,return_type)) = field_ty else {
+                    return self.new_error(format!("{} has no method '{}'.",self.format_type(&receiver_ty),self.ident_interner.get(name.index)), name.span)
+                };
+                let sig = FuncSig{params,return_type:*return_type};
+                (None,sig)
+            }
         };
         let generic_param_len = generic_params.map_or(0, |generics| generics.param_names.len());
         if generic_param_len != generic_args.len(){
