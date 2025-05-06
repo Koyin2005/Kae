@@ -101,7 +101,7 @@ impl<'a> AstLowerer<'a>{
         };
         (generics,has_generics)
     }
-    fn lower_path(&mut self,path:&ast::Path) -> Result<hir::Path,LoweringErr>{
+    fn lower_path(&mut self,path:&ast::Path) -> Result<hir::QualifiedPath,LoweringErr>{
         let resolutions = self.resolver.resolve_path(path.segments.iter().map(|segment| segment.name.content));
         if resolutions.len() != path.segments.len(){
             let head = path.segments.first().expect("There must always be at least 1 segment");
@@ -109,17 +109,67 @@ impl<'a> AstLowerer<'a>{
                 self.error(format!("Cannot find {} in scope.",self.symbol_interner.get(head.name.content)), head.location);
                 return Err(LoweringErr);
             }
-            let mut base_path = String::new();
-            for (i,segment) in path.segments.iter().take(resolutions.len()).enumerate(){
-                if i>0{
-                    base_path += "::";
+
+
+            let Some(&last_res)=  resolutions.last() else{
+                unreachable!("There should at least be 1 here")
+            };
+            match last_res {
+                hir::Resolution::Primitive(_) | hir::Resolution::SelfType | hir::Resolution::Definition(hir::DefKind::Enum|hir::DefKind::Struct|hir::DefKind::Param,_) => {
+
+                    let (resolved_segments,remaining_segments) = path.segments.split_at(resolutions.len());
+
+                    let last_segment = remaining_segments.last().expect("Should be at least 1 left");
+                    let remaining_segments = &remaining_segments[0..remaining_segments.len()-1];
+                    let start = head.location;
+                    let mut end = head.location;
+                    let segments = resolved_segments.iter().zip(resolutions.iter()).map(|(segment,&res)|{
+                        end = segment.location;
+                        Ok(hir::PathSegment{
+                            res,
+                            ident:segment.name.into(),
+                            args:self.lower_generic_args(segment.generic_args.as_ref())?
+                        })
+                    }).collect::<Result<Vec<_>,_>>()?;
+                    let span =  SourceLocation::new(start.start_line, end.end_line);
+                    let mut ty = hir::Type{
+                        kind:hir::TypeKind::Path(hir::QualifiedPath::Resolved(hir::Path{
+                            span,
+                            final_res : last_res,
+                            segments
+                        })),
+                        span
+                    };
+                    for segment in remaining_segments{
+                        ty = hir::Type{
+                            kind:hir::TypeKind::Path(hir::QualifiedPath::TypeRelative(Box::new(ty), hir::PathSegment{
+                                res:hir::Resolution::None,
+                                ident:segment.name.into(),
+                                args:self.lower_generic_args(segment.generic_args.as_ref())?
+                            })),
+                            span : SourceLocation::new(start.start_line, segment.location.end_line)
+                        }
+                    }
+                    return Ok(hir::QualifiedPath::TypeRelative(Box::new(ty),hir::PathSegment{
+                        res:hir::Resolution::None,
+                        ident:last_segment.name.into(),
+                        args:self.lower_generic_args(last_segment.generic_args.as_ref())?
+                    }));
+                },
+                _ => {
+                    let mut base_path = String::new();
+                    for (i,segment) in path.segments.iter().take(resolutions.len()).enumerate(){
+                        if i>0{
+                            base_path += "::";
+                        }
+                        base_path += &self.symbol_interner.get(segment.name.content);
+                    }
+                    let last = path.segments[resolutions.len()].name;
+                    let span = last.location;
+                    self.error(format!("Cannot find {} in {}.",self.symbol_interner.get(last.content),base_path),span);
+                    return Err(LoweringErr);
                 }
-                base_path += &self.symbol_interner.get(segment.name.content);
             }
-            let last = path.segments[resolutions.len()].name;
-            let span = last.location;
-            self.error(format!("Cannot find {} in {}.",self.symbol_interner.get(last.content),base_path),span);
-            return Err(LoweringErr);
         }
         let final_res = resolutions.last().copied().expect("There should be at least one!");
         let segments = resolutions.into_iter().zip(&path.segments).map(|(resolution,segment)|{
@@ -129,7 +179,7 @@ impl<'a> AstLowerer<'a>{
                 args:self.lower_generic_args(segment.generic_args.as_ref())?
             })
         }).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>()?;
-        Ok(hir::Path{span:path.location,final_res,segments})
+        Ok(hir::QualifiedPath::Resolved(hir::Path{span:path.location,final_res,segments}))
     }
     fn lower_type(&mut self,ty:&ast::ParsedType) -> Result<hir::Type,LoweringErr>{
         let (kind,span) = match ty{
@@ -215,7 +265,7 @@ impl<'a> AstLowerer<'a>{
                 (PatternKind::Binding(id,name, None),span)
             },
             ast::ParsedPatternNodeKind::Path(path) => {
-                let path:Result<hir::Path,LoweringErr> = self.lower_path(&path);
+                let path:Result<hir::QualifiedPath,LoweringErr> = self.lower_path(&path);
                 (PatternKind::Struct(path?, vec![]),span)
             },
             ast::ParsedPatternNodeKind::Tuple(elements) => {
@@ -225,7 +275,7 @@ impl<'a> AstLowerer<'a>{
                 (PatternKind::Tuple(elements.into_iter().collect::<Result<Vec<_>,_>>()?),span)
             },
             ast::ParsedPatternNodeKind::Struct { path, fields } => {
-                let path:Result<hir::Path,LoweringErr> = self.lower_path(&path);
+                let path:Result<hir::QualifiedPath,LoweringErr> = self.lower_path(&path);
                 let fields:Vec<_> = fields.into_iter().filter_map(|(symbol,pattern)|{
                     let field_symbol = self.intern_symbol(symbol);
                     let pattern = self.lower_pattern(pattern);
@@ -335,25 +385,27 @@ impl<'a> AstLowerer<'a>{
             ast::ExprNodeKind::Print(args) => hir::ExprKind::Print(args.into_iter().map(|arg| self.lower_expr(arg)).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>()?),
             ast::ExprNodeKind::GetPath(path) => {
                 let lowered_path = self.lower_path(&path)?;
-                if matches!(lowered_path.final_res,hir::Resolution::Variable(_)){
-                    let mut seen_function_scope = false;
-                    let mut exited_function = false;
-                    self.resolver.traverse_path_with(std::iter::once(path.segments[0].name.content), |scope_index,scope|{
-                        if let Some(_) = scope_index{
-                            if seen_function_scope{
-                                exited_function = true;
-                                return false;
+                if let hir::QualifiedPath::Resolved(lowered_path) = &lowered_path{
+                    if matches!(lowered_path.final_res,hir::Resolution::Variable(_)){
+                        let mut seen_function_scope = false;
+                        let mut exited_function = false;
+                        self.resolver.traverse_path_with(std::iter::once(path.segments[0].name.content), |scope_index,scope|{
+                            if let Some(_) = scope_index{
+                                if seen_function_scope{
+                                    exited_function = true;
+                                    return false;
+                                }
+                                else if scope.kind() == ScopeKind::Function{
+                                    seen_function_scope = true;
+                                }
                             }
-                            else if scope.kind() == ScopeKind::Function{
-                                seen_function_scope = true;
-                            }
+                            true
+                        });
+                        if exited_function{
+                            self.error(format!("Cannot use variable '{}' from outside function.",self.symbol_interner.get(path.segments[0].name.content)), path.location);
                         }
-                        true
-                    });
-                    if exited_function{
-                        self.error(format!("Cannot use variable '{}' from outside function.",self.symbol_interner.get(path.segments[0].name.content)), path.location);
-                    }
 
+                    }
                 }
                 hir::ExprKind::Path(lowered_path)
             },
@@ -422,18 +474,17 @@ impl<'a> AstLowerer<'a>{
                     _ => return Err(LoweringErr)
                 }
             },
-            ast::ExprNodeKind::Index { lhs, rhs } => {
-                let lhs = self.lower_expr(*lhs).map(Box::new);
-                let rhs = self.lower_expr(*rhs).map(Box::new);
-                match (lhs,rhs) {
-                    (Ok(lhs),Ok(rhs)) => hir::ExprKind::Index(lhs, rhs),
-                    _ => return Err(LoweringErr)
-                }
-            },
             ast::ExprNodeKind::MethodCall { receiver, method, args } => {
                 let receiver = self.lower_expr(*receiver).map(Box::new);
-                let args = args.into_iter().map(|arg| self.lower_expr(arg)).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>();
-                hir::ExprKind::MethodCall(receiver?, self.intern_symbol(method), vec![],args?)
+                let generic_args = self.lower_generic_args(method.generic_args.as_ref());
+                let args = args.into_iter().map(|arg| self.lower_expr(arg)).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>()?;
+                hir::ExprKind::MethodCall(receiver?, self.intern_symbol(method.name), generic_args?,args)
+            },
+            ast::ExprNodeKind::Instantiate { lhs, args } => {
+                let _ = self.lower_expr(*lhs);
+                let _ = self.lower_generic_args(Some(&args));
+                self.error(format!("Cannot have generic arguments here."),span);
+                return Err(LoweringErr);
             }
         };
         Ok(hir::Expr { id:self.next_id(), span, kind})
@@ -517,8 +568,13 @@ impl<'a> AstLowerer<'a>{
             },
             ast::StmtNode::Impl(impl_) => {
                 let impl_id =  self.name_info.expect_def_id_with_message(impl_.id,"There should be an impl");
+
+                let (generics,has_generics) = self.lower_generic_params(impl_id, impl_.generic_params);
+                if !has_generics{
+                    self.begin_scope(impl_.id);
+                }
+
                 let ty = self.lower_type(&impl_.ty);
-                self.begin_scope(impl_.id);
                 let methods = {
                     let mut had_error = false;
                     let mut methods = Vec::with_capacity(impl_.methods.len());
@@ -546,7 +602,7 @@ impl<'a> AstLowerer<'a>{
                     methods
                 };
                 self.end_scope();
-                (hir::StmtKind::Item(self.add_item_with_def(Item::Impl(impl_id,ty?, methods), impl_id)),impl_.span)
+                (hir::StmtKind::Item(self.add_item_with_def(Item::Impl(impl_id,ty?,generics, methods), impl_id)),impl_.span)
             }
         };
         Ok(hir::Stmt{

@@ -85,7 +85,7 @@ pub enum Item {
     Struct(StructDef),
     Enum(EnumDef),
     Function(FunctionDef),
-    Impl(DefId,Type,Vec<FunctionDef>)
+    Impl(DefId,Type,Generics,Vec<FunctionDef>)
 }
 #[derive(Clone,Debug)]
 pub struct Expr{
@@ -174,7 +174,7 @@ pub enum ExprKind {
     If(Box<Expr>,Box<Expr>,Option<Box<Expr>>),
     Match(Box<Expr>,Vec<MatchArm>),
     While(Box<Expr>,Box<Expr>),
-    Path(Path),
+    Path(QualifiedPath),
     Block(Vec<Stmt>,Option<Box<Expr>>),
     Function(Box<Function>),
     Typename(HirId,Type),
@@ -183,7 +183,7 @@ pub enum ExprKind {
     Index(Box<Expr>,Box<Expr>),
     Assign(Box<Expr>,Box<Expr>),
     MethodCall(Box<Expr>,Ident,Vec<GenericArg>,Vec<Expr>),
-    StructLiteral(Path,Vec<FieldExpr>),
+    StructLiteral(QualifiedPath,Vec<FieldExpr>),
 }
 #[derive(Clone,Debug)]
 pub struct MatchArm{
@@ -223,7 +223,7 @@ pub enum PatternKind {
     Binding(VariableIndex,Ident,Option<Box<Pattern>>),
     Tuple(Vec<Pattern>),
     Literal(LiteralKind),
-    Struct(Path,Vec<FieldPattern>),
+    Struct(QualifiedPath,Vec<FieldPattern>),
     Wildcard
 }
 #[derive(Clone,Debug)]
@@ -231,12 +231,44 @@ pub struct Type{
     pub kind : TypeKind,
     pub span : SourceLocation
 }
+impl Type{
+    pub fn format(&self,interner:&SymbolInterner) -> String{
+        match &self.kind{
+            TypeKind::Array(ty) => format!("[{}]",ty.format(interner)),
+            TypeKind::Path(path) => path.format(interner),
+            TypeKind::Tuple(elements) => format!("({})",&elements.iter().enumerate().map(|(i,element)|{
+                if i>0{
+                    format!(",{}",element.format(interner))
+                }
+                else{
+                    format!("{}",element.format(interner))
+                }
+            }).collect::<String>()),
+            TypeKind::Function(params,return_type) => {
+                let params = &params.iter().enumerate().map(|(i,element)|{
+                    if i>0{
+                        format!(",{}",element.format(interner))
+                    }
+                    else{
+                        format!("{}",element.format(interner))
+                    }
+                }).collect::<String>();
+                if let Some(return_type) = return_type.as_ref(){
+                    format!("fun({})->{}",params,return_type.format(interner))
+                }
+                else{
+                    format!("fun({})->()",params)
+                }
+            }
+        }
+    }
+}
 #[derive(Clone,Debug)]
 pub enum TypeKind {
     Array(Box<Type>),
     Tuple(Vec<Type>),
     Function(Vec<Type>,Option<Box<Type>>),
-    Path(Path)
+    Path(QualifiedPath)
 }
 #[derive(Clone,Debug)]
 pub struct PathSegment{
@@ -248,6 +280,33 @@ pub struct PathSegment{
 #[derive(Debug,Clone)]
 pub struct GenericArg{
     pub ty : Type
+}
+#[derive(Clone,Debug)]
+pub enum QualifiedPath {
+    Resolved(Path),
+    TypeRelative(Box<Type>,PathSegment)
+}
+impl QualifiedPath{
+    pub fn format(&self,interner:&SymbolInterner) -> String{
+        match self{
+            Self::TypeRelative(ty,segment) => {
+                if segment.args.is_empty(){
+                    format!("{}::{}",ty.format(interner),interner.get(segment.ident.index))
+                }
+                else{
+                    format!("{}::{}[{}]",ty.format(interner),interner.get(segment.ident.index),segment.args.iter().enumerate().map(|(i,arg)|{
+                        if i>0{
+                            format!(",{}",arg.ty.format(interner))
+                        }
+                        else{
+                            format!("{}",arg.ty.format(interner))
+                        }
+                    }).collect::<String>())
+                }
+            },
+            Self::Resolved(path) => path.format(interner)
+        }
+    }
 }
 #[derive(Clone,Debug)]
 pub struct Path{
@@ -285,7 +344,8 @@ pub enum Resolution {
     Primitive(PrimitiveType),
     Variable(VariableIndex),
     Builtin(BuiltinKind),
-    SelfType
+    SelfType,
+    None
 }
 
 

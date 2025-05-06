@@ -3,7 +3,7 @@ use super::Type;
 pub struct GenericArgs(Vec<Type>);
 
 impl GenericArgs{
-    pub fn new_empty() -> Self{
+    pub const fn new_empty() -> Self{
         Self(Vec::new())
     }
     pub fn new(args : Vec<Type>) -> Self{

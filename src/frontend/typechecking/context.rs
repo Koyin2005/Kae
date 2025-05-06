@@ -3,7 +3,7 @@ use indexmap::IndexMap;
 
 use crate::{frontend::{ast_lowering::hir::{DefId, DefIdMap, Ident}, tokenizing::SourceLocation}, identifiers::SymbolIndex};
 
-use super::types::Type;
+use super::types::{generics::GenericArgs, subst::TypeSubst, Type};
 
 pub struct FieldDef{
     pub name : Ident,
@@ -37,6 +37,7 @@ impl FuncSig{
 
 pub struct Generics{
     pub owner_id : DefId,
+    pub base : u32,
     pub param_names : Vec<Ident>,
 }
 pub struct FunctionDef{
@@ -80,13 +81,26 @@ impl TypeContext{
             ty_impl_map : IndexMap::default()
         }
     }
-    pub fn get_methods(&self,ty:&Type,method_name:SymbolIndex) -> Vec<(DefId,&MethodDef)>{
+    pub fn get_methods(&self,ty:&Type,method_name:SymbolIndex) -> Vec<(DefId,&MethodDef,Option<GenericArgs>)>{
         let mut valid_methods = Vec::new();
+        for ty_with_impl in self.ty_impl_map.keys(){
+            let generic_args = ty.get_generic_args();
+            let subst_ty = TypeSubst::new(generic_args.unwrap_or(&GenericArgs::new_empty())).instantiate_type(ty_with_impl);
+            if &subst_ty == ty{
+                let impls = &self.ty_impl_map[ty_with_impl];
+                for impl_ in impls.iter().map(|&impl_| &self.impls[impl_]){
+                    valid_methods.extend(impl_.methods.iter().filter_map(|&method|{
+                        let method_def = &self.methods[method];
+                        (method_def.name.index == method_name).then_some((method,method_def,generic_args.cloned()))
+                    }));
+                }
+            }
+        }
         if let Some(impls) =  self.ty_impl_map.get(ty){
             for impl_ in impls.iter().map(|&impl_| &self.impls[impl_]){
                 valid_methods.extend(impl_.methods.iter().filter_map(|&method|{
                     let method_def = &self.methods[method];
-                    (method_def.name.index == method_name).then_some((method,method_def))
+                    (method_def.name.index == method_name).then_some((method,method_def,None))
                 }));
             }
         }

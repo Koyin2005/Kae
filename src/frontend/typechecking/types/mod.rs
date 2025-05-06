@@ -29,6 +29,12 @@ pub enum Type {
 }
 
 impl Type{
+    pub fn get_generic_args(&self) -> Option<&GenericArgs>{
+        match self{
+            Self::Adt(args,_,_) => Some(args),
+            _ => None
+        }
+    }
     pub fn is_closed(&self) -> bool{
         match self{
             Type::Int | Type::Bool | Type::String | Type::Never | Type::Error | Type::Float => true,

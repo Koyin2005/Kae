@@ -195,7 +195,7 @@ impl<'a> TypeChecker<'a>{
                     }
                 }
             },
-            &hir::Item::Impl(id,ref ty,ref methods) => {
+            &hir::Item::Impl(id,ref ty,ref _generics,ref methods) => {
                 self.check_type(ty);
                 let impl_ = &self.context.impls[id];
                 for (method_def,method) in methods.iter().zip(impl_.methods.iter().map(|&id| &self.context.methods[id])){
@@ -272,7 +272,7 @@ impl<'a> TypeChecker<'a>{
             },
             hir::PatternKind::Struct(path, fields) => {
                 let (generic_args,Some((constructor_kind,id))) = self.get_constructor_with_generic_args(path) else{
-                    self.error(format!("Cannot use '{}' as constructor.",path.format(self.ident_interner)),path.span);
+                    self.error(format!("Cannot use '{}' as constructor.",path.format(self.ident_interner)),pattern.span);
                     return;
                 };
                 let field_tys = match constructor_kind{
@@ -465,28 +465,34 @@ impl<'a> TypeChecker<'a>{
             self.new_error(format!("Cannot call '{}'.",callee_string), callee.span)
         }
     }
-    fn get_method(&self,ty:&Type,method:SymbolIndex) -> Option<(Option<&Generics>,FuncSig)>{
+    fn get_method(&self,ty:&Type,method:SymbolIndex,keep_receiver:bool) -> Option<(Option<&Generics>,FuncSig,)>{
         if let Type::Array(_) | Type::String = ty{
             if method == self.symbols.len_symbol(){
                 return Some((None,FuncSig { params: vec![], return_type: Type::Int }));
             }
         }
-        self.context.get_methods(ty, method).first().map(|&(id,method)|{
+
+
+        self.context.get_methods(ty, method).first().map(|&(id,method,ref ty_generic_args)|{
             let generics = self.context.expect_generics_for(id);
             let sig = {
                 let mut sig = method.sig.clone();
-                if method.has_receiver{
+                if method.has_receiver && !keep_receiver{
                     sig.params.remove(0);
                 }
                 sig
             };
+            let sig = if let Some(generic_args) = ty_generic_args{
+                TypeSubst::new(generic_args).instantiate_signature(&sig)
+            }
+            else { sig};
             (Some(generics),sig)
         })
     }
     fn check_method_call(&self,receiver:&hir::Expr,name:hir::Ident,generic_args:&[hir::GenericArg],args:&[hir::Expr]) -> Type{
         let receiver_ty = self.check_expr(receiver, Expectation::None);
         let generic_args = self.lowerer().lower_generic_args(generic_args);
-        let (generic_params,method_sig) = match self.get_method(&receiver_ty, name.index) {
+        let (generic_params,method_sig) = match self.get_method(&receiver_ty, name.index,false) {
             Some((generic_params,method_sig)) => (generic_params,method_sig),
             None => {
                 let field_ty = if let &Type::Adt(ref generic_args,index,AdtKind::Struct) = &receiver_ty{
@@ -513,7 +519,7 @@ impl<'a> TypeChecker<'a>{
         if generic_param_len != generic_args.len(){
             return self.new_error(format!("Expected {} generic args got {}.",generic_param_len,generic_args.len()),name.span);
         }
-        let method_sig = TypeSubst::new(&generic_args).instantiate_signature(&method_sig);
+        let method_sig = TypeSubst::new_with_base(&generic_args,generic_params.map_or(0, |generics| generics.base )).instantiate_signature(&method_sig);
         if method_sig.params.len() != args.len(){
             self.error(format!("Expected {} args got {}.",method_sig.params.len(),args.len()), name.span);
             return method_sig.return_type;
@@ -523,20 +529,28 @@ impl<'a> TypeChecker<'a>{
         }
         method_sig.return_type
     }
-    fn get_constructor_with_generic_args(&self,path:&hir::Path) -> (GenericArgs,Option<(AdtKind,DefId)>){
+    fn get_constructor_with_generic_args(&self,path:&hir::QualifiedPath) -> (GenericArgs,Option<(AdtKind,DefId)>){
         let generic_args = self.lowerer().get_generic_args(path).expect("There's gotta be some generic args");
-        match path.final_res{
-            hir::Resolution::Definition(hir::DefKind::Struct,id) => (generic_args,Some((AdtKind::Struct,id))),
-            hir::Resolution::Definition(hir::DefKind::Variant,id) => (generic_args,Some((AdtKind::Enum,id))),
-            _ =>{
+        match path{
+            hir::QualifiedPath::TypeRelative(_,_) => {
                 return (generic_args,None);
-            } 
+            },  
+            hir::QualifiedPath::Resolved(path) => {
+                match path.final_res{
+                    hir::Resolution::Definition(hir::DefKind::Struct,id) => (generic_args,Some((AdtKind::Struct,id))),
+                    hir::Resolution::Definition(hir::DefKind::Variant,id) => (generic_args,Some((AdtKind::Enum,id))),
+                    _ =>{
+                        return (generic_args,None);
+                    } 
+                }
+
+            }
         }
     }
-    fn check_struct_literal(&self,expr:&hir::Expr,path:&hir::Path,fields:&[hir::FieldExpr]) -> Type{
+    fn check_struct_literal(&self,expr:&hir::Expr,path:&hir::QualifiedPath,fields:&[hir::FieldExpr]) -> Type{
         self.check_path(path);
         let (generic_args,Some((constructor_kind,id))) = self.get_constructor_with_generic_args(path) else {
-            let err = self.new_error(format!("Cannot use '{}' as constructor.",path.format(self.ident_interner)),path.span);
+            let err = self.new_error(format!("Cannot use '{}' as constructor.",path.format(self.ident_interner)),expr.span);
             for field in fields{
                 self.check_expr(&field.expr, Expectation::None);
             }
@@ -725,44 +739,74 @@ impl<'a> TypeChecker<'a>{
             hir::Resolution::Definition(hir::DefKind::Variant|hir::DefKind::Param, _) | 
             hir::Resolution::Primitive(_) | 
             hir::Resolution::Builtin(hir::BuiltinKind::Panic)|
-            hir::Resolution::SelfType => 0
+            hir::Resolution::SelfType | hir::Resolution::None => 0
         }
     }
-    fn check_path(&self,path:&hir::Path){
-        for segment in &path.segments{
-            let expected_arg_count = self.get_generic_count(&segment.res);
-            if segment.args.len() != expected_arg_count{
-                self.error(format!("Expected '{}' generic args got '{}'.",expected_arg_count,segment.args.len()), segment.ident.span);
+    fn check_path(&self,path:&hir::QualifiedPath){
+        match path{
+            hir::QualifiedPath::TypeRelative(ty,segment) => {
+                self.check_type(&ty);
+                let ty = self.lower_type(&ty);
+                let Some((generic_params,_)) = self.get_method(&ty, segment.ident.index,true) else {
+                    return self.error(format!("{} has no method '{}'.",self.format_type(&ty),self.ident_interner.get(segment.ident.index)), segment.ident.span)
+                };
+                
+                let generic_param_len = generic_params.map_or(0, |generics| generics.param_names.len());
+                if generic_param_len != segment.args.len(){
+                    return self.error(format!("Expected {} generic args got {}.",generic_param_len,segment.args.len()),segment.ident.span);
+                }
+            },
+            hir::QualifiedPath::Resolved(path) => {
+                for segment in &path.segments{
+                    let expected_arg_count = self.get_generic_count(&segment.res);
+                    if segment.args.len() != expected_arg_count{
+                        self.error(format!("Expected '{}' generic args got '{}'.",expected_arg_count,segment.args.len()), segment.ident.span);
+                    }
+                }
             }
         }
     }
-    fn check_expr_path(&self,path:&hir::Path,_expected:Expectation) -> Type{
+    fn check_expr_path(&self,path:&hir::QualifiedPath,_expected:Expectation) -> Type{
         self.check_path(path);
-        match path.final_res{
-            hir::Resolution::Variable(variable) => {
-                self.env.borrow().get_variable_type(variable)
-            },
-            hir::Resolution::Definition(hir::DefKind::Function,function) => {
-                let def = &self.context.functions[function];
-                let generic_args = self.lowerer().get_generic_args(path).expect("Should have found some generic args for this function");
-                TypeSubst::new(&generic_args).instantiate_type(&def.sig.as_type())
-            },
-            hir::Resolution::Definition(hir::DefKind::Variant,id) => {
-                let enum_id = self.context.expect_owner_of(id);
-                let def = &self.context.enums[enum_id];
-                if !def.variants.iter().find(|variant_def| variant_def.id == id).expect("There should be a variant here").fields.is_empty(){
-                    self.error(format!("Cannot initialize variant '{}' without fields.",path.format(self.ident_interner)), path.span);
+        match path{
+            hir::QualifiedPath::Resolved(resolved_path) => {
+                match resolved_path.final_res{
+                    hir::Resolution::Variable(variable) => {
+                        self.env.borrow().get_variable_type(variable)
+                    },
+                    hir::Resolution::Definition(hir::DefKind::Function,function) => {
+                        let def = &self.context.functions[function];
+                        let generic_args = self.lowerer().get_generic_args(path).expect("Should have found some generic args for this function");
+                        TypeSubst::new(&generic_args).instantiate_type(&def.sig.as_type())
+                    },
+                    hir::Resolution::Definition(hir::DefKind::Variant,id) => {
+                        let enum_id = self.context.expect_owner_of(id);
+                        let def = &self.context.enums[enum_id];
+                        if !def.variants.iter().find(|variant_def| variant_def.id == id).expect("There should be a variant here").fields.is_empty(){
+                            self.error(format!("Cannot initialize variant '{}' without fields.",resolved_path.format(self.ident_interner)), resolved_path.span);
+                        }
+                        let generic_args = self.lowerer().get_generic_args(path).expect("Should have found some generic args for this enum variant");
+                        Type::new_enum(generic_args, enum_id)
+                    },
+                    hir::Resolution::Builtin(hir::BuiltinKind::Panic) => {
+                        Type::new_function(vec![Type::String], Type::Never)
+                    },
+                    hir::Resolution::Primitive(_) | 
+                    hir::Resolution::Definition(hir::DefKind::Param|hir::DefKind::Struct|hir::DefKind::Enum,_) |
+                    hir::Resolution::SelfType | hir::Resolution::None => 
+                        self.new_error(format!("Cannot use type '{}' as expr.",resolved_path.format(self.ident_interner)), resolved_path.span),
                 }
-                let generic_args = self.lowerer().get_generic_args(path).expect("Should have found some generic args for this enum variant");
-                Type::new_enum(generic_args, enum_id)
+        
             },
-            hir::Resolution::Builtin(hir::BuiltinKind::Panic) => {
-                Type::new_function(vec![Type::String], Type::Never)
-            },
-            hir::Resolution::Primitive(_) | 
-            hir::Resolution::Definition(hir::DefKind::Param|hir::DefKind::Struct|hir::DefKind::Enum,_) |
-            hir::Resolution::SelfType => 
-                self.new_error(format!("Cannot use type '{}' as expr.",path.format(self.ident_interner)), path.span),
+            hir::QualifiedPath::TypeRelative(ty,segment) => {
+                let ty = self.lower_type(&ty);
+                let generic_args = self.lowerer().lower_generic_args(&segment.args);
+                let Some((generic_params,method_sig)) = self.get_method(&ty, segment.ident.index,true) else {
+                    return Type::new_error();
+                };
+                let method_sig = TypeSubst::new_with_base(&generic_args,generic_params.map_or(0, |generics| generics.base)).instantiate_signature(&method_sig);
+                method_sig.as_type()
+            }
         }
     }
 }

@@ -5,7 +5,8 @@ use super::{lowering::TypeLower, Type};
 pub struct ItemCollector<'a>{
     context : TypeContext,
     interner : &'a SymbolInterner,
-    symbols : &'a GlobalSymbols
+    symbols : &'a GlobalSymbols,
+    next_index_for_param : u32
 }
 
 impl<'a> ItemCollector<'a>{
@@ -13,7 +14,8 @@ impl<'a> ItemCollector<'a>{
         Self { 
             context: TypeContext::new(), 
             interner,
-            symbols
+            symbols,
+            next_index_for_param : 0
         }
     }
     fn lower_type_with(&self,ty:&hir::Type,lowered_ty:&Type) -> Type{
@@ -29,22 +31,27 @@ impl<'a> ItemCollector<'a>{
         self.context.child_to_owner_map.insert(child, owner_id);
     }
     fn collect_generic_defs(&mut self,owner_id:DefId,generics:&hir::Generics){
-        let param_names = generics.params.iter().enumerate().map(|(i,&hir::GenericParam(name,id))|{
+        let base = self.next_index_for_param;
+        let param_names = generics.params.iter().map(|&hir::GenericParam(name,id)|{
             self.add_name(id, name);
             self.add_child(owner_id, id);
-            self.context.params_to_indexes.insert(id, i as u32);
+            self.context.params_to_indexes.insert(id, self.next_index_for_param);
+            self.next_index_for_param += 1;
             name
         }).collect();
         self.context.generics_map.insert(owner_id, Generics{
+            base,
             owner_id,
             param_names,
         });
     }
     fn collect_defs(&mut self,item:&Item) -> bool{
+        let prev_generic_param_index = self.next_index_for_param;
         match item{
             Item::Struct(struct_def) => {
                 self.add_name(struct_def.id, struct_def.name);
                 self.collect_generic_defs(struct_def.id,&struct_def.generics);
+                self.next_index_for_param = prev_generic_param_index;
                 self.context.structs.insert(struct_def.id, StructDef{
                     name:struct_def.name,
                     fields : Vec::new()
@@ -54,6 +61,7 @@ impl<'a> ItemCollector<'a>{
             Item::Function(function_def) => {
                 self.add_name(function_def.id, function_def.name);
                 self.collect_generic_defs(function_def.id, &function_def.generics);
+                self.next_index_for_param = prev_generic_param_index;
                 true
             },
             Item::Enum(enum_def) => {
@@ -68,17 +76,22 @@ impl<'a> ItemCollector<'a>{
                         fields:vec![]
                     }
                 }).collect();
+                self.next_index_for_param = prev_generic_param_index;
                 self.context.enums.insert(enum_def.id, EnumDef{
                     name:enum_def.name,
                     variants
                 });
                 true
             },
-            &Item::Impl(id,_,ref methods) => {
+            &Item::Impl(id,_,ref generics,ref methods) => {
+                self.collect_generic_defs(id, generics);
                 for method in methods{
+                    let prev_generic_index = self.next_index_for_param;
                     self.add_child(id, method.id);
                     self.collect_generic_defs(method.id, &method.generics);
+                    self.next_index_for_param = prev_generic_index;
                 }
+                self.next_index_for_param = prev_generic_param_index;
                 true
             }
         }
@@ -115,7 +128,7 @@ impl<'a> ItemCollector<'a>{
                     self.context.enums[enum_def.id].variants[i].fields.extend(fields);
                 }
             },
-            &Item::Impl(id,ref ty,ref methods) => {
+            &Item::Impl(id,ref ty,_,ref methods) => {
                 let self_type = self.lower_type(ty);
                 let mut method_ids = Vec::new();
                 for method in methods{

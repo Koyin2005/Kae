@@ -1,19 +1,33 @@
+use fxhash::FxHashMap;
+
 use crate::frontend::typechecking::context::FuncSig;
 
 use super::{generics::GenericArgs, Type};
-
+#[derive(Clone)]
 pub struct TypeSubst<'a>{
-    subst : &'a GenericArgs
+    subst : FxHashMap<u32,&'a Type>
 }
 impl<'a> TypeSubst<'a>{
-    pub fn new(subst:&'a GenericArgs ) -> Self{
-        Self { subst }
+    pub fn new_with_base(generic_args:&'a GenericArgs,base:u32) -> Self{
+        Self { subst: generic_args.iter().enumerate().map(|(i,ty)|{
+            (i as u32 + base,ty)
+        }).collect() }
+    }
+    pub fn new(generic_args:&'a GenericArgs) -> Self{
+        Self { subst :generic_args.iter().enumerate().map(|(i,ty)|{
+            (i as u32,ty)
+        }).collect()}
     }
 
     pub fn instantiate_type(&self,ty:&Type) -> Type{
         match ty{
             &Type::Param(index,_) => {
-                self.subst.get(index as usize).unwrap_or(ty.clone())
+                if let Some(&&ty) = self.subst.get(&index).as_ref(){
+                    ty.clone()
+                }   
+                else{
+                    ty.clone()
+                }
             },
             Type::Function(params,return_type) => Type::new_function(params.iter().map(|param| self.instantiate_type(param)).collect(), self.instantiate_type(return_type)),
             Type::Array(element_type) => Type::new_array(self.instantiate_type(element_type)),

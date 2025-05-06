@@ -121,12 +121,12 @@ impl<'b,'a> NameFinder<'b>{
             }), 
             ast::ExprNodeKind::BinaryOp { op:_, left, right } | 
             ast::ExprNodeKind::Logical { op:_, left, right } | 
-            ast::ExprNodeKind::Index { lhs:left, rhs:right }|
             ast::ExprNodeKind::While { condition:left, body:right } => {
                 self.find_names_in_expr(left);
                 self.find_names_in_expr(right);
             },
-            ast::ExprNodeKind::Unary { op:_, operand:expr } | ast::ExprNodeKind::Grouping(expr) | ast::ExprNodeKind::Property(expr,_ ) => self.find_names_in_expr(expr),
+            ast::ExprNodeKind::Unary { op:_, operand:expr } | ast::ExprNodeKind::Grouping(expr) | ast::ExprNodeKind::Property(expr,_ ) | ast::ExprNodeKind::Instantiate { lhs:expr, args:_ } => 
+                self.find_names_in_expr(expr),
             ast::ExprNodeKind::Call { callee:first, args } | ast::ExprNodeKind::MethodCall { receiver:first, method:_, args } =>{
                 self.find_names_in_expr(first);
                  args.iter().for_each(|arg|{
@@ -322,9 +322,12 @@ impl<'b,'a> NameFinder<'b>{
                 }
             },
             ast::StmtNode::Impl(impl_) => {
-                let impl_id = self.def_ids.next();
-                self.add_node_to_def(impl_.id,impl_id);
-                self.begin_scope(ScopeKind::Type);
+                let impl_def_id = self.def_ids.next();
+                self.add_node_to_def(impl_.id,impl_def_id);
+                let impl_id = self.find_generic_params(impl_def_id,impl_.generic_params.as_ref()).unwrap_or_else(||{
+                    self.begin_scope(ScopeKind::Type);
+                    impl_.id
+                });
                 let self_symbol = self.global_symbols.upper_self_symbol();
                 self.get_current_scope_mut().add_binding(self_symbol,Resolution::SelfType);
                 for method in &impl_.methods{
@@ -338,7 +341,7 @@ impl<'b,'a> NameFinder<'b>{
                         self.end_scope(id);
                     }
                 }
-                self.end_scope(impl_.id);
+                self.end_scope(impl_id);
             }
         }
     }

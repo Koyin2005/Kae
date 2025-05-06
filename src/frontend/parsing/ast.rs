@@ -74,9 +74,9 @@ pub enum ExprNodeKind {
         expr : Option<Box<ExprNode>>
     },
     Array(Vec<ExprNode>),
-    Index{
+    Instantiate{
         lhs : Box<ExprNode>,
-        rhs : Box<ExprNode>
+        args : ParsedGenericArgs
     },
     Tuple(Vec<ExprNode>),
     Print(Vec<ExprNode>),
@@ -98,7 +98,7 @@ pub enum ExprNodeKind {
     },
     MethodCall{
         receiver:Box<ExprNode>,
-        method : Symbol,
+        method : PathSegment,
         args : Vec<ExprNode>
     }
 }

@@ -201,10 +201,9 @@ impl<'a> Parser<'a>{
     }
     fn index(&mut self,lhs : ExprNode)->Result<ExprNode,ParsingFailed>{
         let start_line = self.prev_token.line;
-        let rhs = self.expression()?;
-        self.expect(TokenKind::RightBracket, "Expect ']'.");
+        let args = self.parse_generic_args()?;
         let end_line = self.prev_token.line;
-        Ok(ExprNode{ id : self.next_id(), location:SourceLocation::new(start_line,end_line), kind: ExprNodeKind::Index { lhs:Box::new(lhs), rhs: Box::new(rhs) } })
+        Ok(ExprNode{ id : self.next_id(), location:SourceLocation::new(start_line,end_line), kind: ExprNodeKind::Instantiate { lhs:Box::new(lhs), args } })
     }
     fn call(&mut self,callee:ExprNode)->Result<ExprNode,ParsingFailed>{
         let start_line = self.prev_token.line;
@@ -219,12 +218,33 @@ impl<'a> Parser<'a>{
         };
         self.expect(TokenKind::RightParen, "Expect ')' after args.");
         let end_line = self.prev_token.line;
-        let kind = if let ExprNodeKind::Property(receiver, field) = callee.kind{
-            ExprNodeKind::MethodCall{receiver,method:field,args}
-        }
-        else{
-            ExprNodeKind::Call { callee: Box::new(ExprNode{ id : self.next_id(), location: callee.location, kind: callee.kind }), args }
-        };
+        let kind = match callee.kind {
+            ExprNodeKind::Property(receiver, field) => {
+                ExprNodeKind::MethodCall{receiver,method:PathSegment { name: field, generic_args: None, location: field.location },args}
+
+            },
+            ExprNodeKind::Instantiate { lhs, args:generic_args } => {
+                match lhs.kind{
+                    ExprNodeKind::Property(receiver,field)  =>{
+                        ExprNodeKind::MethodCall{receiver,method:PathSegment { name: field, generic_args: Some(generic_args), location: lhs.location },args}
+                    },
+                    kind => {
+                        ExprNodeKind::Call { callee: Box::new(ExprNode{ id : self.next_id(), location: callee.location, kind: ExprNodeKind::Instantiate { 
+                            lhs:Box::new(ExprNode{
+                                location:lhs.location,
+                                id:lhs.id,
+                                kind,
+                            }), 
+                            args:generic_args }
+                        }), args }
+                    }
+                }
+            }
+            _ => {
+                
+                ExprNodeKind::Call { callee: Box::new(ExprNode{ id : self.next_id(), location: callee.location, kind: callee.kind }), args }
+            }
+        }; 
         Ok(ExprNode{ id : self.next_id(), location: SourceLocation::new(start_line,end_line), kind })
     }
     fn if_expression(&mut self)->Result<ExprNode,ParsingFailed>{
@@ -302,7 +322,7 @@ impl<'a> Parser<'a>{
         }], location: symbol.location }
     }
     fn name(&mut self)->Result<ExprNode,ParsingFailed>{
-        let path = self.parse_path(true)?;
+        let path = self.parse_path()?;
         if self.matches(TokenKind::LeftBrace) {
             let start = self.prev_token.line;
             let mut fields = Vec::new();
@@ -355,7 +375,6 @@ impl<'a> Parser<'a>{
     }
     fn parse_generic_args(&mut self) -> Result<ParsedGenericArgs,ParsingFailed>{
         let start = self.prev_token.line;
-        self.expect(TokenKind::LeftBracket, "Expect '[' after ':'.");
         let args = if self.check(TokenKind::RightBracket) {
             Vec::new()
         }
@@ -502,9 +521,6 @@ impl<'a> Parser<'a>{
     fn assign(&mut self,left:ExprNode)->Result<ExprNode,ParsingFailed>{
         
         let assignment_target_kind = match left.kind{
-            ExprNodeKind::Index { lhs, rhs } => {
-                ParsedAssignmentTargetKind::Index { lhs, rhs }
-            },
             ExprNodeKind::Property(lhs,field  ) => {
                 ParsedAssignmentTargetKind::Field { lhs, field }
             },
@@ -613,7 +629,7 @@ impl<'a> Parser<'a>{
     }
     fn parse_type(&mut self)->Result<ParsedType,ParsingFailed>{
         Ok(if self.matches(TokenKind::Identifier)||self.matches(TokenKind::UpperSelf){
-            let path = self.parse_path(false)?;
+            let path = self.parse_path()?;
             ParsedType::Path(path)
         }
         else if self.matches(TokenKind::LeftBracket){
@@ -658,9 +674,9 @@ impl<'a> Parser<'a>{
             return Err(ParsingFailed);
         })
     }
-    fn parse_path_segment(&mut self,include_colon:bool)->Result<PathSegment,ParsingFailed>{
+    fn parse_path_segment(&mut self)->Result<PathSegment,ParsingFailed>{
         let name = self.prev_token;
-        let generic_args = if (include_colon && self.matches(TokenKind::Colon)) || self.check(TokenKind::LeftBracket){
+        let generic_args = if self.matches(TokenKind::LeftBracket){
             let generic_args = self.parse_generic_args()?;
             Some(generic_args)
         }
@@ -670,19 +686,19 @@ impl<'a> Parser<'a>{
         let name = self.intern_symbol(name.lexeme.to_string(),SourceLocation::one_line(name.line));
         Ok(PathSegment {  location: SourceLocation::new(name.location.start_line, self.prev_token.line),name ,generic_args})
     }
-    fn parse_path(&mut self,include_colon:bool)->Result<Path,ParsingFailed>{
-        let head = self.parse_path_segment(include_colon)?;
+    fn parse_path(&mut self)->Result<Path,ParsingFailed>{
+        let head = self.parse_path_segment()?;
         let start = head.location;
         let mut segments = vec![head];
         while self.matches(TokenKind::DoubleColon){
             self.expect(TokenKind::Identifier, "Expected valid name for path segment.");
-            segments.push(self.parse_path_segment(false)?);
+            segments.push(self.parse_path_segment()?);
         }
         Ok(Path {location: SourceLocation::new(start.start_line, self.prev_token.line), segments  })
     }
     fn pattern(&mut self)->Result<ParsedPatternNode,ParsingFailed>{
         let (location,kind) = if self.matches(TokenKind::Identifier){
-            let path = self.parse_path(false)?;
+            let path = self.parse_path()?;
             let head = path.segments.first().expect("Should be at least 1 segment").clone();
             if self.matches(TokenKind::LeftBrace){
                 let mut fields = Vec::new();
