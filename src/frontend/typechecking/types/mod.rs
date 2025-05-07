@@ -1,3 +1,4 @@
+use fxhash::FxHashMap;
 use generics::GenericArgs;
 
 use crate::{frontend::ast_lowering::hir::DefId, identifiers::SymbolIndex};
@@ -29,6 +30,43 @@ pub enum Type {
 }
 
 impl Type{
+
+    ///Finds a substitution from self to other
+    pub fn get_substitution<'a>(&'a self,other:&'a Self) -> Option<FxHashMap<u32,&'a Self>>{
+        match(self,other){
+            (&Self::Param(index,_),ty) | (ty,&Self::Param(index,_)) => {
+                Some(vec![(index,ty)].into_iter().collect())
+            },
+            (Self::Function(params,return_type),Self::Function(other_params,other_return_type)) => {
+                if params.len() != other_params.len() { return None};
+                let mut subst = FxHashMap::default();
+                for (ty,other) in params.iter().zip(other_params.iter()){
+                    subst.extend(ty.get_substitution(other)?);
+                }
+                subst.extend(return_type.get_substitution(other_return_type)?);
+                Some(subst)
+            },
+            (Self::Adt(generic_args,id,kind),Self::Adt(other_generic_args,other_id,other_kind)) => {
+                if id != other_id || kind != other_kind || generic_args.len() != other_generic_args.len(){
+                    return None;
+                }
+                let mut subst = FxHashMap::default();
+                for (arg,other_arg) in generic_args.iter().zip(other_generic_args.iter()){
+                    subst.extend(arg.get_substitution(other_arg)?);
+                }
+                Some(subst)
+            },
+            (Self::Tuple(fields),Self::Tuple(other_fields)) => {
+                if fields.len() != other_fields.len() { return None;}
+                let mut subst = FxHashMap::default();
+                for (field,other_field) in fields.iter().zip(other_fields.iter()){
+                    subst.extend(field.get_substitution(other_field)?);
+                }
+                Some(subst)
+            },
+            _ => None
+        }
+    }
     pub fn get_generic_args(&self) -> Option<&GenericArgs>{
         match self{
             Self::Adt(args,_,_) => Some(args),

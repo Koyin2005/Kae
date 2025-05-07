@@ -3,7 +3,7 @@ use indexmap::IndexMap;
 
 use crate::{frontend::{ast_lowering::hir::{DefId, DefIdMap, Ident}, tokenizing::SourceLocation}, identifiers::SymbolIndex};
 
-use super::types::{generics::GenericArgs, subst::TypeSubst, Type};
+use super::types::{subst::TypeSubst, Type};
 
 pub struct FieldDef{
     pub name : Ident,
@@ -81,26 +81,28 @@ impl TypeContext{
             ty_impl_map : IndexMap::default()
         }
     }
-    pub fn get_methods(&self,ty:&Type,method_name:SymbolIndex) -> Vec<(DefId,&MethodDef,Option<GenericArgs>)>{
+    pub fn get_methods<'a>(&'a self,ty:&'a Type,method_name:SymbolIndex) -> Vec<(DefId,&'a MethodDef,TypeSubst<'a>)>{
         let mut valid_methods = Vec::new();
         for ty_with_impl in self.ty_impl_map.keys(){
-            let generic_args = ty.get_generic_args();
-            let subst_ty = TypeSubst::new(generic_args.unwrap_or(&GenericArgs::new_empty())).instantiate_type(ty_with_impl);
-            if &subst_ty == ty{
+            if let Some(subst) = ty_with_impl.get_substitution(ty){
                 let impls = &self.ty_impl_map[ty_with_impl];
                 for impl_ in impls.iter().map(|&impl_| &self.impls[impl_]){
                     valid_methods.extend(impl_.methods.iter().filter_map(|&method|{
                         let method_def = &self.methods[method];
-                        (method_def.name.index == method_name).then_some((method,method_def,generic_args.cloned()))
+                        (method_def.name.index == method_name).then_some((method,method_def,TypeSubst::new_from(subst.clone())))
                     }));
                 }
+            
+            }
+            else{
+                continue;
             }
         }
         if let Some(impls) =  self.ty_impl_map.get(ty){
             for impl_ in impls.iter().map(|&impl_| &self.impls[impl_]){
                 valid_methods.extend(impl_.methods.iter().filter_map(|&method|{
                     let method_def = &self.methods[method];
-                    (method_def.name.index == method_name).then_some((method,method_def,None))
+                    (method_def.name.index == method_name).then_some((method,method_def,TypeSubst::empty()))
                 }));
             }
         }

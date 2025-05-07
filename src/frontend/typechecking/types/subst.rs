@@ -7,11 +7,18 @@ use super::{generics::GenericArgs, Type};
 pub struct TypeSubst<'a>{
     subst : FxHashMap<u32,&'a Type>
 }
+
 impl<'a> TypeSubst<'a>{
+    pub fn empty() -> Self{
+        Self { subst: FxHashMap::default() }
+    }
     pub fn new_with_base(generic_args:&'a GenericArgs,base:u32) -> Self{
         Self { subst: generic_args.iter().enumerate().map(|(i,ty)|{
             (i as u32 + base,ty)
         }).collect() }
+    }
+    pub fn new_from(subst:FxHashMap<u32,&'a Type>) -> Self{
+        Self { subst }
     }
     pub fn new(generic_args:&'a GenericArgs) -> Self{
         Self { subst :generic_args.iter().enumerate().map(|(i,ty)|{

@@ -397,12 +397,12 @@ impl<'a> TypeChecker<'a>{
         }).collect();
         Type::new_tuple(element_types)
     }
-    fn check_match_expr(&self,matchee:&hir::Expr,arms:&[hir::MatchArm]) -> Type{
+    fn check_match_expr(&self,matchee:&hir::Expr,arms:&[hir::MatchArm],expected:Expectation) -> Type{
         let matchee_ty = self.check_expr(matchee, Expectation::None);
         let mut result_ty = Type::Never;
         for arm in arms{
             self.check_pattern(&arm.pat, matchee_ty.clone());
-            let body_ty = self.check_expr(&arm.body, Expectation::None);
+            let body_ty = self.check_expr(&arm.body, expected.clone());
             if !body_ty.is_never() && result_ty.is_never(){
                 result_ty = body_ty;
             }
@@ -412,11 +412,11 @@ impl<'a> TypeChecker<'a>{
         }
         result_ty
     }
-    fn check_if_expr(&self,condition:&hir::Expr,then_branch:&hir::Expr,else_branch:Option<&hir::Expr>) -> Type{
+    fn check_if_expr(&self,condition:&hir::Expr,then_branch:&hir::Expr,else_branch:Option<&hir::Expr>,expected:Expectation) -> Type{
         self.check_expr(condition, Expectation::CoercesTo(Type::Bool));
-        let then_ty = self.check_expr(then_branch, Expectation::None);
+        let then_ty = self.check_expr(then_branch, expected.clone());
         if let Some(else_branch) = else_branch.as_ref(){
-            let else_ty = self.check_expr(else_branch, Expectation::None);
+            let else_ty = self.check_expr(else_branch, expected);
             if else_ty == Type::Never{
                 return then_ty;
             }
@@ -473,7 +473,7 @@ impl<'a> TypeChecker<'a>{
         }
 
 
-        self.context.get_methods(ty, method).first().map(|&(id,method,ref ty_generic_args)|{
+        self.context.get_methods(ty, method).first().map(|&(id,method,ref subst)|{
             let generics = self.context.expect_generics_for(id);
             let sig = {
                 let mut sig = method.sig.clone();
@@ -482,10 +482,7 @@ impl<'a> TypeChecker<'a>{
                 }
                 sig
             };
-            let sig = if let Some(generic_args) = ty_generic_args{
-                TypeSubst::new(generic_args).instantiate_signature(&sig)
-            }
-            else { sig};
+            let sig = subst.instantiate_signature(&sig);
             (Some(generics),sig)
         })
     }
@@ -603,7 +600,7 @@ impl<'a> TypeChecker<'a>{
                 self.check_tuple_expr(elements, expected.clone())
             },
             hir::ExprKind::If(condition, then_branch, else_branch) => {
-                self.check_if_expr(condition, then_branch, else_branch.as_ref().map(|else_branch| else_branch.as_ref()))
+                self.check_if_expr(condition, then_branch, else_branch.as_ref().map(|else_branch| else_branch.as_ref()),expected.clone())
             },
             hir::ExprKind::Block(stmts, result_expr) => {
                 self.check_block_expr(stmts, result_expr.as_ref().map(|expr| expr.as_ref()), expected.clone())
@@ -656,7 +653,7 @@ impl<'a> TypeChecker<'a>{
                 self.check_unary_expr(*op,operand,expr.span)
             },
             hir::ExprKind::Match(matchee, arms) => {
-                self.check_match_expr(matchee,arms)
+                self.check_match_expr(matchee,arms,expected.clone())
             },
             hir::ExprKind::Return(return_expr) => {
                 let return_type = if let Some(FuncContext { return_type,.. }) = self.prev_functions.borrow().last(){
