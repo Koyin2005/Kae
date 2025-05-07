@@ -199,7 +199,7 @@ impl<'a> Parser<'a>{
         let end_line = self.prev_token.line;
         Ok(ExprNode{ id : self.next_id(), location:SourceLocation::new(start_line, end_line), kind: ExprNodeKind::Array(elements) })
     }
-    fn index(&mut self,lhs : ExprNode)->Result<ExprNode,ParsingFailed>{
+    fn instantiate(&mut self,lhs : ExprNode)->Result<ExprNode,ParsingFailed>{
         let start_line = self.prev_token.line;
         let args = self.parse_generic_args()?;
         let end_line = self.prev_token.line;
@@ -502,6 +502,11 @@ impl<'a> Parser<'a>{
         let property_symbol = if self.matches(TokenKind::Int){
             self.new_symbol(self.prev_token.lexeme.to_string(), SourceLocation::one_line(self.prev_token.line))
         }
+        else if self.matches(TokenKind::LeftBracket){
+            let rhs = self.expression()?;
+            self.expect(TokenKind::RightBracket, "Expected ']'.");
+            return Ok(ExprNode { location: SourceLocation::new(start, self.prev_token.line), id: self.next_id(), kind: ExprNodeKind::Index { lhs: Box::new(left), rhs: Box::new(rhs) } });
+        }
         else{
             if self.matches(TokenKind::Float){
                 let fields = self.prev_token.lexeme.split(".");
@@ -526,6 +531,9 @@ impl<'a> Parser<'a>{
             },
             ExprNodeKind::GetPath(path) => {
                 ParsedAssignmentTargetKind::Name(path)
+            },
+            ExprNodeKind::Index { lhs, rhs } => {
+                ParsedAssignmentTargetKind::Index { lhs, rhs }
             }
             _ => {
                 self.error("Invalid assignment target.");
@@ -580,7 +588,7 @@ impl<'a> Parser<'a>{
             TokenKind::EqualsEquals | TokenKind::BangEquals => {
                 self.binary(left)
             },
-            TokenKind::LeftBracket => self.index(left),
+            TokenKind::LeftBracket => self.instantiate(left),
             TokenKind::LeftParen => self.call(left),
             TokenKind::Equals => self.assign(left),
             TokenKind::Dot => self.property(left),

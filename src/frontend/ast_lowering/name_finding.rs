@@ -121,7 +121,8 @@ impl<'b,'a> NameFinder<'b>{
             }), 
             ast::ExprNodeKind::BinaryOp { op:_, left, right } | 
             ast::ExprNodeKind::Logical { op:_, left, right } | 
-            ast::ExprNodeKind::While { condition:left, body:right } => {
+            ast::ExprNodeKind::While { condition:left, body:right } | 
+            ast::ExprNodeKind::Index { lhs:left, rhs:right } => {
                 self.find_names_in_expr(left);
                 self.find_names_in_expr(right);
             },

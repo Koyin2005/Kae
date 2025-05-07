@@ -78,6 +78,10 @@ pub enum ExprNodeKind {
         lhs : Box<ExprNode>,
         args : ParsedGenericArgs
     },
+    Index{
+        lhs : Box<ExprNode>,
+        rhs : Box<ExprNode>
+    },
     Tuple(Vec<ExprNode>),
     Print(Vec<ExprNode>),
     Assign{

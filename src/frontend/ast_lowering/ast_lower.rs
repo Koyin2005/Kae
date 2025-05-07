@@ -485,6 +485,11 @@ impl<'a> AstLowerer<'a>{
                 let _ = self.lower_generic_args(Some(&args));
                 self.error(format!("Cannot have generic arguments here."),span);
                 return Err(LoweringErr);
+            },
+            ast::ExprNodeKind::Index { lhs, rhs } => {
+                let lhs = self.lower_expr(*lhs);
+                let rhs = self.lower_expr(*rhs);
+                hir::ExprKind::Index(Box::new(lhs?), Box::new(rhs?))
             }
         };
         Ok(hir::Expr { id:self.next_id(), span, kind})
