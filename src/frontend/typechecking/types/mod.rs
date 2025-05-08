@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use fxhash::FxHashMap;
 use generics::GenericArgs;
 
@@ -30,7 +32,9 @@ pub enum Type {
 }
 
 impl Type{
-
+    pub fn iter(&self) -> TypeIterator{
+        TypeIterator { ty: VecDeque::from([self]) }
+    }
     ///Finds a substitution from self to other
     pub fn get_substitution<'a>(&'a self,other:&'a Self) -> Option<FxHashMap<u32,&'a Self>>{
         match(self,other){
@@ -64,7 +68,11 @@ impl Type{
                 }
                 Some(subst)
             },
-            _ => None
+            (ty,other_ty) => if ty == other_ty {
+                Some(FxHashMap::default())
+            } else {
+                None
+            }
         }
     }
     pub fn get_generic_args(&self) -> Option<&GenericArgs>{
@@ -105,12 +113,70 @@ impl Type{
         Type::Error
     }
     pub fn is_error(&self) -> bool{
-        matches!(&self,Type::Error)
+        matches!(&self,Type::Error) 
+    }
+    pub fn has_error(&self) -> bool{
+        self.iter().any(|ty| ty.is_error())
     }
     pub fn is_never(&self) -> bool{
         matches!(&self,Type::Never)
     }
     pub fn is_unit(&self) -> bool{
         matches!(&self,Type::Tuple(elements) if elements.is_empty())
+    }
+}
+
+pub struct TypeIterator<'a>{
+    ty : VecDeque<&'a Type>,
+}
+
+impl<'a> Iterator for TypeIterator<'a>{
+    type Item = &'a Type;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.ty.pop_front(){
+            Some(ty) => {
+                match ty{
+                    Type::Function(params,return_type) => {
+                        self.ty.extend(params);
+                        self.ty.push_back(return_type);
+                    },
+                    Type::Adt(generic_args,_,_) => {
+                        self.ty.extend(generic_args.iter());
+                    },
+                    Type::Tuple(elements) => {
+                        self.ty.extend(elements);
+                    },
+                    Type::Array(ty) => {
+                        self.ty.push_back(ty);
+                    },
+                    _ => {}
+                }
+                Some(ty)
+            },
+            None => {
+                None
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests{
+    use super::Type;
+
+    #[test]
+    fn test_func(){
+        let ty = Type::Tuple(vec![
+            Type::Int,
+            Type::Function(Vec::new(), Box::new(Type::Bool))
+        ]);
+        let mut iter = ty.iter();
+        assert_eq!(iter.next(),Some(&Type::Tuple(vec![
+            Type::Int,
+            Type::Function(Vec::new(), Box::new(Type::Bool))
+        ])));
+        assert_eq!(iter.next(),Some(&Type::Int));
+        assert_eq!(iter.next(),Some(&Type::Function(Vec::new(), Box::new(Type::Bool))));
+        assert_eq!(iter.next(),Some(&Type::Bool));
     }
 }

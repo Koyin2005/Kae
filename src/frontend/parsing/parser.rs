@@ -957,8 +957,29 @@ impl<'a> Parser<'a>{
     }
     fn impl_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
         let start_line = self.current_token.line;
+        let name = self.parse_identifer("Exepcted a valid type name.");
         let generic_params = self.optional_generic_params()?;
-        let ty = self.parse_type()?;
+        let generic_args = if let Some(generics) = generic_params.as_ref(){
+            Some(ParsedGenericArgs{types:generics.1.iter().map(|param|{
+                ParsedType::Path(Path { segments: vec![
+                    PathSegment{
+                        name:param.0,
+                        generic_args:None,
+                        location:param.0.location
+                    }
+                ], location: param.0.location })
+            }).collect(),location:name.location})
+        }
+        else{
+            None
+        };
+        let ty = ParsedType::Path(Path { segments: vec![
+            PathSegment{
+                name,
+                generic_args,
+                location:name.location
+            }
+        ], location: name.location });
         self.expect(TokenKind::LeftBrace, "Expect '{' after impl type.");
         let mut methods = Vec::new();
         while !self.check(TokenKind::RightBrace) && !self.is_at_end(){

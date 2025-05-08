@@ -62,27 +62,21 @@ impl<'a> TypeChecker<'a>{
         self.error(msg, span);
         Type::new_error()
     }
-    fn check_repeated_impls(&self) {
-        for (ty,impls_) in self.context.ty_impl_map.iter().filter(|(_,impls_)| impls_.len() > 1){
-            let impls  = impls_.iter().map(|&impl_| &self.context.impls[impl_]).collect::<Vec<_>>();
-            let mut seen_methods = IndexMap::<_,usize,FxBuildHasher>::default();
-            let mut span = None;
-            for impl_ in impls{
-                span = Some(impl_.span);
-                for &method in impl_.methods.iter(){
-                    let count = seen_methods.entry(self.context.ident(method).index).or_insert(0);
-                    *count = *count + 1;
-                }
-            }
-            for (name,count) in seen_methods{
-                if count>1{
-                    self.error(format!("Repeated method '{}' for '{}'.",self.ident_interner.get(name),self.format_type(ty)),span.expect("Already checked impls greater than 1"));
+    fn check_impls(&self) {
+        let mut type_methods = FxHashSet::default();
+        for &id in self.context.impl_ids.iter(){
+            let impl_ = &self.context.impls[id];
+            let impl_ty = &impl_.ty;
+            for &method in impl_.methods.iter(){
+                let name = self.context.ident(method);
+                if !type_methods.insert((impl_ty,name.index)){
+                    self.error(format!("Repeated method '{}'.",self.ident_interner.get(name.index)), name.span);
                 }
             }
         }
     }
     pub fn check(self,stmts : &[hir::Stmt]) -> Result<(),TypeError>{
-        self.check_repeated_impls();
+        self.check_impls();
         self.check_stmts(stmts);
         if !self.had_error.get(){
             Ok(())
@@ -221,7 +215,7 @@ impl<'a> TypeChecker<'a>{
                         Expectation::CoercesTo(ty.clone())
                     })
                 );
-                let ty = if let Some(ty) = (expr_ty.is_error() || expr_ty.is_never()).then_some(ty).flatten(){
+                let ty = if let Some(ty) = (expr_ty.has_error() || expr_ty.is_never()).then_some(ty).flatten(){
                     ty
                 }
                 else{
@@ -323,11 +317,11 @@ impl<'a> TypeChecker<'a>{
         })
     }
     fn check_type_coerces_to_with_message(&self,from:Type,to:Type,span:SourceLocation,msg:String) -> Type{
-        if from == to || from.is_never() || from.is_error(){
+        if from == to || from.is_never() || from.has_error(){
             from
         }
         else{
-            if !(from.is_error()|| to.is_error()){
+            if !(from.has_error()|| to.has_error()){
                 self.error(msg, span)
             }
             Type::new_error()
@@ -342,7 +336,7 @@ impl<'a> TypeChecker<'a>{
             ty1
         }
         else{
-            if !(ty1.is_error() || ty2.is_error()){
+            if !(ty1.has_error() || ty2.has_error()){
                 err(self,span,&ty1,&ty2);
             }
             Type::new_error()
@@ -695,6 +689,9 @@ impl<'a> TypeChecker<'a>{
                         elements.get(index)
                     }).cloned()
                 }
+                else if base_ty.has_error(){
+                    Some(Type::new_error())
+                }
                 else{
                     let base_string = self.format_type(&base_ty);
                     Some(self.new_error(format!("'{}' doesn't have fields.",base_string), field.span))
@@ -704,6 +701,7 @@ impl<'a> TypeChecker<'a>{
                     None => {
                         let base_string = self.format_type(&base_ty);
                         self.new_error(format!("'{}' has no field '{}'.",base_string,self.ident_interner.get(field.index)), field.span)
+                        
                     }
                 }
             },

@@ -134,6 +134,7 @@ impl<'a> ItemCollector<'a>{
                 for method in methods{
                     let has_receiver = method.function.params.first().is_some_and(|param| matches!(param.pattern.kind,hir::PatternKind::Binding(_,name,_) if name.index == self.symbols.lower_self_symbol()));
                     method_ids.push(method.id);
+                    self.add_name(method.id, method.name);
                     self.context.methods.insert(method.id, MethodDef{
                         name:method.name,
                         has_receiver,
@@ -143,7 +144,7 @@ impl<'a> ItemCollector<'a>{
                         } 
                     });
                 }
-                self.context.ty_impl_map.entry(self_type.clone()).or_insert(Vec::new()).push(id);
+                self.context.impl_ids.push(id);
                 self.context.impls.insert(id, Impl{
                     span:ty.span,
                     ty:self_type,

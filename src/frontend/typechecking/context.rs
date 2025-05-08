@@ -54,6 +54,7 @@ pub struct Impl{
     pub ty : Type,
     pub methods : Vec<DefId>
 }
+
 pub struct TypeContext{
     pub(super) structs : DefIdMap<StructDef>,
     pub(super) enums : DefIdMap<EnumDef>,
@@ -63,8 +64,8 @@ pub struct TypeContext{
     pub(super) methods : DefIdMap<MethodDef>,
     pub(super) child_to_owner_map : DefIdMap<DefId>,
     pub(super) impls : DefIdMap<Impl>,
+    pub(super) impl_ids : Vec<DefId>,
     pub(super) name_map : DefIdMap<Ident>,
-    pub(super) ty_impl_map : IndexMap<Type,Vec<DefId>,FxBuildHasher>,
 }
 impl TypeContext{
     pub fn new() -> Self{
@@ -78,35 +79,21 @@ impl TypeContext{
             params_to_indexes : DefIdMap::new(),
             child_to_owner_map : DefIdMap::new(),
             impls : DefIdMap::new(),
-            ty_impl_map : IndexMap::default()
+            impl_ids : Vec::new()
         }
     }
     pub fn get_methods<'a>(&'a self,ty:&'a Type,method_name:SymbolIndex) -> Vec<(DefId,&'a MethodDef,TypeSubst<'a>)>{
         let mut valid_methods = Vec::new();
-        for ty_with_impl in self.ty_impl_map.keys(){
+        for &id in self.impl_ids.iter(){
+            let impl_ = &self.impls[id];
+            let ty_with_impl = &impl_.ty;
             if let Some(subst) = ty_with_impl.get_substitution(ty){
-                let impls = &self.ty_impl_map[ty_with_impl];
-                for impl_ in impls.iter().map(|&impl_| &self.impls[impl_]){
-                    valid_methods.extend(impl_.methods.iter().filter_map(|&method|{
-                        let method_def = &self.methods[method];
-                        (method_def.name.index == method_name).then_some((method,method_def,TypeSubst::new_from(subst.clone())))
-                    }));
-                }
-            
-            }
-            else{
-                continue;
-            }
-        }
-        if let Some(impls) =  self.ty_impl_map.get(ty){
-            for impl_ in impls.iter().map(|&impl_| &self.impls[impl_]){
                 valid_methods.extend(impl_.methods.iter().filter_map(|&method|{
                     let method_def = &self.methods[method];
-                    (method_def.name.index == method_name).then_some((method,method_def,TypeSubst::empty()))
+                    (method_def.name.index == method_name).then_some((method,method_def,TypeSubst::new_from(subst.clone())))
                 }));
             }
         }
-        
         valid_methods
     }
     pub fn ident(&self,id:DefId) -> Ident{
@@ -118,9 +105,11 @@ impl TypeContext{
     pub fn expect_owner_of(&self,child:DefId) -> DefId{
         self.child_to_owner_map.get(child).copied().expect("There should be an owner for this child")
     }
+    pub fn get_generics_for(&self,owner_id:DefId) -> Option<&Generics>{
+        self.generics_map.get(owner_id)
+    }
     pub fn expect_generics_for(&self,owner_id:DefId) -> &Generics{
         self.generics_map.get(owner_id).expect("There should be some generics here")
-    
     }
     
 }
