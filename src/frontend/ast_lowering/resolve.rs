@@ -1,52 +1,29 @@
 use crate::identifiers::SymbolIndex;
-use super::{ hir::Resolution, scope::{NameSpaces, Scope}};
+use super::{ hir::Resolution, scope::{NameSpaces, Scope, ScopeId, ScopeTree}};
 
 pub struct Resolver{
-    scopes : Vec<Scope>,
+    scope_tree : ScopeTree,
     name_spaces : NameSpaces,
-
+    current_scope : ScopeId
 }
 impl Resolver{
-    pub fn new(name_spaces:NameSpaces) -> Self{
-        Self { scopes:vec![], name_spaces}
+    pub fn new(name_spaces:NameSpaces,scope_tree:ScopeTree) -> Self{
+        Self { scope_tree, name_spaces,current_scope:ScopeId::GLOBAL_SCOPE}
     }
-    pub fn push_scope(&mut self,scope:Scope){
-        self.scopes.push(scope);
+    pub fn current_scope_id(&self) -> ScopeId{
+        self.current_scope
+    }
+    pub fn scopes(&self) -> &ScopeTree{
+        &self.scope_tree
+    }
+    pub fn set_current_scope(&mut self,new_scope:ScopeId){
+        self.current_scope  = new_scope;
     }
     pub fn current_scope(&self) -> &Scope{
-        self.scopes.last().expect("Should be a scope")
+        self.scope_tree.get_scope(self.current_scope)
     }
     pub fn current_scope_mut(&mut self) -> &mut Scope{
-        self.scopes.last_mut().expect("Should be a scope")
-    }
-    pub fn pop_scope(&mut self){
-        self.scopes.pop();
-    }
-    pub fn traverse_path_with(&self,path:impl Iterator<Item = SymbolIndex>,mut f:impl FnMut(Option<usize>,&Scope)->bool){
-        let mut path_iter = path;
-        let mut prev_res: Option<Resolution> = None;
-        while let Some(name) = path_iter.next() {
-                if let Some(res) = prev_res{
-                    if let Some(res) = self.name_spaces.get_namespace(res).and_then(|scope|{
-                        f(None,scope).then_some(()).and_then(|_| scope.get_binding(name))
-                    }){
-                        prev_res = Some(res);
-                    }
-                    else{
-                        break;
-                    }
-                } 
-                else if let Some(res) = self.scopes.iter().rev().enumerate().filter_map(|(index,scope)|{
-                    f(Some(index),scope).then_some(()).and_then(|_| scope.get_binding(name))
-                }).next(){
-                    prev_res = Some(res);
-                }
-                else{
-                    break;
-                } 
-            
-        }
-
+        self.scope_tree.get_scope_mut(self.current_scope)
     }
     pub fn resolve_path(&self,path:impl Iterator<Item = SymbolIndex>) -> Vec<Resolution>{
         let mut path_iter = path;
@@ -54,7 +31,9 @@ impl Resolver{
         let mut segments = Vec::new();
         while let Some(name) = path_iter.next() {
                 if let Some(res) = prev_res{
-                    if let Some(res) = self.name_spaces.get_namespace(res).and_then(|scope| scope.get_binding(name)){
+                    if let Some(res) = self.name_spaces.get_namespace(res).and_then(|&scope|{
+                        self.scope_tree.resolve_ident(name, scope)
+                    }){
                         segments.push(res);
                         prev_res = Some(res);
                     }
@@ -62,7 +41,7 @@ impl Resolver{
                         break;
                     }
                 } 
-                else if let Some(res) = self.scopes.iter().rev().filter_map(|scope| scope.get_binding(name)).next(){
+                else if let Some(res) = self.scope_tree.resolve_ident(name, self.current_scope){
                     segments.push(res);
                     prev_res = Some(res);
                 }
@@ -78,7 +57,7 @@ impl Resolver{
 
 #[cfg(test)]
 mod test{
-    use crate::{frontend::ast_lowering::{hir::{DefId, DefIdProvider, DefKind, Resolution}, scope::{NameSpaces, Scope, ScopeKind}, SymbolInterner}, identifiers::SymbolIndex};
+    use crate::{frontend::ast_lowering::{hir::{DefId, DefIdProvider, DefKind, Resolution}, scope::{NameSpaces, Scope, ScopeId, ScopeKind, ScopeTree}, SymbolInterner}, identifiers::SymbolIndex};
 
     use super::Resolver;
 
@@ -89,60 +68,21 @@ mod test{
         let names = std::array::from_fn(|index| interner.intern(names_to_intern[index].to_string()));
         (interner,ids,names)
     }
+
     #[test]
-    fn test_resolve(){
-        /*
-        {
-            enum A{
-                B
-            }
-            A::B
-        }
-         */
-        let (_,[enum_a_id,variant_b_id],[a_index,b_index]) = init(["A","B"]);
-        let mut namespaces = NameSpaces::new();
-        let mut enum_a_scope = Scope::new(ScopeKind::Type);
-        enum_a_scope.add_binding(b_index, Resolution::Definition(DefKind::Variant, variant_b_id));
-        namespaces.define_namespace(Resolution::Definition(DefKind::Enum, enum_a_id), enum_a_scope);
-        let resolver = {
-            let mut resolver = Resolver::new(namespaces );
-            resolver.push_scope({
-                let mut scope = Scope::new(ScopeKind::Normal);
-                scope.add_binding(a_index, Resolution::Definition(DefKind::Enum, enum_a_id));
-                scope
-            });
-            resolver
-        };
-        let resolutions = resolver.resolve_path(vec![a_index,b_index].into_iter());
-        assert_eq!(resolutions,vec![Resolution::Definition(DefKind::Enum, enum_a_id),Resolution::Definition(DefKind::Variant, variant_b_id)]);
-    }
-    #[test]
-    fn test_functions(){
-        /*
+    fn test_simple(){
+        let (_,[a_id],[a_symbol]) = init(["A"]);
 
-            fun f(){
-                g();
-            }
-            fun g(){
-                f();
-            }
-         */
-
-        let (_,[func_f_id,func_g_id],[f_index,g_index]) = init(["f","g"]);
-        let name_spaces = NameSpaces::new();
-        let mut scope = Scope::new(ScopeKind::Normal);
-        scope.add_binding(f_index, Resolution::Definition(DefKind::Function, func_f_id));
-        scope.add_binding(g_index, Resolution::Definition(DefKind::Function, func_g_id));
-
-        let mut resolver = Resolver::new(name_spaces);
-        resolver.push_scope(scope);
-        resolver.push_scope(Scope::new(ScopeKind::Function));
-        assert_eq!(resolver.resolve_path(vec![g_index].into_iter()),vec![Resolution::Definition(DefKind::Function,func_g_id)]);
-        resolver.pop_scope();
-
-        resolver.push_scope(Scope::new(ScopeKind::Function));
-        assert_eq!(resolver.resolve_path(vec![f_index].into_iter()),vec![Resolution::Definition(DefKind::Function,func_f_id)]);
-        resolver.pop_scope();
+        let mut global_scope = Scope::new(ScopeKind::Normal);
+        global_scope.add_binding(a_symbol, Resolution::Definition(DefKind::Struct, a_id));
+        let mut scope_tree = ScopeTree::new(global_scope);
+        let (_,current_scope) = scope_tree.add_scope(Scope::new(ScopeKind::Normal), ScopeId::GLOBAL_SCOPE);
+        let (_,current_scope) = scope_tree.add_scope(Scope::new(ScopeKind::Normal), current_scope);
+        let (_,current_scope) = scope_tree.add_scope(Scope::new(ScopeKind::Normal), current_scope);
+        let (_,current_scope) = scope_tree.add_scope(Scope::new(ScopeKind::Normal), current_scope);
+        let mut resolver = Resolver::new(NameSpaces::new(), scope_tree);
+        resolver.set_current_scope(current_scope);
+        assert_eq!(resolver.resolve_path(vec![a_symbol].into_iter()),vec![Resolution::Definition(DefKind::Struct, a_id)]);
 
     }
 }

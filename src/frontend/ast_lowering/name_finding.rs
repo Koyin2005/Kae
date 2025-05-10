@@ -8,17 +8,18 @@ use crate::{
     identifiers::VariableIndex, GlobalSymbols
 };
 
-use super::{hir::{BuiltinKind, DefId, DefIdMap, DefIdProvider, DefKind, PrimitiveType, Resolution}, scope::{NameSpaces, Scope, ScopeKind}};
+use super::{hir::{BuiltinKind, DefId, DefIdMap, DefIdProvider, DefKind, PrimitiveType, Resolution}, scope::{NameSpaces, Scope, ScopeId, ScopeKind, ScopeTree}};
 
 pub struct Record{
     pub name : Ident,
     pub fields : Vec<Ident>
 }
 pub type NodeMap<T> = FxHashMap<NodeId,T>;
+
 pub struct NamesFound{
     pub(super) variables : IndexVec<VariableIndex,(usize,Ident)>,
     pub(super) variable_defs: FxHashMap<NodeId,VariableIndex>,
-    pub(super) scope_map : FxHashMap<NodeId,Option<Scope>>,
+    pub(super) scope_map : FxHashMap<NodeId,Option<ScopeId>>,
     pub(super) variable_def_map : FxHashMap<NodeId,Vec<VariableIndex>>,
     pub(super) structs : DefIdMap<Record>,
     pub(super) enum_defs : DefIdMap<(Ident,Vec<(DefId,Record)>)>,
@@ -33,23 +34,38 @@ impl NamesFound{
 }
 pub struct NameScopes{
     pub(super) namespaces : NameSpaces,
-    pub(super) base_scope : Scope
+    pub(super) scope_tree : ScopeTree
 }
 pub struct NameFinder<'b>{
     info : NamesFound,
-    scopes : Vec<Scope>,
     interner:&'b mut SymbolInterner,
     next_local_variable:usize,
     prev_last_local_variables:Vec<usize>,
     def_ids : &'b mut DefIdProvider,
     had_error : Cell<bool>,
     namespaces : NameSpaces,
-    global_symbols : &'b GlobalSymbols
+    current_scope : ScopeId,
+    global_symbols : &'b GlobalSymbols,
+    scope_tree : ScopeTree
 }
 impl<'b,'a> NameFinder<'b>{
     pub fn new(interner:&'b mut SymbolInterner,def_id_provider:&'b mut DefIdProvider,symbols:&'b GlobalSymbols)->Self{
-        let mut scopes = Vec::new();
-        scopes.push(Scope::new(ScopeKind::Normal));
+        let global_scope = {
+            let int_symbol = interner.intern("int".to_string());
+            let float_symbol = interner.intern("float".to_string());
+            let bool_symbol = interner.intern("bool".to_string());
+            let never_symbol = interner.intern("never".to_string());
+            let string_symbol = interner.intern("string".to_string());
+            let panic_symbol = interner.intern("panic".to_string());
+            let mut root_scope = Scope::new(ScopeKind::Normal);
+            root_scope.add_binding(int_symbol, Resolution::Primitive(PrimitiveType::Int));
+            root_scope.add_binding(float_symbol, Resolution::Primitive(PrimitiveType::Float));
+            root_scope.add_binding(bool_symbol, Resolution::Primitive(PrimitiveType::Bool));
+            root_scope.add_binding(never_symbol, Resolution::Primitive(PrimitiveType::Never));
+            root_scope.add_binding(string_symbol, Resolution::Primitive(PrimitiveType::String));
+            root_scope.add_binding(panic_symbol, Resolution::Builtin(BuiltinKind::Panic));
+            root_scope
+        };
         Self { 
             next_local_variable:0,
             info : NamesFound{
@@ -64,9 +80,10 @@ impl<'b,'a> NameFinder<'b>{
                 generics : DefIdMap::new(),
 
             },
+            scope_tree : ScopeTree::new(global_scope),
+            current_scope : ScopeId::GLOBAL_SCOPE,
             global_symbols:symbols,
             namespaces : NameSpaces::new(),
-            scopes,
             interner,
             prev_last_local_variables:Vec::new(),
             had_error:false.into(),
@@ -93,17 +110,23 @@ impl<'b,'a> NameFinder<'b>{
 
     }
     fn get_current_scope_mut(&mut self)->&mut Scope{
-        self.scopes.last_mut().expect("Should be at least 1 scope")
+        self.scope_tree.get_scope_mut(self.current_scope)
     }
     fn begin_scope(&mut self,kind:ScopeKind){
-        self.scopes.push(Scope::new(kind));
+        let (_,new_scope) = self.scope_tree.add_scope(Scope::new(kind),self.current_scope);
+        self.current_scope = new_scope;
     }
-    fn pop_scope(&mut self) ->Scope{
-        self.scopes.pop().expect("There should be at least one scope")
+    fn pop_scope(&mut self) ->ScopeId{
+        let Some(parent) = self.scope_tree.get_parent(self.current_scope) else {
+            unreachable!("Cannot pop a scope if there is only global scope left")
+        };
+        let old_scope = self.current_scope;
+        self.current_scope = parent;
+        old_scope
     }
     fn end_scope(&mut self,id:NodeId){
         let scope = self.pop_scope();
-        self.info.scope_map.insert(id,Some(scope));
+        self.info.scope_map.entry(id).or_insert(Some(scope));
     }
     fn add_node_to_def(&mut self,id:NodeId,def_id:DefId){
         self.info.node_to_def_map.insert(id, def_id);
@@ -181,7 +204,7 @@ impl<'b,'a> NameFinder<'b>{
             ast::ExprNodeKind::Literal(_) | ast::ExprNodeKind::TypenameOf(_) | ast::ExprNodeKind::GetPath(_) => ()
         }
     }
-    fn find_names_in_pattern(&mut self,pattern:&'a ast::ParsedPatternNode,bindings:&mut BTreeMap<NodeId,Ident>,seen_symbols:&mut BTreeMap<SymbolIndex,NodeId>,){
+    fn find_names_in_pattern(&mut self,pattern:&'a ast::ParsedPatternNode,bindings:&mut BTreeMap<NodeId,Ident>,seen_symbols:&mut BTreeMap<SymbolIndex,NodeId>){
         let id = pattern.id;
         match &pattern.kind{
             &ast::ParsedPatternNodeKind::Name(name) => {
@@ -205,10 +228,9 @@ impl<'b,'a> NameFinder<'b>{
             ast::ParsedPatternNodeKind::Wildcard | ast::ParsedPatternNodeKind::Literal(_) | ast::ParsedPatternNodeKind::Path(_) => ()
         }
     }
-    fn find_generic_params(&mut self,owner:DefId,generic_params:Option<&'a ast::ParsedGenericParams>)->Option<NodeId>{
+    fn find_generic_params(&mut self,owner:DefId,generic_params:Option<&'a ast::ParsedGenericParams>){
         let mut seen_generic_params = FxHashSet::default();
-        let (generic_params,id) = if let Some(generic_params) = generic_params { 
-            self.begin_scope(ScopeKind::Type);
+        let generic_params = if let Some(generic_params) = generic_params {
             let params = generic_params.1.iter().filter_map(|param| {
                 let index = param.0.content;
                 if !seen_generic_params.insert(index){
@@ -219,16 +241,15 @@ impl<'b,'a> NameFinder<'b>{
                 Some((id,Ident { index, span:param.0.location }))
                 
             }).collect();
-            (params,Some(generic_params.0))
+            params
         }
         else {
-            (Vec::new(),None)
+            Vec::new()
         };
         self.info.generics.insert(owner,generic_params);
-        id
     }
     fn find_names_in_function(&mut self,id:NodeId,function:&'a ast::ParsedFunction){
-        self.begin_scope(ScopeKind::Function);
+        self.begin_scope(ScopeKind::Function(id));
         self.prev_last_local_variables.push(std::mem::replace(&mut self.next_local_variable,0));
         let mut bindings = BTreeMap::new();
         let mut seen_symbols = BTreeMap::new();
@@ -254,15 +275,15 @@ impl<'b,'a> NameFinder<'b>{
                 let name = enum_def.name.into();
                 self.info.node_to_def_map.insert(enum_def.id, enum_def_id);
                 self.info.name_map.insert(enum_def_id, name);
-                let generics_id = self.find_generic_params(enum_def_id, enum_def.generic_params.as_ref());
-                self.begin_scope(ScopeKind::Type);
+                self.begin_scope(ScopeKind::Type(enum_def.id));
+                self.find_generic_params(enum_def_id, enum_def.generic_params.as_ref());
                 let variants = 
                     enum_def.variants.iter().map(|variant|{
                         let id = self.def_ids.next();
                         let name = variant.name.into();
                         let fields = self.find_fields(&variant.fields);
                         self.info.name_map.insert(id, name);
-                        if !self.get_current_scope_mut().add_binding(name.index, Resolution::Definition(DefKind::Variant, id)).is_none(){
+                        if self.get_current_scope_mut().add_binding(name.index, Resolution::Definition(DefKind::Variant, id)).is_some(){
                             self.error(format!("Repeated variant '{}'.",self.interner.get(variant.name.content)), name.span);
                         }
                         (id,Record{
@@ -271,28 +292,25 @@ impl<'b,'a> NameFinder<'b>{
                         })
                     }).collect();
                 self.info.enum_defs.insert(enum_def_id,(name,variants));
-                let name_scope = self.pop_scope();
-                if let Some(id) = generics_id{
-                    self.end_scope(id);
-                }
+                let name_scope = self.current_scope;
+                self.end_scope(enum_def.id);
                 self.namespaces.define_namespace(Resolution::Definition(DefKind::Enum, enum_def_id),name_scope);
                 let index = enum_def.name.content;
-                if !self.get_current_scope_mut().add_binding(index,Resolution::Definition(DefKind::Enum, enum_def_id)).is_none(){
+                if self.get_current_scope_mut().add_binding(index,Resolution::Definition(DefKind::Enum, enum_def_id)).is_some(){
                     self.error(format!("Repeated item '{}'.",self.interner.get(enum_def.name.content)), enum_def.name.location);
                 }
             },
             ast::StmtNode::Struct(struct_def) => {
                 let struct_def_id = self.def_ids.next();
                 let name = struct_def.name.into();
-                let generics_id = self.find_generic_params(struct_def_id, struct_def.generic_params.as_ref());
+                self.begin_scope(ScopeKind::Type(struct_def.id));
+                self.find_generic_params(struct_def_id, struct_def.generic_params.as_ref());
                 let fields = self.find_fields(&struct_def.fields);
-                if let Some(id) = generics_id{
-                    self.end_scope(id);
-                }
                 self.info.structs.insert(struct_def_id,Record { name, fields});
                 self.add_node_to_def(struct_def.id, struct_def_id);
                 self.info.name_map.insert(struct_def_id, name);
                 let index = struct_def.name.content;
+                self.end_scope(struct_def.id);
                 if !self.get_current_scope_mut().add_binding(index,Resolution::Definition(DefKind::Struct, struct_def_id)).is_none(){
                     self.error(format!("Repeated item '{}'.",self.interner.get(struct_def.name.content)), struct_def.name.location);
                 }
@@ -312,11 +330,11 @@ impl<'b,'a> NameFinder<'b>{
                 let func_def_id = self.def_ids.next();
                 self.add_node_to_def(function_def.id, func_def_id);
                 self.info.name_map.insert(func_def_id, function_def.name.into());
-                let generics_id = self.find_generic_params(func_def_id,function_def.generic_params.as_ref());
+
+                self.begin_scope(ScopeKind::Item(func_def_id));
+                self.find_generic_params(func_def_id,function_def.generic_params.as_ref());
                 self.find_names_in_function(function_def.id,&function_def.function);
-                if let Some(id) = generics_id{
-                    self.end_scope(id);
-                }
+                self.end_scope(function_def.id);
                 let symbol = function_def.name.content;
                 if !self.get_current_scope_mut().add_binding(symbol,Resolution::Definition(DefKind::Function,func_def_id)).is_none(){
                     self.error(format!("Repeated item '{}'.",self.interner.get(function_def.name.content)), function_def.name.location);
@@ -325,10 +343,8 @@ impl<'b,'a> NameFinder<'b>{
             ast::StmtNode::Impl(impl_) => {
                 let impl_def_id = self.def_ids.next();
                 self.add_node_to_def(impl_.id,impl_def_id);
-                let impl_id = self.find_generic_params(impl_def_id,impl_.generic_params.as_ref()).unwrap_or_else(||{
-                    self.begin_scope(ScopeKind::Type);
-                    impl_.id
-                });
+                self.begin_scope(ScopeKind::Item(impl_def_id));
+                self.find_generic_params(impl_def_id,impl_.generic_params.as_ref());
                 let self_symbol = self.global_symbols.upper_self_symbol();
                 self.get_current_scope_mut().add_binding(self_symbol,Resolution::SelfType);
                 for method in &impl_.methods{
@@ -336,39 +352,22 @@ impl<'b,'a> NameFinder<'b>{
                     let method_id = self.def_ids.next();
                     self.add_node_to_def(method.id, method_id);
                     self.info.name_map.insert(method_id, method.name.into());
-                    let generics_id = self.find_generic_params(method_id,method.generic_params.as_ref());
+                    self.begin_scope(ScopeKind::AssocItem(method_id));
+                    self.find_generic_params(method_id,method.generic_params.as_ref());
                     self.find_names_in_function(method.id,&function);
-                    if let Some(id) = generics_id{
-                        self.end_scope(id);
-                    }
+                    self.end_scope(method.id);
                 }
-                self.end_scope(impl_id);
+                self.end_scope(impl_.id);
             }
         }
     }
     pub fn find_names(mut self,stmts:&'a [ast::StmtNode]) -> Result<(NamesFound,NameScopes),()>{
-        {
-            let int_symbol = self.interner.intern("int".to_string());
-            let float_symbol = self.interner.intern("float".to_string());
-            let bool_symbol = self.interner.intern("bool".to_string());
-            let never_symbol = self.interner.intern("never".to_string());
-            let string_symbol = self.interner.intern("string".to_string());
-            let panic_symbol = self.interner.intern("panic".to_string());
-            let root_scope = self.get_current_scope_mut();
-            root_scope.add_binding(int_symbol, Resolution::Primitive(PrimitiveType::Int));
-            root_scope.add_binding(float_symbol, Resolution::Primitive(PrimitiveType::Float));
-            root_scope.add_binding(bool_symbol, Resolution::Primitive(PrimitiveType::Bool));
-            root_scope.add_binding(never_symbol, Resolution::Primitive(PrimitiveType::Never));
-            root_scope.add_binding(string_symbol, Resolution::Primitive(PrimitiveType::String));
-            root_scope.add_binding(panic_symbol, Resolution::Builtin(BuiltinKind::Panic));
-        }
         self.find_names_in_stmts(stmts);
         if self.had_error.get(){
             return Err(());
         }
-        let root_scope = self.pop_scope();
         Ok((self.info,NameScopes{
-            base_scope:root_scope,
+            scope_tree:self.scope_tree,
             namespaces:self.namespaces,
         }))
     }

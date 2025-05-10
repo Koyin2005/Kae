@@ -1,6 +1,5 @@
 use std::cell::{Cell, RefCell};
-use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
-use indexmap::IndexMap;
+use fxhash::{FxHashMap, FxHashSet};
 use crate::{
     data_structures::IndexVec, 
     frontend::{

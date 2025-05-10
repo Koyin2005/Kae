@@ -1,6 +1,3 @@
-use fxhash::FxBuildHasher;
-use indexmap::IndexMap;
-
 use crate::{frontend::{ast_lowering::hir::{DefId, DefIdMap, Ident}, tokenizing::SourceLocation}, identifiers::SymbolIndex};
 
 use super::types::{subst::TypeSubst, Type};
