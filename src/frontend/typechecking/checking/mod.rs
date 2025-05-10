@@ -1,4 +1,4 @@
-use super::types::Type;
+use super::types::{generics::GenericArgs, Type};
 
 pub mod check;
 pub mod env;
@@ -13,15 +13,18 @@ pub(super) enum Expectation{
 }
 
 pub struct InferError;
-pub struct TypeInfer(Vec<Option<Type>>);
+#[derive(Debug)]
+pub struct TypeInfer(Vec<Option<Type>>,u32);
 
 impl TypeInfer{
-    pub fn new(count:usize) -> Self{
-        Self(vec![None;count])
+    pub fn new(count:usize,base:u32) -> Self{
+        Self(vec![None;count],base)
     }
     pub fn get_subst(&self,ty1:&Type) -> Option<Type>{
         match ty1{
-            &Type::Param(index,_) => self.0.get(index as usize).cloned().flatten(),
+            &Type::Param(index,_) => {
+                self.0.get((index - self.1) as usize).cloned().flatten()
+            },
             Type::Tuple(elements) => {
                 Some(Type::Tuple(elements.iter().map(|element| self.get_subst(element)).collect::<Option<Vec<_>>>()?))
             },
@@ -33,20 +36,22 @@ impl TypeInfer{
                     })
                 })
             },
+            &Type::Adt(ref generic_args,id,kind) => {
+                Some(Type::Adt(GenericArgs::new(generic_args.iter().map(|ty|self.get_subst(ty)).collect::<Option<Vec<_>>>()?), id, kind))
+            }
             ty => if ty.is_closed() {Some(ty.clone())} else {None}
         }
     }
     pub fn infer(&mut self,expected:&Type,ty:&Type) -> Result<(),InferError>{
         match (expected,ty){
             (&Type::Param(index, _),ty2) => {
-
-                let stored_ty = &mut self.0[index as usize];
+                let stored_ty = &mut self.0[(index- self.1) as usize];
                 if let Some(old_ty) = stored_ty{
                     if old_ty != ty2{
                         return Err(InferError);
                     }
                 }
-                self.0[index as usize] = Some(ty2.clone());
+                self.0[(index - self.1 ) as usize] = Some(ty2.clone());
                 Ok(())
             },
             (Type::Tuple(elements1),Type::Tuple(elements2)) if elements1.len() == elements2.len() => {
@@ -63,8 +68,12 @@ impl TypeInfer{
             (Type::Array(element_type),Type::Array(element_type2))  => {
                 self.infer(&element_type, &element_type2)
             },
-            
-
+            (Type::Adt(generic_args,_,_),Type::Adt(other_generic_args,_,_)) => {
+                for (arg,other) in generic_args.iter().zip(other_generic_args.iter()){
+                    self.infer(arg, other)?;
+                }
+                Ok(())
+            }
             _ => {
                 Ok(())
             }

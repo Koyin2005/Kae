@@ -45,7 +45,7 @@ impl<'a> TypeSubst<'a>{
             Type::Never => Type::Never,
             Type::String => Type::String,
             Type::Float => Type::Float,
-            Type::Error => Type::Error
+            Type::Error => Type::Error,
 
         }
     }

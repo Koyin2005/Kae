@@ -9,7 +9,7 @@ use crate::{
     }, 
     identifiers::{GlobalSymbols, ItemIndex, SymbolIndex, SymbolInterner}
 };
-use super::{env::TypeEnv, Expectation};
+use super::{env::TypeEnv, Expectation, TypeInfer};
 struct FuncContext{
     return_type : Type
 }
@@ -479,7 +479,9 @@ impl<'a> TypeChecker<'a>{
             (Some(generics),sig)
         })
     }
-    fn check_method_call(&self,receiver:&hir::Expr,name:hir::Ident,generic_args:&[hir::GenericArg],args:&[hir::Expr]) -> Type{
+    ///Checks a method call
+    /// or a call of a field
+    fn check_method_call(&self,receiver:&hir::Expr,name:hir::Ident,generic_args:&[hir::GenericArg],args:&[hir::Expr],expected:Expectation) -> Type{
         let receiver_ty = self.check_expr(receiver, Expectation::None);
         let generic_args = self.lowerer().lower_generic_args(generic_args);
         let (generic_params,method_sig) = match self.get_method(&receiver_ty, name.index,false) {
@@ -506,18 +508,52 @@ impl<'a> TypeChecker<'a>{
             }
         };
         let generic_param_len = generic_params.map_or(0, |generics| generics.param_names.len());
-        if generic_param_len != generic_args.len(){
-            return self.new_error(format!("Expected {} generic args got {}.",generic_param_len,generic_args.len()),name.span);
-        }
-        let method_sig = TypeSubst::new_with_base(&generic_args,generic_params.map_or(0, |generics| generics.base )).instantiate_signature(&method_sig);
+        let infer_generic_args = if generic_param_len != generic_args.len(){
+            if generic_args.is_empty(){
+                true
+            }
+            else{
+                return self.new_error(format!("Expected {} generic args got {}.",generic_param_len,generic_args.len()),name.span);
+            }
+        } else { false };
+        let base = generic_params.map_or(0, |generics| generics.base );
+        let method_sig = TypeSubst::new_with_base(&generic_args,base).instantiate_signature(&method_sig);
         if method_sig.params.len() != args.len(){
             self.error(format!("Expected {} args got {}.",method_sig.params.len(),args.len()), name.span);
             return method_sig.return_type;
         }
-        for (param,arg) in method_sig.params.into_iter().zip(args){
-            self.check_expr(arg, Expectation::CoercesTo(param));
+        let mut infer = if infer_generic_args{
+            let mut infer = TypeInfer::new(generic_param_len,base);
+            if let Expectation::CoercesTo(ty) | Expectation::HasType(ty) = expected{
+                if infer.infer(&ty, &method_sig.return_type).is_err(){
+                    return self.new_error(format!("Cannot infer generic arguments."), name.span);
+                }
+            }
+            Some(infer)
         }
-        method_sig.return_type
+        else{
+            None
+        };
+        for (param,arg) in method_sig.params.into_iter().zip(args){
+            if let Some(infer) = infer.as_mut(){
+                let arg_ty = self.check_expr(arg, Expectation::None);
+                if infer.infer(&param, &arg_ty).is_err(){
+                    return self.new_error(format!("Cannot infer generic arguments."), name.span);
+                }
+            }
+            else{
+                self.check_expr(arg, Expectation::CoercesTo(param));
+            };
+        }
+        if let Some(infer) = infer{
+            let Some(ty) = infer.get_subst(&method_sig.return_type)  else {
+                return self.new_error(format!("Cannot infer generic arguments."), name.span);
+            };
+            ty
+        } 
+        else{
+            method_sig.return_type
+        }
     }
     fn get_constructor_with_generic_args(&self,path:&hir::QualifiedPath) -> (GenericArgs,Option<(AdtKind,DefId)>){
         let generic_args = self.lowerer().get_generic_args(path).expect("There's gotta be some generic args");
@@ -708,7 +744,7 @@ impl<'a> TypeChecker<'a>{
                 self.check_struct_literal(expr,path,fields)
             },
             &hir::ExprKind::MethodCall(ref receiver,method_name,ref generic_args,ref args) => {
-                self.check_method_call(receiver,method_name,generic_args,args)
+                self.check_method_call(receiver,method_name,generic_args,args,expected.clone())
             }
         };
         
