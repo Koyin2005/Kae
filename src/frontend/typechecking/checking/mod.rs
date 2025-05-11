@@ -11,14 +11,20 @@ pub(super) enum Expectation{
     CoercesTo(Type),
     None
 }
+#[derive(Debug)]
+pub enum InferError{
+    TypesNotEqual(Type,Type),
 
-pub struct InferError;
+}
 #[derive(Debug)]
 pub struct TypeInfer(Vec<Option<Type>>,u32);
 
 impl TypeInfer{
     pub fn new(count:usize,base:u32) -> Self{
         Self(vec![None;count],base)
+    }
+    pub fn complete(self) -> bool{
+        self.0.iter().all(|ty| ty.as_ref().is_some_and(|ty| ty.is_closed()))
     }
     pub fn get_subst(&self,ty1:&Type) -> Option<Type>{
         match ty1{
@@ -45,13 +51,19 @@ impl TypeInfer{
     pub fn infer(&mut self,expected:&Type,ty:&Type) -> Result<(),InferError>{
         match (expected,ty){
             (&Type::Param(index, _),ty2) => {
-                let stored_ty = &mut self.0[(index- self.1) as usize];
+                if index<self.1{
+                    return Ok(());
+                }
+                let stored_ty = &mut self.0[(index - self.1) as usize];
                 if let Some(old_ty) = stored_ty{
                     if old_ty != ty2{
-                        return Err(InferError);
+                        return Err(InferError::TypesNotEqual(old_ty.clone(), ty2.clone()));
+                    }
+                    else{
+                        return Ok(());
                     }
                 }
-                self.0[(index - self.1 ) as usize] = Some(ty2.clone());
+                *stored_ty = Some(ty2.clone());
                 Ok(())
             },
             (Type::Tuple(elements1),Type::Tuple(elements2)) if elements1.len() == elements2.len() => {
@@ -60,7 +72,7 @@ impl TypeInfer{
                 })
             },
             (Type::Function(params1,return_type1),Type::Function(params2,return_type2)) if params1.len() == params2.len() => {
-                params1.iter().zip(params1.iter()).try_for_each(|(param1,param2)|{
+                params1.iter().zip(params2.iter()).try_for_each(|(param1,param2)|{
                     self.infer(param1,param2)
                 })?;
                 self.infer(&return_type1, &return_type2)

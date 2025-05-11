@@ -439,15 +439,87 @@ impl<'a> TypeChecker<'a>{
         };
         ty
     }
+    fn check_callee(&self,callee:&hir::Expr) -> (Type,Option<TypeInfer>){
+        match &callee.kind{
+            hir::ExprKind::Path(path) => {
+                match path{
+                    hir::QualifiedPath::TypeRelative(..) => {
+                        (self.check_expr_path(path, Expectation::None),None)
+                    },
+                    hir::QualifiedPath::Resolved(resolved_path) => {
+                        let generic_segments = resolved_path.segments.iter().enumerate().filter_map(|(i,segment)|{
+                            if self.get_generic_count(&segment.res) > 0{
+                                Some(i)
+                            }
+                            else{
+                                None
+                            }
+                        }).collect::<Vec<_>>();
+                        for segment in generic_segments{
+                            let segment = &resolved_path.segments[segment];
+                            if segment.res != resolved_path.final_res || !segment.args.is_empty(){
+                                self.check_generic_count(self.get_generic_count(&segment.res), segment.args.len(),segment.ident.span);
+                            }
+                        }
+                        match resolved_path.final_res{
+                            hir::Resolution::Variable(variable) => {
+                                (self.env.borrow().get_variable_type(variable),None)
+                            },
+                            hir::Resolution::Definition(hir::DefKind::Function,function) => {
+                                let def = &self.context.functions[function];
+                                let generic_args = self.lowerer().get_generic_args(path).expect("Should have found some generic args for this function");
+                                if generic_args.is_empty(){
+                                    (def.sig.as_type(),Some(TypeInfer::new(self.get_generic_count(&resolved_path.final_res),0)))
+                                }
+                                else{
+                                    (TypeSubst::new(&generic_args).instantiate_type(&def.sig.as_type()),None)
+                                }   
+                            },
+                            hir::Resolution::Definition(hir::DefKind::Variant,id) => {
+                                let enum_id = self.context.expect_owner_of(id);
+                                let def = &self.context.enums[enum_id];
+                                if !def.variants.iter().find(|variant_def| variant_def.id == id).expect("There should be a variant here").fields.is_empty(){
+                                    self.error(format!("Cannot initialize variant '{}' without fields.",resolved_path.format(self.ident_interner)), resolved_path.span);
+                                }
+                                let generic_args = self.lowerer().get_generic_args(path).expect("Should have found some generic args for this enum variant");
+                                (Type::new_enum(generic_args, enum_id),None)
+                            },
+                            hir::Resolution::Builtin(hir::BuiltinKind::Panic) => {
+                                (Type::new_function(vec![Type::String], Type::Never),None)
+                            },
+                            hir::Resolution::Primitive(_) | 
+                            hir::Resolution::Definition(hir::DefKind::Param|hir::DefKind::Struct|hir::DefKind::Enum,_) |
+                            hir::Resolution::SelfType | hir::Resolution::None => 
+                                (self.new_error(format!("Cannot use type '{}' as expr.",resolved_path.format(self.ident_interner)), resolved_path.span),None)
+                        }
+                    } 
+                }
+            },
+            _ => (self.check_expr(callee, Expectation::None),None)
+        }
+    }
     fn check_call_expr(&self,callee:&hir::Expr,args:&[hir::Expr]) -> Type{
-        let callee_ty = self.check_expr(callee, Expectation::None);
+        let (callee_ty,mut infer) = self.check_callee(callee);
         if let Type::Function(params,return_type) = callee_ty{
             if params.len() == args.len(){
                 let return_ty = *return_type;
                 params.iter().zip(args.iter()).for_each(|(param,arg)|{
-                    self.check_expr(arg,Expectation::CoercesTo(param.clone()));
+                    if let Some(infer) = infer.as_mut(){
+                        let arg_ty = self.check_expr(arg,Expectation::None);
+                        if infer.infer(&param, &arg_ty).is_err(){
+                            self.error(format!("Cannot infer generic arguments."),arg.span);
+                        }
+                    }
+                    else{
+                        self.check_expr(arg,Expectation::CoercesTo(param.clone()));
+                    }
                 });
-                return_ty
+                if let Some(infer) = infer{
+                    infer.get_subst(&return_ty).unwrap_or_else(|| self.new_error(format!("Cannot infer generic arguments."), callee.span))
+                }
+                else{
+                    return_ty
+                }
             }
             else{
                 self.new_error(format!("Expected '{}' args got '{}'.",params.len(),args.len()), callee.span)
@@ -772,6 +844,11 @@ impl<'a> TypeChecker<'a>{
             hir::Resolution::SelfType | hir::Resolution::None => 0
         }
     }
+    fn check_generic_count(&self,expected:usize,got:usize,span:SourceLocation){
+        if got != expected{
+            self.error(format!("Expected '{}' generic args got '{}'.",expected,got), span);
+        }
+    }
     fn check_path(&self,path:&hir::QualifiedPath){
         match path{
             hir::QualifiedPath::TypeRelative(ty,segment) => {
@@ -788,10 +865,7 @@ impl<'a> TypeChecker<'a>{
             },
             hir::QualifiedPath::Resolved(path) => {
                 for segment in &path.segments{
-                    let expected_arg_count = self.get_generic_count(&segment.res);
-                    if segment.args.len() != expected_arg_count{
-                        self.error(format!("Expected '{}' generic args got '{}'.",expected_arg_count,segment.args.len()), segment.ident.span);
-                    }
+                    self.check_generic_count(self.get_generic_count(&segment.res), segment.args.len(), segment.ident.span);
                 }
             }
         }

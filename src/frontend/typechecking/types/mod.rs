@@ -16,7 +16,7 @@ pub enum AdtKind {
     Struct,
     Enum
 }
-#[derive(Clone,Debug,PartialEq,Eq,Hash)]
+#[derive(Clone,Debug,Eq,Hash)]
 pub enum Type {
     Int,
     Float,
@@ -30,7 +30,30 @@ pub enum Type {
     Tuple(Vec<Type>),
     Adt(GenericArgs,DefId,AdtKind),
 }
-
+impl PartialEq for Type{
+    fn eq(&self, other: &Self) -> bool {
+        match (self,other){
+            (Self::Int,Self::Int) => true,
+            (Self::Float,Self::Float) => true,
+            (Self::String,Self::String) => true,
+            (Self::Never,Self::Never) => true,
+            (Self::Error,Self::Error) => true,
+            (Self::Bool,Self::Bool) => true,
+            (Self::Param(index,_),Self::Param(other_index,_)) => index == other_index,
+            (Self::Function(params,return_ty),Self::Function(other_params,other_return_ty)) if params.len() == other_params.len() => {
+                params == other_params && return_ty == other_return_ty
+            },
+            (Self::Tuple(elements),Self::Tuple(other_elements)) if elements.len() == other_elements.len() => {
+                elements == other_elements
+            },
+            (Self::Adt(generic_args,id,kind),Self::Adt(other_generic_args,other_id,other_kind)) if generic_args.len() == other_generic_args.len() && id == other_id && kind ==  other_kind => {
+                generic_args == other_generic_args
+            },
+            (Self::Array(element),Self::Array(other_element)) => element == other_element,
+            _ => false
+        }
+    }
+}
 impl Type{
     pub fn iter(&self) -> TypeIterator{
         TypeIterator { ty: VecDeque::from([self]) }
