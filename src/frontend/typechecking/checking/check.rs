@@ -22,7 +22,7 @@ pub struct TypeChecker<'a>{
     ident_interner : &'a SymbolInterner,
     items : &'a IndexVec<ItemIndex,hir::Item>,
     symbols:&'a GlobalSymbols,
-    self_type : Option<Type>,
+    self_type : RefCell<Option<Type>>,
     _item_map:&'a DefIdMap<ItemIndex>
 }
 impl<'a> TypeChecker<'a>{
@@ -35,13 +35,13 @@ impl<'a> TypeChecker<'a>{
             context,
             _item_map,
             items,
-            self_type:None,
+            self_type:RefCell::new(None),
             ident_interner: interner,
             symbols
         }
     }
     pub(super) fn lowerer(&self) -> TypeLower{
-        TypeLower::new(&self.ident_interner,self.context,self.self_type.as_ref())
+        TypeLower::new(&self.ident_interner,self.context,self.self_type.borrow().as_ref().cloned())
     }
     pub(super) fn lower_type(&self,ty: &hir::Type) -> Type{
         self.lowerer().lower_type(ty)
@@ -105,10 +105,11 @@ impl<'a> TypeChecker<'a>{
             }
         }
     }
-    fn check_function<'b>(&self,sig:&FuncSig,param_patterns:impl Iterator<Item = &'b hir::Pattern>,body:&hir::Expr){
+    fn check_function<'b>(&self,sig:&FuncSig,param_patterns:impl Iterator<Item = (&'b hir::Pattern,&'b hir::Type)>,body:&hir::Expr){
         let FuncSig { params:param_types, return_type } = sig;
-        for (param_pattern,param_ty) in param_patterns.zip(param_types){
+        for ((param_pattern,ty),param_ty) in param_patterns.zip(param_types){
             self.check_pattern(param_pattern, param_ty.clone());
+            self.check_type(ty);
         }
         self.prev_functions.borrow_mut().push(FuncContext { return_type: return_type.clone() });
         self.check_expr(body, Expectation::CoercesTo(return_type.clone()));
@@ -165,7 +166,7 @@ impl<'a> TypeChecker<'a>{
             },
             hir::Item::Function(function) => {
                 let sig = (&self.context.functions[function.id].sig).clone();
-                self.check_function(&sig,  function.function.params.iter().map(|param| &param.pattern), &function.function.body);
+                self.check_function(&sig,  function.function.params.iter().map(|param| (&param.pattern,&param.ty)), &function.function.body);
             },
             hir::Item::Enum(enum_def) => {
                 for (i,variant) in enum_def.variants.iter().enumerate(){
@@ -192,9 +193,11 @@ impl<'a> TypeChecker<'a>{
             &hir::Item::Impl(id,ref ty,ref _generics,ref methods) => {
                 self.check_type(ty);
                 let impl_ = &self.context.impls[id];
+                let old_self_type = self.self_type.replace(Some(self.lower_type(ty)));
                 for (method_def,method) in methods.iter().zip(impl_.methods.iter().map(|&id| &self.context.methods[id])){
-                    self.check_function(&method.sig,  method_def.function.params.iter().map(|param| &param.pattern), &method_def.function.body);
+                    self.check_function(&method.sig,  method_def.function.params.iter().map(|param| (&param.pattern,&param.ty)), &method_def.function.body);
                 }
+                *self.self_type.borrow_mut() =  old_self_type;
             },
         }
     }
@@ -539,22 +542,38 @@ impl<'a> TypeChecker<'a>{
         method_sig.return_type
     }
     fn get_constructor_with_generic_args(&self,path:&hir::QualifiedPath) -> (GenericArgs,Option<(AdtKind,DefId)>){
-        let adt = match path{
+        let generic_args = self.lowerer().get_generic_args(path).expect("There should be generic args");
+        match path{
             hir::QualifiedPath::TypeRelative(_,_) => {
-                None
+                (generic_args,None)
             },  
             hir::QualifiedPath::Resolved(path) => {
                 match path.final_res{
-                    hir::Resolution::Definition(hir::DefKind::Struct,id) => Some((AdtKind::Struct,id)),
-                    hir::Resolution::Definition(hir::DefKind::Variant,id) => Some((AdtKind::Enum,id)),
+                    hir::Resolution::Definition(hir::DefKind::Struct,id) => (generic_args,Some((AdtKind::Struct,id))),
+                    hir::Resolution::Definition(hir::DefKind::Variant,id) => (generic_args,Some((AdtKind::Enum,id))),
+                    hir::Resolution::SelfType => {
+                        if let Some((generic_args,kind,id)) = self.self_type.borrow().clone().and_then(|self_ty|{
+                            match self_ty {
+                                Type::Adt(generic_args,id,AdtKind::Struct) => {
+                                    Some((generic_args,AdtKind::Struct,id))
+                                },
+                                _ => None
+
+                            }
+                        }){
+                            (generic_args,Some((kind,id)))
+                        }
+                        else{
+                            (generic_args,None)
+                        }
+                    },
                     _ =>{
-                        None
+                        (generic_args,None)
                     } 
                 }
 
             }
-        };
-        (self.lowerer().get_generic_args(path).expect("There should be generic args"),adt)
+        }
     }
     fn check_struct_literal(&self,expr:&hir::Expr,path:&hir::QualifiedPath,fields:&[hir::FieldExpr]) -> Type{
         self.check_path(path);
@@ -687,7 +706,7 @@ impl<'a> TypeChecker<'a>{
                 Type::Never
             },
             hir::ExprKind::Function(function) => {
-                let param_patterns = function.params.iter().map(|param| &param.pattern);
+                let param_patterns = function.params.iter().map(|param| (&param.pattern,&param.ty));
                 let param_types = function.params.iter().map(|param| self.lower_type(&param.ty)).collect();
                 let return_type = function.return_type.as_ref().map_or_else(|| Type::new_unit(), |ty| self.lower_type(ty));
                 let sig = FuncSig{params:param_types,return_type};

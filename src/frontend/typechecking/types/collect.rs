@@ -19,7 +19,7 @@ impl<'a> ItemCollector<'a>{
         }
     }
     fn lower_type_with(&self,ty:&hir::Type,lowered_ty:&Type) -> Type{
-        TypeLower::new(self.interner, &self.context,Some(lowered_ty)).lower_type(ty)
+        TypeLower::new(self.interner, &self.context,Some(lowered_ty.clone())).lower_type(ty)
     }
     fn lower_type(&self,ty:&hir::Type) -> Type{
         TypeLower::new(self.interner, &self.context,None).lower_type(ty)

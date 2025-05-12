@@ -530,7 +530,9 @@ impl<'a> AstLowerer<'a>{
                 let struct_id = self.name_info.expect_def_id_with_message(struct_def.id, "Should be a struct");
                 let generics = self.lower_generic_params(struct_id,struct_def.generic_params);
                 let name = self.name_info.structs[struct_id].name;
+                self.begin_scope(struct_def.id);
                 let fields = self.lower_fields(struct_def.fields, self.name_info.structs[struct_id].fields.clone());
+                self.end_scope();
                 let item_id = self.add_item_with_def(Item::Struct(hir::StructDef{
                     id:struct_id,
                     name,

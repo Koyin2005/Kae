@@ -5,10 +5,10 @@ use super::{format::TypeFormatter, generics::GenericArgs, AdtKind, Type};
 pub struct TypeLower<'a>{
     interner:&'a SymbolInterner,
     context:&'a TypeContext,
-    self_type : Option<&'a Type>
+    self_type : Option<Type>
 }
 impl<'a> TypeLower<'a>{
-    pub fn new(interner:&'a SymbolInterner,context:&'a TypeContext,self_type:Option<&'a Type>)->Self{
+    pub fn new(interner:&'a SymbolInterner,context:&'a TypeContext,self_type:Option<Type>)->Self{
         Self { 
             interner,
             context,
@@ -91,7 +91,7 @@ impl<'a> TypeLower<'a>{
                                 Type::Param(index, symbol)
                             },
                             Resolution::SelfType => {
-                                self.self_type.cloned().expect("Should always have a self type whenever Self appears")
+                                self.self_type.clone().expect("Should always have a self type whenever Self appears")
                             }
                             _ => {
                                 TypeError.emit(format!("Cannot use '{}' as type.",resolved_path.format(self.interner)), resolved_path.span);
