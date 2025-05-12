@@ -1,6 +1,6 @@
 use crate::{frontend::{ast_lowering::hir::{DefId, DefIdMap, Ident}, tokenizing::SourceLocation}, identifiers::SymbolIndex};
 
-use super::types::{subst::TypeSubst, Type};
+use super::types::{generics::GenericArgs, subst::TypeSubst, Type};
 
 pub struct FieldDef{
     pub name : Ident,
@@ -52,6 +52,13 @@ pub struct Impl{
     pub methods : Vec<DefId>
 }
 
+pub enum TypeMember<'a>{
+    Variant(DefId,GenericArgs,&'a VariantDef),
+    Method{
+        receiver_generic_params:Option<&'a Generics>,
+        sig : FuncSig
+    }
+}
 pub struct TypeContext{
     pub(super) structs : DefIdMap<StructDef>,
     pub(super) enums : DefIdMap<EnumDef>,
@@ -108,5 +115,10 @@ impl TypeContext{
     pub fn expect_generics_for(&self,owner_id:DefId) -> &Generics{
         self.generics_map.get(owner_id).expect("There should be some generics here")
     }
-    
+    pub fn get_variant(&self,variant_id:DefId) -> Option<&VariantDef>{
+        self.child_to_owner_map.get(variant_id).copied().and_then(|owner| self.enums.get(owner)).and_then(|enum_| enum_.variants.iter().find(|variant| variant.id == variant_id))
+    }
+    pub fn get_variant_of(&self,enum_id:DefId,name:SymbolIndex) -> Option<&VariantDef>{
+        self.enums[enum_id].variants.iter().find(|variant| variant.name.index == name)
+    }
 }
