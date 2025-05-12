@@ -319,7 +319,7 @@ impl<'a> TypeChecker<'a>{
     }
     fn check_type_coerces_to_with_message(&self,from:Type,to:Type,span:SourceLocation,msg:String) -> Type{
         if from == to || from.is_never() || from.has_error(){
-            from
+            to
         }
         else{
             if !(from.has_error()|| to.has_error()){
