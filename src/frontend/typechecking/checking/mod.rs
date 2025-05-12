@@ -5,7 +5,7 @@ pub mod env;
 mod ops;
 
 
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub(super) enum Expectation{
     HasType(Type),
     CoercesTo(Type),

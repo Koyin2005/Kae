@@ -27,7 +27,7 @@ impl<'b> TypeFormatter<'b>{
             Type::Int => buffer.push_str("int"),
             Type::Never => buffer.push_str("never"),
             Type::String => buffer.push_str("string"),
-            Type::Error => buffer.push('_'),
+            Type::Error | Type::Infer(_) => buffer.push('_'),
             &Type::Param(_,symbol) => {
                 buffer.push_str(self.interner.get(symbol));
             },

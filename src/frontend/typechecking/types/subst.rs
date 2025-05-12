@@ -25,7 +25,9 @@ impl<'a> TypeSubst<'a>{
             (i as u32,ty)
         }).collect()}
     }
-
+    pub fn instantiate_types<'b,I:Iterator<Item = &'b Type>>(&self,types:I) -> Vec<Type>{
+        types.map(|ty| self.instantiate_type(ty)).collect()
+    }
     pub fn instantiate_type(&self,ty:&Type) -> Type{
         match ty{
             &Type::Param(index,_) => {
@@ -46,10 +48,11 @@ impl<'a> TypeSubst<'a>{
             Type::String => Type::String,
             Type::Float => Type::Float,
             Type::Error => Type::Error,
+            _ => todo!("Remove this")
 
         }
     }
     pub fn instantiate_signature(&self,sig:&FuncSig) -> FuncSig{
-        FuncSig { params: sig.params.iter().map(|param|{ self.instantiate_type(param)}).collect(), return_type: self.instantiate_type(&sig.return_type) }
+        FuncSig { params: self.instantiate_types(sig.params.iter()), return_type: self.instantiate_type(&sig.return_type) }
     }
 }

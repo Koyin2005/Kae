@@ -101,7 +101,12 @@ impl<'a> TypeLower<'a>{
                     },
                     QualifiedPath::TypeRelative(ty,segment) => {
                         let ty = self.lower_type(&ty);
-                        TypeError.emit(format!("{} has no member {}.",TypeFormatter::new(self.interner, self.context).format_type(&ty),self.interner.get(segment.ident.index)), segment.ident.span);
+                        if !self.context.get_methods(&ty, segment.ident.index).is_empty(){
+                            TypeError.emit(format!("Cannot use method {} of type {} as type.",TypeFormatter::new(self.interner, self.context).format_type(&ty),self.interner.get(segment.ident.index)), segment.ident.span);
+                        }
+                        else{
+                            TypeError.emit(format!("{} has no member {}.",TypeFormatter::new(self.interner, self.context).format_type(&ty),self.interner.get(segment.ident.index)), segment.ident.span);
+                        }
                         Type::new_error()
 
                     }

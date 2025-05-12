@@ -9,7 +9,7 @@ use crate::{
     }, 
     identifiers::{GlobalSymbols, ItemIndex, SymbolIndex, SymbolInterner}
 };
-use super::{env::TypeEnv, Expectation, TypeInfer};
+use super::{env::TypeEnv, Expectation};
 struct FuncContext{
     return_type : Type
 }
@@ -101,6 +101,7 @@ impl<'a> TypeChecker<'a>{
             },
             hir::TypeKind::Path(path) => {
                 self.check_path(path);
+
             }
         }
     }
@@ -116,7 +117,7 @@ impl<'a> TypeChecker<'a>{
     }
     fn is_type_recursive(&self,ty:&Type,id:DefId)->bool{
         match ty{
-            Type::Int | Type::Float | Type::Bool | Type::String | Type::Error | Type::Never | Type::Param(_,_) => false,
+            Type::Int | Type::Float | Type::Bool | Type::String | Type::Error | Type::Never | Type::Param(_,_) | Type::Infer(_) => false,
             Type::Function(_,_) | Type::Array(_) => false,
             Type::Tuple(elements) => {
                 elements.iter().any(|element| self.is_type_recursive(element, id))
@@ -264,6 +265,7 @@ impl<'a> TypeChecker<'a>{
                 self.check_type_is_expected(literal_ty, &expected_type, pattern.span)
             },
             hir::PatternKind::Struct(path, fields) => {
+                self.check_path(path);
                 let (generic_args,Some((constructor_kind,id))) = self.get_constructor_with_generic_args(path) else{
                     self.error(format!("Cannot use '{}' as constructor.",path.format(self.ident_interner)),pattern.span);
                     return;
@@ -439,91 +441,30 @@ impl<'a> TypeChecker<'a>{
         };
         ty
     }
-    fn check_callee(&self,callee:&hir::Expr) -> (Type,Option<TypeInfer>){
+    fn check_callee(&self,callee:&hir::Expr) -> Type{
         match &callee.kind{
             hir::ExprKind::Path(path) => {
-                match path{
-                    hir::QualifiedPath::TypeRelative(..) => {
-                        (self.check_expr_path(path, Expectation::None),None)
-                    },
-                    hir::QualifiedPath::Resolved(resolved_path) => {
-                        let generic_segments = resolved_path.segments.iter().enumerate().filter_map(|(i,segment)|{
-                            if self.get_generic_count(&segment.res) > 0{
-                                Some(i)
-                            }
-                            else{
-                                None
-                            }
-                        }).collect::<Vec<_>>();
-                        for segment in generic_segments{
-                            let segment = &resolved_path.segments[segment];
-                            if segment.res != resolved_path.final_res || !segment.args.is_empty(){
-                                self.check_generic_count(self.get_generic_count(&segment.res), segment.args.len(),segment.ident.span);
-                            }
-                        }
-                        match resolved_path.final_res{
-                            hir::Resolution::Variable(variable) => {
-                                (self.env.borrow().get_variable_type(variable),None)
-                            },
-                            hir::Resolution::Definition(hir::DefKind::Function,function) => {
-                                let def = &self.context.functions[function];
-                                let generic_args = self.lowerer().get_generic_args(path).expect("Should have found some generic args for this function");
-                                if generic_args.is_empty(){
-                                    (def.sig.as_type(),Some(TypeInfer::new(self.get_generic_count(&resolved_path.final_res),0)))
-                                }
-                                else{
-                                    (TypeSubst::new(&generic_args).instantiate_type(&def.sig.as_type()),None)
-                                }   
-                            },
-                            hir::Resolution::Definition(hir::DefKind::Variant,id) => {
-                                let enum_id = self.context.expect_owner_of(id);
-                                let def = &self.context.enums[enum_id];
-                                if !def.variants.iter().find(|variant_def| variant_def.id == id).expect("There should be a variant here").fields.is_empty(){
-                                    self.error(format!("Cannot initialize variant '{}' without fields.",resolved_path.format(self.ident_interner)), resolved_path.span);
-                                }
-                                let generic_args = self.lowerer().get_generic_args(path).expect("Should have found some generic args for this enum variant");
-                                (Type::new_enum(generic_args, enum_id),None)
-                            },
-                            hir::Resolution::Builtin(hir::BuiltinKind::Panic) => {
-                                (Type::new_function(vec![Type::String], Type::Never),None)
-                            },
-                            hir::Resolution::Primitive(_) | 
-                            hir::Resolution::Definition(hir::DefKind::Param|hir::DefKind::Struct|hir::DefKind::Enum,_) |
-                            hir::Resolution::SelfType | hir::Resolution::None => 
-                                (self.new_error(format!("Cannot use type '{}' as expr.",resolved_path.format(self.ident_interner)), resolved_path.span),None)
-                        }
-                    } 
-                }
+                self.check_expr_path(path, true)
             },
-            _ => (self.check_expr(callee, Expectation::None),None)
+            _ => self.check_expr(callee, Expectation::None)
         }
     }
     fn check_call_expr(&self,callee:&hir::Expr,args:&[hir::Expr]) -> Type{
-        let (callee_ty,mut infer) = self.check_callee(callee);
+        let callee_ty = self.check_callee(callee);
         if let Type::Function(params,return_type) = callee_ty{
             if params.len() == args.len(){
                 let return_ty = *return_type;
                 params.iter().zip(args.iter()).for_each(|(param,arg)|{
-                    if let Some(infer) = infer.as_mut(){
-                        let arg_ty = self.check_expr(arg,Expectation::None);
-                        if infer.infer(&param, &arg_ty).is_err(){
-                            self.error(format!("Cannot infer generic arguments."),arg.span);
-                        }
-                    }
-                    else{
-                        self.check_expr(arg,Expectation::CoercesTo(param.clone()));
-                    }
+                    self.check_expr(arg,Expectation::CoercesTo(param.clone()));
                 });
-                if let Some(infer) = infer{
-                    infer.get_subst(&return_ty).unwrap_or_else(|| self.new_error(format!("Cannot infer generic arguments."), callee.span))
-                }
-                else{
-                    return_ty
-                }
+                return_ty
             }
             else{
                 self.new_error(format!("Expected '{}' args got '{}'.",params.len(),args.len()), callee.span)
             }
+        }
+        else if callee_ty.has_error(){
+            return Type::new_error();
         }
         else{
             let callee_string = self.format_type(&callee_ty);
@@ -553,7 +494,7 @@ impl<'a> TypeChecker<'a>{
     }
     ///Checks a method call
     /// or a call of a field
-    fn check_method_call(&self,receiver:&hir::Expr,name:hir::Ident,generic_args:&[hir::GenericArg],args:&[hir::Expr],expected:Expectation) -> Type{
+    fn check_method_call(&self,receiver:&hir::Expr,name:hir::Ident,generic_args:&[hir::GenericArg],args:&[hir::Expr]) -> Type{
         let receiver_ty = self.check_expr(receiver, Expectation::None);
         let generic_args = self.lowerer().lower_generic_args(generic_args);
         let (generic_params,method_sig) = match self.get_method(&receiver_ty, name.index,false) {
@@ -580,70 +521,37 @@ impl<'a> TypeChecker<'a>{
             }
         };
         let generic_param_len = generic_params.map_or(0, |generics| generics.param_names.len());
-        let infer_generic_args = if generic_param_len != generic_args.len(){
-            if generic_args.is_empty(){
-                true
-            }
-            else{
-                return self.new_error(format!("Expected {} generic args got {}.",generic_param_len,generic_args.len()),name.span);
-            }
-        } else { false };
+        if !self.check_generic_count(generic_param_len, generic_args.len(), name.span){
+            return Type::new_error()
+        }
         let base = generic_params.map_or(0, |generics| generics.base );
         let method_sig = TypeSubst::new_with_base(&generic_args,base).instantiate_signature(&method_sig);
         if method_sig.params.len() != args.len(){
             self.error(format!("Expected {} args got {}.",method_sig.params.len(),args.len()), name.span);
             return method_sig.return_type;
         }
-        let mut infer = if infer_generic_args{
-            let mut infer = TypeInfer::new(generic_param_len,base);
-            if let Expectation::CoercesTo(ty) | Expectation::HasType(ty) = expected{
-                if infer.infer(&ty, &method_sig.return_type).is_err(){
-                    return self.new_error(format!("Cannot infer generic arguments."), name.span);
-                }
-            }
-            Some(infer)
-        }
-        else{
-            None
-        };
         for (param,arg) in method_sig.params.into_iter().zip(args){
-            if let Some(infer) = infer.as_mut(){
-                let arg_ty = self.check_expr(arg, Expectation::None);
-                if infer.infer(&param, &arg_ty).is_err(){
-                    return self.new_error(format!("Cannot infer generic arguments."), name.span);
-                }
-            }
-            else{
-                self.check_expr(arg, Expectation::CoercesTo(param));
-            };
+            self.check_expr(arg, Expectation::CoercesTo(param));
         }
-        if let Some(infer) = infer{
-            let Some(ty) = infer.get_subst(&method_sig.return_type)  else {
-                return self.new_error(format!("Cannot infer generic arguments."), name.span);
-            };
-            ty
-        } 
-        else{
-            method_sig.return_type
-        }
+        method_sig.return_type
     }
     fn get_constructor_with_generic_args(&self,path:&hir::QualifiedPath) -> (GenericArgs,Option<(AdtKind,DefId)>){
-        let generic_args = self.lowerer().get_generic_args(path).expect("There's gotta be some generic args");
-        match path{
+        let adt = match path{
             hir::QualifiedPath::TypeRelative(_,_) => {
-                return (generic_args,None);
+                None
             },  
             hir::QualifiedPath::Resolved(path) => {
                 match path.final_res{
-                    hir::Resolution::Definition(hir::DefKind::Struct,id) => (generic_args,Some((AdtKind::Struct,id))),
-                    hir::Resolution::Definition(hir::DefKind::Variant,id) => (generic_args,Some((AdtKind::Enum,id))),
+                    hir::Resolution::Definition(hir::DefKind::Struct,id) => Some((AdtKind::Struct,id)),
+                    hir::Resolution::Definition(hir::DefKind::Variant,id) => Some((AdtKind::Enum,id)),
                     _ =>{
-                        return (generic_args,None);
+                        None
                     } 
                 }
 
             }
-        }
+        };
+        (self.lowerer().get_generic_args(path).expect("There should be generic args"),adt)
     }
     fn check_struct_literal(&self,expr:&hir::Expr,path:&hir::QualifiedPath,fields:&[hir::FieldExpr]) -> Type{
         self.check_path(path);
@@ -707,7 +615,7 @@ impl<'a> TypeChecker<'a>{
                 self.check_block_expr(stmts, result_expr.as_ref().map(|expr| expr.as_ref()), expected.clone())
             },
             hir::ExprKind::Path(path) => {
-                self.check_expr_path(path, expected.clone())
+                self.check_expr_path(path, false)
             },
             hir::ExprKind::Index(base, index) => {
                 let base_ty = self.check_expr(base, Expectation::None);
@@ -816,7 +724,7 @@ impl<'a> TypeChecker<'a>{
                 self.check_struct_literal(expr,path,fields)
             },
             &hir::ExprKind::MethodCall(ref receiver,method_name,ref generic_args,ref args) => {
-                self.check_method_call(receiver,method_name,generic_args,args,expected.clone())
+                self.check_method_call(receiver,method_name,generic_args,args)
             }
         };
         
@@ -844,35 +752,44 @@ impl<'a> TypeChecker<'a>{
             hir::Resolution::SelfType | hir::Resolution::None => 0
         }
     }
-    fn check_generic_count(&self,expected:usize,got:usize,span:SourceLocation){
+    fn check_generic_count(&self,expected:usize,got:usize,span:SourceLocation) -> bool{
         if got != expected{
-            self.error(format!("Expected '{}' generic args got '{}'.",expected,got), span);
+            self.error(format!("Expected '{}' generic arg{} got '{}'.",expected,if expected == 1 { "" } else {"s"},got), span);
+            true
+        }
+        else{
+            false
         }
     }
-    fn check_path(&self,path:&hir::QualifiedPath){
+
+    fn check_path(&self,path:&hir::QualifiedPath) -> bool{
         match path{
             hir::QualifiedPath::TypeRelative(ty,segment) => {
                 self.check_type(&ty);
                 let ty = self.lower_type(&ty);
                 let Some((generic_params,_)) = self.get_method(&ty, segment.ident.index,true) else {
-                    return self.error(format!("{} has no method '{}'.",self.format_type(&ty),self.ident_interner.get(segment.ident.index)), segment.ident.span)
+                    self.error(format!("{} has no method '{}'.",self.format_type(&ty),self.ident_interner.get(segment.ident.index)), segment.ident.span);
+                    return false;
                 };
                 
                 let generic_param_len = generic_params.map_or(0, |generics| generics.param_names.len());
-                if generic_param_len != segment.args.len(){
-                    return self.error(format!("Expected {} generic args got {}.",generic_param_len,segment.args.len()),segment.ident.span);
+                if !self.check_generic_count(generic_param_len, segment.args.len(), segment.ident.span){
+                    return false;
                 }
+                true
             },
             hir::QualifiedPath::Resolved(path) => {
-                for segment in &path.segments{
-                    self.check_generic_count(self.get_generic_count(&segment.res), segment.args.len(), segment.ident.span);
+                let mut ok = true;
+                for segment in path.segments.iter(){
+                    ok &= self.check_generic_count(self.get_generic_count(&segment.res), segment.args.len(), segment.ident.span);
                 }
+                ok
             }
         }
     }
-    fn check_expr_path(&self,path:&hir::QualifiedPath,_expected:Expectation) -> Type{
-        self.check_path(path);
-        match path{
+    fn check_expr_path(&self,path:&hir::QualifiedPath,as_callee:bool) -> Type{
+        let ok = self.check_path(path);
+        let ty = match path{
             hir::QualifiedPath::Resolved(resolved_path) => {
                 match resolved_path.final_res{
                     hir::Resolution::Variable(variable) => {
@@ -880,23 +797,44 @@ impl<'a> TypeChecker<'a>{
                     },
                     hir::Resolution::Definition(hir::DefKind::Function,function) => {
                         let def = &self.context.functions[function];
-                        let generic_args = self.lowerer().get_generic_args(path).expect("Should have found some generic args for this function");
-                        TypeSubst::new(&generic_args).instantiate_type(&def.sig.as_type())
+                        TypeSubst::new(&self.lowerer().get_generic_args(path).expect("There should be some generic args here")).instantiate_signature(&def.sig).as_type()
                     },
                     hir::Resolution::Definition(hir::DefKind::Variant,id) => {
                         let enum_id = self.context.expect_owner_of(id);
                         let def = &self.context.enums[enum_id];
-                        if !def.variants.iter().find(|variant_def| variant_def.id == id).expect("There should be a variant here").fields.is_empty(){
-                            self.error(format!("Cannot initialize variant '{}' without fields.",resolved_path.format(self.ident_interner)), resolved_path.span);
+                        let variant = def.variants.iter().find(|variant_def| variant_def.id == id).expect("There should be a variant here");
+                        let generic_args = self.lowerer().get_generic_args(path).expect("There should be some generic args here");
+                        if as_callee{
+                            let params = TypeSubst::new(&generic_args).instantiate_types(variant.fields.iter().map(|field| &field.ty));
+                            Type::new_function(params,Type::new_enum(generic_args, enum_id))
                         }
-                        let generic_args = self.lowerer().get_generic_args(path).expect("Should have found some generic args for this enum variant");
-                        Type::new_enum(generic_args, enum_id)
+                        else{
+                            if !variant.fields.is_empty(){
+                                self.error(format!("Cannot initialize variant '{}' without fields.",resolved_path.format(self.ident_interner)), resolved_path.span);
+                            }
+                            Type::new_enum(generic_args, enum_id)
+                        }
+                    },
+                    hir::Resolution::Definition(hir::DefKind::Struct,id) => {
+                        let struct_def = &self.context.structs[id];
+                        let generic_args = self.lowerer().get_generic_args(path).expect("There should be some generic args here");
+                        if as_callee{
+                            let params = TypeSubst::new(&generic_args).instantiate_types(struct_def.fields.iter().map(|field| &field.ty));
+                            Type::new_function(params,Type::new_struct(generic_args, id))
+                        }
+                        else{
+                            if !struct_def.fields.is_empty(){
+                                self.error(format!("Cannot initialize struct '{}' without fields.",resolved_path.format(self.ident_interner)), resolved_path.span);
+                            }
+                            Type::new_struct(generic_args, id)
+                        }
+
                     },
                     hir::Resolution::Builtin(hir::BuiltinKind::Panic) => {
                         Type::new_function(vec![Type::String], Type::Never)
                     },
                     hir::Resolution::Primitive(_) | 
-                    hir::Resolution::Definition(hir::DefKind::Param|hir::DefKind::Struct|hir::DefKind::Enum,_) |
+                    hir::Resolution::Definition(hir::DefKind::Param|hir::DefKind::Enum,_) |
                     hir::Resolution::SelfType | hir::Resolution::None => 
                         self.new_error(format!("Cannot use type '{}' as expr.",resolved_path.format(self.ident_interner)), resolved_path.span),
                 }
@@ -906,11 +844,20 @@ impl<'a> TypeChecker<'a>{
                 let ty = self.lower_type(&ty);
                 let generic_args = self.lowerer().lower_generic_args(&segment.args);
                 let Some((generic_params,method_sig)) = self.get_method(&ty, segment.ident.index,true) else {
+                    if !ty.has_error(){
+                        self.error(format!("{} has no method {}.",self.format_type(&ty),self.ident_interner.get(segment.ident.index)), segment.ident.span);
+                    }
                     return Type::new_error();
                 };
                 let method_sig = TypeSubst::new_with_base(&generic_args,generic_params.map_or(0, |generics| generics.base)).instantiate_signature(&method_sig);
                 method_sig.as_type()
             }
+        };
+        if ok{
+            ty
+        }
+        else{
+            Type::new_error()
         }
     }
 }

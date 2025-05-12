@@ -24,6 +24,7 @@ pub enum Type {
     String,
     Never,
     Error,
+    Infer(u32),
     Param(u32,SymbolIndex),
     Function(Vec<Type>,Box<Type>),
     Array(Box<Type>),
@@ -111,6 +112,7 @@ impl Type{
             Type::Function(params, return_ty) => return_ty.is_closed() && params.iter().all(|param| param.is_closed()),
             Type::Adt(args, _,_) => args.iter().all(|param| param.is_closed()),
             Type::Tuple(elements) => elements.iter().all(|element| element.is_closed()),
+            Type::Infer(_) => false,
             Type::Param(_,_) => false
         }
     }
