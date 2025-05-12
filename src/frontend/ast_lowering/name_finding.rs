@@ -225,7 +225,7 @@ impl<'b,'a> NameFinder<'b>{
             ast::ParsedPatternNodeKind::Tuple(elements) => elements.iter().for_each(|element|{
                 self.find_names_in_pattern(element, bindings,seen_symbols);
             }),
-            ast::ParsedPatternNodeKind::Wildcard | ast::ParsedPatternNodeKind::Literal(_) | ast::ParsedPatternNodeKind::Path(_) => ()
+            ast::ParsedPatternNodeKind::Wildcard | ast::ParsedPatternNodeKind::Literal(_) | ast::ParsedPatternNodeKind::Path(_) | ast::ParsedPatternNodeKind::Infer(_) => ()
         }
     }
     fn find_generic_params(&mut self,owner:DefId,generic_params:Option<&'a ast::ParsedGenericParams>){

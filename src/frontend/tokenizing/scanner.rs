@@ -161,6 +161,7 @@ impl<'src> Scanner<'src>{
             "self" => TokenKind::LowerSelf,
             "Self" => TokenKind::UpperSelf,
             "ref" => TokenKind::Ref,
+            src if src.chars().all(|char| char == '_') => TokenKind::Wildcard,
             _ => TokenKind::Identifier
         })
     }

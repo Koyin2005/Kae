@@ -101,7 +101,6 @@ impl<'a> TypeChecker<'a>{
             },
             hir::TypeKind::Path(path) => {
                 self.check_path(path);
-
             }
         }
     }
@@ -268,9 +267,11 @@ impl<'a> TypeChecker<'a>{
                 self.check_type_is_expected(literal_ty, &expected_type, pattern.span)
             },
             hir::PatternKind::Struct(path, fields) => {
-                self.check_path(path);
-                let (generic_args,Some((constructor_kind,id))) = self.get_constructor_with_generic_args(path) else{
-                    self.error(format!("Cannot use '{}' as constructor.",path.format(self.ident_interner)),pattern.span);
+                if let hir::InferOrPath::Path(path) = path{
+                    self.check_path(path);
+                }
+                let (generic_args,Some((constructor_kind,id))) = self.get_constructor_with_generic_args(path,Some(&expected_type)) else{
+                    self.error(if let hir::InferOrPath::Path(path) = path { format!("Cannot use '{}' as constructor.",path.format(self.ident_interner))} else { format!("Cannot infer type of constructor.")},pattern.span);
                     return;
                 };
                 let field_tys = match constructor_kind{
@@ -444,16 +445,41 @@ impl<'a> TypeChecker<'a>{
         };
         ty
     }
-    fn check_callee(&self,callee:&hir::Expr) -> Type{
+    fn check_callee(&self,callee:&hir::Expr,expected_ty:Option<&Type>) -> Type{
         match &callee.kind{
             hir::ExprKind::Path(path) => {
-                self.check_expr_path(path, true)
+                match path{
+                    hir::PathExpr::Path(path) => {
+                        self.check_expr_path(path, true)
+                    },
+                    hir::PathExpr::Infer(name) => {
+                        expected_ty.and_then(|ty| ty.as_adt().map(|info| (ty,info))).and_then(|(ty,(generic_args,id,kind))|{
+                            match kind{
+                                AdtKind::Enum => {
+                                    self.context.get_variant_of(id, name.index).map(|variant|{
+                                        let mut all_anon_fields = true;
+                                        let params = TypeSubst::new(&generic_args).instantiate_types(variant.fields.iter().map(|field|{
+                                            all_anon_fields &= self.ident_interner.get(field.name.index).parse::<usize>().is_ok();
+                                            &field.ty
+                                        }));
+                                        if !all_anon_fields{
+                                            self.error(format!("Cannot use variant '{}' as callable.",self.ident_interner.get(name.index)), name.span);
+                                        }
+                                        Type::new_function(params, ty.clone())
+                                    })
+
+                                },
+                                AdtKind::Struct => None
+                            }
+                        }).unwrap_or_else(|| self.new_error(format!("Cannot infer type."),name.span))
+                    }
+                }
             },
             _ => self.check_expr(callee, Expectation::None)
         }
     }
-    fn check_call_expr(&self,callee:&hir::Expr,args:&[hir::Expr]) -> Type{
-        let callee_ty = self.check_callee(callee);
+    fn check_call_expr(&self,callee:&hir::Expr,args:&[hir::Expr],expected_ty:Option<&Type>) -> Type{
+        let callee_ty = self.check_callee(callee,expected_ty);
         if let Type::Function(params,return_type) = callee_ty{
             if params.len() == args.len(){
                 let return_ty = *return_type;
@@ -475,7 +501,7 @@ impl<'a> TypeChecker<'a>{
         }
     }
     fn get_member(&self,ty:&Type,member:SymbolIndex) -> Option<TypeMember>{
-        if let &Type::Adt(ref generic_args,id, AdtKind::Enum) = ty{
+        if let Some((generic_args,id,AdtKind::Enum)) = ty.as_adt(){
             if let Some(variant) = self.context.get_variant_of(id, member){
                 return Some(TypeMember::Variant(id,generic_args.clone(), variant));
             }
@@ -549,50 +575,71 @@ impl<'a> TypeChecker<'a>{
         }
         method_sig.return_type
     }
-    fn get_constructor_with_generic_args(&self,path:&hir::QualifiedPath) -> (GenericArgs,Option<(AdtKind,DefId)>){
-        let generic_args = self.lowerer().get_generic_args(path).expect("There should be generic args");
+    fn get_constructor_with_generic_args(&self, path: &hir::InferOrPath, expected_type: Option<&Type>) -> (GenericArgs,Option<(AdtKind,DefId)>){
         match path{
-            hir::QualifiedPath::TypeRelative(ty,segment) => {
-                let ty = self.lower_type(ty);
-                self.get_member(&ty,segment.ident.index).and_then(|member|{
-                    let TypeMember::Variant(_,generic_args,variant) = member else {
-                        return None;
-                    };
-                    Some((generic_args,Some((AdtKind::Enum,variant.id))))
-                }).unwrap_or_else(|| (generic_args,None))
-            },  
-            hir::QualifiedPath::Resolved(path) => {
-                match path.final_res{
-                    hir::Resolution::Definition(hir::DefKind::Struct,id) => (generic_args,Some((AdtKind::Struct,id))),
-                    hir::Resolution::Definition(hir::DefKind::Variant,id) => (generic_args,Some((AdtKind::Enum,id))),
-                    hir::Resolution::SelfType => {
-                        if let Some((generic_args,kind,id)) = self.self_type.borrow().clone().and_then(|self_ty|{
-                            match self_ty {
-                                Type::Adt(generic_args,id,AdtKind::Struct) => {
-                                    Some((generic_args,AdtKind::Struct,id))
-                                },
-                                _ => None
+            &hir::InferOrPath::Infer(_,name) => {
+                let generic_args_and_adt = expected_type.and_then(|ty|{
+                    ty.as_adt().and_then(|(generic_args,id,kind)|{
+                        match (kind,name){
+                            (AdtKind::Enum,Some(name)) => {
+                                self.context.get_variant_of(id,name.index).map(|variant| (generic_args.clone(),(AdtKind::Enum,variant.id)))
+                            },
+                            (AdtKind::Struct,None) => {
+                                Some((generic_args.clone(),(AdtKind::Struct,id)))
+                            },
+                            _ => None
+                        }
+                        
+                    })
+                });
+                let Some((generic_args,kind_and_id)) = generic_args_and_adt else{
+                    return (GenericArgs::new_empty(),None)
+                };
 
-                            }
-                        }){
-                            (generic_args,Some((kind,id)))
+                (generic_args,Some(kind_and_id))
+            },
+            hir::InferOrPath::Path(path) => {
+                let generic_args = self.lowerer().get_generic_args(path).expect("There should be generic args");
+                match path{
+                    hir::QualifiedPath::TypeRelative(ty,segment) => {
+                        let ty = self.lower_type(ty);
+                        self.get_member(&ty,segment.ident.index).and_then(|member|{
+                            let TypeMember::Variant(_,generic_args,variant) = member else {
+                                return None;
+                            };
+                            Some((generic_args,Some((AdtKind::Enum,variant.id))))
+                        }).unwrap_or_else(|| (generic_args,None))
+                    },  
+                    hir::QualifiedPath::Resolved(path) => {
+                        match path.final_res{
+                            hir::Resolution::Definition(hir::DefKind::Struct,id) => (generic_args,Some((AdtKind::Struct,id))),
+                            hir::Resolution::Definition(hir::DefKind::Variant,id) => (generic_args,Some((AdtKind::Enum,id))),
+                            hir::Resolution::SelfType => {
+                                self.self_type.borrow().as_ref().and_then(|ty|{
+                                    ty.as_adt()
+                                }).map(|(generic_args,id,kind)|{
+                                    match kind{
+                                        AdtKind::Struct => (generic_args.clone(),Some((kind,id))),
+                                        AdtKind::Enum => (generic_args.clone(),None)
+                                    }
+                                }).unwrap_or_else(|| (generic_args,None))
+                            },
+                            _ =>{
+                                (generic_args,None)
+                            } 
                         }
-                        else{
-                            (generic_args,None)
-                        }
-                    },
-                    _ =>{
-                        (generic_args,None)
-                    } 
+
+                    }
                 }
-
             }
         }
     }
-    fn check_struct_literal(&self,expr:&hir::Expr,path:&hir::QualifiedPath,fields:&[hir::FieldExpr]) -> Type{
-        self.check_path(path);
-        let (generic_args,Some((constructor_kind,id))) = self.get_constructor_with_generic_args(path) else {
-            let err = self.new_error(format!("Cannot use '{}' as constructor.",path.format(self.ident_interner)),expr.span);
+    fn check_struct_literal(&self,expr:&hir::Expr,path:&hir::InferOrPath,fields:&[hir::FieldExpr],expected_type:Option<&Type>) -> Type{
+        if let hir::InferOrPath::Path(path) = path{
+            self.check_path(path);
+        }
+        let (generic_args,Some((constructor_kind,id))) = self.get_constructor_with_generic_args(path,expected_type) else {
+            let err = self.new_error(if let hir::InferOrPath::Path(path) = path { format!("Cannot use '{}' as constructor.",path.format(self.ident_interner))} else { format!("Cannot infer type of constructor.")},expr.span);
             for field in fields{
                 self.check_expr(&field.expr, Expectation::None);
             }
@@ -651,7 +698,21 @@ impl<'a> TypeChecker<'a>{
                 self.check_block_expr(stmts, result_expr.as_ref().map(|expr| expr.as_ref()), expected.clone())
             },
             hir::ExprKind::Path(path) => {
-                self.check_expr_path(path, matches!(expected,Expectation::CoercesTo(Type::Function(_,_))|Expectation::HasType(Type::Function(_,_))))
+                match path{
+                    hir::PathExpr::Path(path) => {
+                        self.check_expr_path(path, matches!(expected,Expectation::CoercesTo(Type::Function(_,_))|Expectation::HasType(Type::Function(_,_))))
+                    },
+                    &hir::PathExpr::Infer(name) => {
+                         expected.as_type().and_then(|ty|{
+                            match ty.as_adt() {
+                                Some((_,id,AdtKind::Enum)) => {
+                                    self.context.get_variant_of(id, name.index).map(|_| ty.clone())
+                                },
+                                _ => None
+                            }
+                         }).unwrap_or_else(|| self.new_error(format!("Cannot infer type of variant."),name.span))
+                    }
+                }
             },
             hir::ExprKind::Index(base, index) => {
                 let base_ty = self.check_expr(base, Expectation::None);
@@ -686,7 +747,7 @@ impl<'a> TypeChecker<'a>{
                 Type::new_unit()
             },
             hir::ExprKind::Call(callee, args) => {
-                self.check_call_expr(callee,args)
+                self.check_call_expr(callee,args,expected.as_type())
             },
             hir::ExprKind::Binary(op,left,right) => {
                 self.check_binary_expr(*op, left, right, expr.span)
@@ -757,7 +818,7 @@ impl<'a> TypeChecker<'a>{
                 }
             },
             hir::ExprKind::StructLiteral(path,fields) => {
-                self.check_struct_literal(expr,path,fields)
+                self.check_struct_literal(expr,path,fields,expected.as_type())
             },
             &hir::ExprKind::MethodCall(ref receiver,method_name,ref generic_args,ref args) => {
                 self.check_method_call(receiver,method_name,generic_args,args)
@@ -798,11 +859,11 @@ impl<'a> TypeChecker<'a>{
         }
     }
 
-    fn check_path(&self,path:&hir::QualifiedPath) -> bool{
+    fn check_path(&self, path: &hir::QualifiedPath) -> bool{
         match path{
             hir::QualifiedPath::TypeRelative(ty,segment) => {
-                self.check_type(&ty);
-                let ty = self.lower_type(&ty);
+                self.check_type(ty);
+                let ty = self.lower_type(ty);
                 let Some(member) = self.get_member(&ty, segment.ident.index) else {
                     self.error(format!("{} has no member '{}'.",self.format_type(&ty),self.ident_interner.get(segment.ident.index)), segment.ident.span);
                     return false;
@@ -829,7 +890,7 @@ impl<'a> TypeChecker<'a>{
             }
         }
     }
-    fn check_expr_path(&self,path:&hir::QualifiedPath,as_callable:bool) -> Type{
+    fn check_expr_path(&self, path: &hir::QualifiedPath, as_callable: bool) -> Type{
         let ok = self.check_path(path);
         let ty = match path{
             hir::QualifiedPath::Resolved(resolved_path) => {
@@ -924,9 +985,6 @@ impl<'a> TypeChecker<'a>{
                 let ty = self.lower_type(&ty);
                 let member = self.get_member(&ty, segment.ident.index);
                 let Some(member) = member else {
-                    if !ty.has_error(){
-                        self.error(format!("{} has no member {}.",self.format_type(&ty),self.ident_interner.get(segment.ident.index)), segment.ident.span);
-                    }
                     return Type::new_error();
                 };
                 match member{

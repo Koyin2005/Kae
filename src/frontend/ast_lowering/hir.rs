@@ -174,7 +174,7 @@ pub enum ExprKind {
     If(Box<Expr>,Box<Expr>,Option<Box<Expr>>),
     Match(Box<Expr>,Vec<MatchArm>),
     While(Box<Expr>,Box<Expr>),
-    Path(QualifiedPath),
+    Path(PathExpr),
     Block(Vec<Stmt>,Option<Box<Expr>>),
     Function(Box<Function>),
     Typename(HirId,Type),
@@ -183,7 +183,12 @@ pub enum ExprKind {
     Index(Box<Expr>,Box<Expr>),
     Assign(Box<Expr>,Box<Expr>),
     MethodCall(Box<Expr>,Ident,Vec<GenericArg>,Vec<Expr>),
-    StructLiteral(QualifiedPath,Vec<FieldExpr>),
+    StructLiteral(InferOrPath,Vec<FieldExpr>),
+}
+#[derive(Clone,Debug)]
+pub enum PathExpr {
+    Infer(Ident),
+    Path(QualifiedPath)
 }
 #[derive(Clone,Debug)]
 pub struct MatchArm{
@@ -218,12 +223,18 @@ pub struct FieldPattern{
     pub name : Ident,
     pub pattern : Pattern
 }
+
+#[derive(Clone,Debug)]
+pub enum InferOrPath {
+    Path(QualifiedPath),
+    Infer(SourceLocation,Option<Ident>)
+}
 #[derive(Clone,Debug)]
 pub enum PatternKind {
     Binding(VariableIndex,Ident,Option<Box<Pattern>>),
     Tuple(Vec<Pattern>),
     Literal(LiteralKind),
-    Struct(QualifiedPath,Vec<FieldPattern>),
+    Struct(InferOrPath,Vec<FieldPattern>),
     Wildcard
 }
 #[derive(Clone,Debug)]
@@ -290,11 +301,12 @@ impl QualifiedPath{
     pub fn format(&self,interner:&SymbolInterner) -> String{
         match self{
             Self::TypeRelative(ty,segment) => {
+                let formatted_ty = ty.format(interner);
                 if segment.args.is_empty(){
-                    format!("{}::{}",ty.format(interner),interner.get(segment.ident.index))
+                    format!("{}::{}",formatted_ty,interner.get(segment.ident.index))
                 }
                 else{
-                    format!("{}::{}[{}]",ty.format(interner),interner.get(segment.ident.index),segment.args.iter().enumerate().map(|(i,arg)|{
+                    format!("{}::{}[{}]",formatted_ty,interner.get(segment.ident.index),segment.args.iter().enumerate().map(|(i,arg)|{
                         if i>0{
                             format!(",{}",arg.ty.format(interner))
                         }

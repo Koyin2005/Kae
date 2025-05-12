@@ -5,7 +5,7 @@ use fxhash::FxHashSet;
 use crate::{
     data_structures::IndexVec, 
     frontend::{
-        ast_lowering::hir::{Generics, VariantDef}, parsing::ast::{self, NodeId, ParsedType, Symbol}, 
+        ast_lowering::hir::{Generics, VariantDef}, parsing::ast::{self, InferPathKind, NodeId, ParsedType, Symbol}, 
         tokenizing::SourceLocation
     }
 };
@@ -291,7 +291,7 @@ impl<'a> AstLowerer<'a>{
             },
             ast::ParsedPatternNodeKind::Path(path) => {
                 let path:Result<hir::QualifiedPath,LoweringErr> = self.lower_path(&path);
-                (PatternKind::Struct(path?, vec![]),span)
+                (PatternKind::Struct(hir::InferOrPath::Path(path?), vec![]),span)
             },
             ast::ParsedPatternNodeKind::Tuple(elements) => {
                 let elements:Vec<_> = elements.into_iter().map(|element|{
@@ -300,7 +300,14 @@ impl<'a> AstLowerer<'a>{
                 (PatternKind::Tuple(elements.into_iter().collect::<Result<Vec<_>,_>>()?),span)
             },
             ast::ParsedPatternNodeKind::Struct { path, fields } => {
-                let path:Result<hir::QualifiedPath,LoweringErr> = self.lower_path(&path);
+                let path:Result<hir::InferOrPath,LoweringErr> = match path.infer_path{
+                    ast::InferPathKind::Infer(symbol) => {
+                        Ok(hir::InferOrPath::Infer(pattern.location,symbol.map(|symbol|{self.intern_symbol(symbol)})))
+                    },
+                    ast::InferPathKind::Path(path) => {
+                        self.lower_path(&path).map(|path| hir::InferOrPath::Path(path))
+                    }
+                };
                 let fields:Vec<_> = fields.into_iter().filter_map(|(symbol,pattern)|{
                     let field_symbol = self.intern_symbol(symbol);
                     let pattern = self.lower_pattern(pattern);
@@ -310,7 +317,8 @@ impl<'a> AstLowerer<'a>{
                 }).collect();
                 (PatternKind::Struct(path?, fields.into_iter().collect::<Result<Vec<_>,_>>()?),span)
             }
-            ast::ParsedPatternNodeKind::Wildcard => (PatternKind::Wildcard,span)
+            ast::ParsedPatternNodeKind::Wildcard => (PatternKind::Wildcard,span),
+            ast::ParsedPatternNodeKind::Infer(name) => (PatternKind::Struct(hir::InferOrPath::Infer(pattern.location,Some(self.intern_symbol(name))), vec![]),pattern.location)
         };
         Ok(hir::Pattern{
             id : self.next_id(),
@@ -409,7 +417,21 @@ impl<'a> AstLowerer<'a>{
             ast::ExprNodeKind::Function(function) => hir::ExprKind::Function(Box::new(self.lower_function(expr.id,*function)?)),
             ast::ExprNodeKind::Print(args) => hir::ExprKind::Print(args.into_iter().map(|arg| self.lower_expr(arg)).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>()?),
             ast::ExprNodeKind::GetPath(path) => {
-                hir::ExprKind::Path(self.lower_path(&path)?)
+                hir::ExprKind::Path(match path.infer_path{
+                    InferPathKind::Infer(name) => {
+                        if let Some(name) = name{
+                            hir::PathExpr::Infer(self.intern_symbol(name))
+                        }
+                        else{
+                            self.error(format!("Cannot use '_' in this position."), path.location);
+                            return Err(LoweringErr);
+                        }
+                    },
+                    InferPathKind::Path(path) => {
+                        hir::PathExpr::Path(self.lower_path(&path)?)
+                    }
+                }
+                )
             },
             ast::ExprNodeKind::Logical { op, left, right } => {
                 let left = self.lower_expr(*left);
@@ -427,8 +449,16 @@ impl<'a> AstLowerer<'a>{
             ast::ExprNodeKind::Property(expr, field) => hir::ExprKind::Field(Box::new(self.lower_expr(*expr)?), self.intern_symbol(field)),
             ast::ExprNodeKind::Return(expr) => hir::ExprKind::Return(expr.map(|expr| self.lower_expr(*expr).map(Box::new)).map_or(Ok(None), |result| result.map(Some))?),
             ast::ExprNodeKind::StructInit { path, fields } => {
-                let Ok(path) = self.lower_path(&path) else {
-                    return Err(LoweringErr);
+                let path = match path.infer_path{
+                    InferPathKind::Infer(name) => {
+                        hir::InferOrPath::Infer(path.location,name.map(|name| self.intern_symbol(name)))
+                    },
+                    InferPathKind::Path(path) => {
+                        let Ok(path) = self.lower_path(&path) else {
+                            return Err(LoweringErr);
+                        };
+                        hir::InferOrPath::Path(path)
+                    }
                 };
                 let fields = fields.into_iter().map(|(field_name,field_expr)|{
                     let field_name = self.intern_symbol(field_name);
@@ -444,7 +474,7 @@ impl<'a> AstLowerer<'a>{
                         self.lower_path(&name).map(|path| hir::Expr{
                             id:self.next_id(),
                             span,
-                            kind:hir::ExprKind::Path(path)
+                            kind:hir::ExprKind::Path(hir::PathExpr::Path(path))
                         })
                     },
                     ast::ParsedAssignmentTargetKind::Index { lhs:indexed, rhs:index } => {

@@ -1,6 +1,11 @@
 use crate::{frontend::{parsing::ast::{ParsedGenericParam, ParsedMethod, ParsedParam, Symbol}, tokenizing::{tokens::{Token, TokenKind}, SourceLocation}}, identifiers::SymbolInterner};
 
-use super::ast::{EnumDef, ExprNode, ExprNodeKind, FuncDef, Impl, LiteralKind, NodeId, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, Path, PathSegment, PatternMatchArmNode, StmtNode, StructDef};
+use super::ast::{
+    EnumDef, ExprNode, ExprNodeKind, FuncDef, 
+    Impl, InferPath, InferPathKind, LiteralKind, NodeId, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, 
+    ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, Path, 
+    PathSegment, PatternMatchArmNode, StmtNode, StructDef
+};
 
 #[repr(u8)]
 #[derive(Clone, Copy,PartialEq, Eq, PartialOrd, Ord)]
@@ -318,43 +323,63 @@ impl<'a> Parser<'a>{
             name :symbol,
             generic_args : None,
             location : symbol.location
-        }], location: symbol.location }
+        }], location: symbol.location,
+        }
+    }
+    fn struct_expr_fields(&mut self) -> Result<Vec<(Symbol,ExprNode)>,ParsingFailed>{
+        let mut fields = Vec::new();
+        while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
+            self.expect(TokenKind::Identifier, "Expect a valid field name.");
+            
+            let field_name = self.prev_token;
+            let field_expr = if self.matches(TokenKind::Colon){
+                self.expression()?
+            }
+            else{
+                let span = SourceLocation::one_line(field_name.line);
+                ExprNode{ id : self.next_id(),
+                    location : span,
+                    kind : ExprNodeKind::GetPath({
+                        let symbol = self.intern_symbol(field_name.lexeme.to_string(), span);
+                        self.into_path(symbol).into()
+                    })
+                }
+            };
+            fields.push((self.intern_symbol(field_name.lexeme.to_string(), SourceLocation::one_line(field_name.line)),field_expr));
+            if !self.matches(TokenKind::Coma) {
+                break;
+            }
+        }
+        self.expect(TokenKind::RightBrace, "Expect '}' after struct fields.");
+        Ok(fields)
+
     }
     fn name(&mut self)->Result<ExprNode,ParsingFailed>{
-        let path = self.parse_path()?;
+        let (location,kind) = if self.prev_token.kind == TokenKind::Dot{
+            let start = self.prev_token.line;
+            let name = self.parse_identifer("Expected an indentifier.");
+            let location = SourceLocation::new(start, name.location.end_line);
+            (location,InferPathKind::Infer(Some(name)))
+        }
+        else if self.prev_token.kind == TokenKind::Wildcard{
+            (SourceLocation::one_line(self.prev_token.line),InferPathKind::Infer(None))
+
+        }
+        else{
+            let path = self.parse_path()?;
+            (path.location,InferPathKind::Path(path))
+        };
+        let path = InferPath { location, infer_path: kind};
         if self.matches(TokenKind::LeftBrace) {
             let start = self.prev_token.line;
-            let mut fields = Vec::new();
-            while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
-                self.expect(TokenKind::Identifier, "Expect a valid field name.");
-                
-                let field_name = self.prev_token;
-                let field_expr = if self.matches(TokenKind::Colon){
-                    self.expression()?
-                }
-                else{
-                    let span = SourceLocation::one_line(field_name.line);
-                    ExprNode{ id : self.next_id(),
-                        location : span,
-                        kind : ExprNodeKind::GetPath({
-                            let symbol = self.intern_symbol(field_name.lexeme.to_string(), span);
-                            self.into_path(symbol)
-                        })
-                    }
-                };
-                fields.push((self.intern_symbol(field_name.lexeme.to_string(), SourceLocation::one_line(field_name.line)),field_expr));
-                if !self.matches(TokenKind::Coma) {
-                    break;
-                }
-            }
-            self.expect(TokenKind::RightBrace, "Expect '}' after struct fields.");
+            let fields = self.struct_expr_fields()?;
             Ok(ExprNode{ id : self.next_id(), 
                     location: SourceLocation::new(start, self.prev_token.line),
                     kind: ExprNodeKind::StructInit { path, fields } 
                 })
         }
         else{
-            Ok(ExprNode{ id : self.next_id(),location:path.location,kind:ExprNodeKind::GetPath(path)})
+            Ok(ExprNode{ id : self.next_id(),location,kind:ExprNodeKind::GetPath(path)})
         }
         
         
@@ -528,7 +553,7 @@ impl<'a> Parser<'a>{
             ExprNodeKind::Property(lhs,field  ) => {
                 ParsedAssignmentTargetKind::Field { lhs, field }
             },
-            ExprNodeKind::GetPath(path) => {
+            ExprNodeKind::GetPath(InferPath { location:_, infer_path:InferPathKind::Path(path) }) => {
                 ParsedAssignmentTargetKind::Name(path)
             },
             ExprNodeKind::Index { lhs, rhs } => {
@@ -570,7 +595,7 @@ impl<'a> Parser<'a>{
             TokenKind::If => self.if_expression(),
             TokenKind::LeftBrace => self.block(),
             TokenKind::LeftBracket => self.array(),
-            TokenKind::Identifier | TokenKind::LowerSelf | TokenKind::UpperSelf => self.name(),
+            TokenKind::Identifier | TokenKind::LowerSelf | TokenKind::UpperSelf | TokenKind::Dot | TokenKind::Wildcard => self.name(),
             TokenKind::Print => self.print(),
             TokenKind::Match => self.pattern_match(),
             TokenKind::While => self.while_expression(),
@@ -701,12 +726,32 @@ impl<'a> Parser<'a>{
             self.expect(TokenKind::Identifier, "Expected valid name for path segment.");
             segments.push(self.parse_path_segment()?);
         }
-        Ok(Path {location: SourceLocation::new(start.start_line, self.prev_token.line), segments  })
+        Ok(Path {location: SourceLocation::new(start.start_line, self.prev_token.line), segments})
     }
     fn pattern(&mut self)->Result<ParsedPatternNode,ParsingFailed>{
-        let (location,kind) = if self.matches(TokenKind::Identifier){
-            let path = self.parse_path()?;
-            let head = path.segments.first().expect("Should be at least 1 segment").clone();
+        let starts_with_dot = self.matches(TokenKind::Dot);
+        let (location,kind) = if starts_with_dot || self.matches(TokenKind::Identifier) || self.check(TokenKind::Wildcard){
+            let path = if starts_with_dot{
+                let start = self.prev_token.line;
+                let name = self.parse_identifer("Expected identifier after '.'");
+                InferPath{
+                    location:SourceLocation::new(start, name.location.end_line),
+                    infer_path : InferPathKind::Infer(Some(name))
+                }
+            }
+            else if self.matches(TokenKind::Wildcard){
+                InferPath{
+                    location : SourceLocation::one_line(self.prev_token.line),
+                    infer_path : InferPathKind::Infer(None)
+                }
+            }
+            else{
+                let path = self.parse_path()?;
+                InferPath{
+                    location : path.location,
+                    infer_path : InferPathKind::Path(path)
+                }
+            };
             if self.matches(TokenKind::LeftBrace){
                 let mut fields = Vec::new();
                 while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
@@ -753,20 +798,39 @@ impl<'a> Parser<'a>{
                 )
 
             }
-            else if self.interner.get(head.name.content).chars().all(|char| char == '_') && path.segments.iter().all(|segment| self.interner.get(segment.name.content).chars().all(|char| char == '_')){
-                (path.location,ParsedPatternNodeKind::Wildcard)
-            }
-            else if path.segments.len() > 1{
-                (head.location,ParsedPatternNodeKind::Path(path))
-            }
-            else if self.matches(TokenKind::Is){
-                let pattern = self.pattern()?;
-                (head.location,ParsedPatternNodeKind::Is(head.name, Box::new(pattern)))
-            }
             else{
-                (head.location,ParsedPatternNodeKind::Name(head.name.content))
+                match path.infer_path{
+                    InferPathKind::Infer(infer) => {
+                        if let Some(symbol) = infer{
+                            (path.location,ParsedPatternNodeKind::Infer(symbol))
+                        }
+                        else{
+                            (path.location,ParsedPatternNodeKind::Wildcard)
+                        }
+                    },
+                    InferPathKind::Path(path) => {
+                        match path.segments.as_slice(){
+                            [head] => {
+                                if head.generic_args.is_none(){
+                                    if self.matches(TokenKind::Is){
+                                        let pattern = self.pattern()?;
+                                        (head.location,ParsedPatternNodeKind::Is(head.name, Box::new(pattern)))
+                                    }
+                                    else{
+                                        (head.location,ParsedPatternNodeKind::Name(head.name.content))
+                                    }
+                                }
+                                else{
+                                    (path.location,ParsedPatternNodeKind::Path(path))
+                                }
+                            },
+                            _ => {
+                                (path.location,ParsedPatternNodeKind::Path(path))
+                            }
+                        }
+                    }
+                }
             }
-            
         }
         else if self.matches(TokenKind::LeftParen){
             let start = self.prev_token.line;
@@ -997,7 +1061,7 @@ impl<'a> Parser<'a>{
                         generic_args:None,
                         location:param.0.location
                     }
-                ], location: param.0.location })
+                ], location: param.0.location})
             }).collect(),location:name.location})
         }
         else{
@@ -1007,7 +1071,7 @@ impl<'a> Parser<'a>{
             PathSegment{
                 name,
                 generic_args,
-                location:name.location
+                location:name.location,
             }
         ], location: name.location });
         self.expect(TokenKind::LeftBrace, "Expect '{' after impl type.");

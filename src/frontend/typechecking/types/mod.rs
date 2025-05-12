@@ -104,6 +104,12 @@ impl Type{
             _ => None
         }
     }
+    pub fn as_adt(&self) -> Option<(&GenericArgs,DefId,AdtKind)>{
+        match self{
+            &Self::Adt(ref generic_args,id,kind) => Some((generic_args,id,kind)),
+            _ => None
+        }
+    }
     pub fn is_closed(&self) -> bool{
         match self{
             Type::Int | Type::Bool | Type::String | Type::Never | Type::Error | Type::Float => true,

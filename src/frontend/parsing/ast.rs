@@ -40,7 +40,7 @@ pub struct PatternMatchArmNode{
 }
 pub enum ExprNodeKind {
     Literal(LiteralKind),
-    GetPath(Path),
+    GetPath(InferPath),
     BinaryOp{
         op : ParsedBinaryOp,
         left : Box<ExprNode>,
@@ -97,7 +97,7 @@ pub enum ExprNodeKind {
     TypenameOf(ParsedType),
     Property(Box<ExprNode>,Symbol),
     StructInit{
-        path : Path,
+        path : InferPath,
         fields : Vec<(Symbol,ExprNode)>
     },
     MethodCall{
@@ -226,13 +226,13 @@ pub enum ParsedPatternNodeKind {
     Tuple(Vec<ParsedPatternNode>),
     Literal(LiteralKind),
     Struct{
-        path : Path,
+        path : InferPath,
         fields : Vec<(Symbol,ParsedPatternNode)>
     },
     Path(Path),
+    Infer(Symbol),
     Wildcard
 }
-
 
 
 #[derive(Clone)]
@@ -289,5 +289,20 @@ pub struct PathSegment{
 #[derive(Clone,Debug)]
 pub struct Path{
     pub segments : Vec<PathSegment>,
-    pub location : SourceLocation
+    pub location : SourceLocation,
+}
+impl From<Path> for InferPath{
+    fn from(value: Path) -> Self {
+        Self { location: value.location, infer_path: InferPathKind::Path(value) }
+    }
+}
+#[derive(Clone)]
+pub struct InferPath{
+    pub location : SourceLocation,
+    pub infer_path : InferPathKind
+}
+#[derive(Clone)]
+pub enum InferPathKind {
+    Path(Path),
+    Infer(Option<Symbol>)
 }

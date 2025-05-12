@@ -62,5 +62,6 @@ pub enum TokenKind{
     Typename,
     
     Identifier,
+    Wildcard,
     Eof
 }
