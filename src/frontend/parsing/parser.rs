@@ -1,7 +1,6 @@
 use crate::{frontend::{parsing::ast::{ParsedGenericParam, ParsedMethod, ParsedParam, Symbol}, tokenizing::{tokens::{Token, TokenKind}, SourceLocation}}, identifiers::SymbolInterner};
 
-use super::ast::{EnumDef, ExprNode, ExprNodeKind, FuncDef, Impl, LiteralKind, NodeId, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, 
-    ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, Path, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, PathSegment, PatternMatchArmNode, StmtNode, StructDef};
+use super::ast::{EnumDef, ExprNode, ExprNodeKind, FuncDef, Impl, LiteralKind, NodeId, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, Path, PathSegment, PatternMatchArmNode, StmtNode, StructDef};
 
 #[repr(u8)]
 #[derive(Clone, Copy,PartialEq, Eq, PartialOrd, Ord)]
@@ -845,7 +844,19 @@ impl<'a> Parser<'a>{
                 }
             }
             self.expect(TokenKind::RightBrace, "Expect '}'.");
-            Ok(ParsedEnumVariant { name:variant_name, fields })
+            Ok(ParsedEnumVariant { name:variant_name, fields})
+        }
+        else if self.matches(TokenKind::LeftParen){
+            let mut fields = Vec::new();
+            while !self.check(TokenKind::RightParen) && !self.is_at_end() {
+                let field_name = self.new_symbol(format!("{}",fields.len()),SourceLocation::new(self.current_token.line, self.current_token.line));
+                fields.push((field_name,self.parse_type()?));
+                if !self.matches(TokenKind::Coma){
+                    break;
+                }
+            }
+            self.expect(TokenKind::RightParen, "Expect '}'.");
+            Ok(ParsedEnumVariant { name: variant_name, fields})
         }
         else{
             Ok(ParsedEnumVariant{name:variant_name,fields:Vec::new()})

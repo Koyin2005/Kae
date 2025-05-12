@@ -615,7 +615,7 @@ impl<'a> TypeChecker<'a>{
                 self.check_block_expr(stmts, result_expr.as_ref().map(|expr| expr.as_ref()), expected.clone())
             },
             hir::ExprKind::Path(path) => {
-                self.check_expr_path(path, false)
+                self.check_expr_path(path, matches!(expected,Expectation::CoercesTo(Type::Function(_,_))|Expectation::HasType(Type::Function(_,_))))
             },
             hir::ExprKind::Index(base, index) => {
                 let base_ty = self.check_expr(base, Expectation::None);
@@ -787,7 +787,7 @@ impl<'a> TypeChecker<'a>{
             }
         }
     }
-    fn check_expr_path(&self,path:&hir::QualifiedPath,as_callee:bool) -> Type{
+    fn check_expr_path(&self,path:&hir::QualifiedPath,as_callable:bool) -> Type{
         let ok = self.check_path(path);
         let ty = match path{
             hir::QualifiedPath::Resolved(resolved_path) => {
@@ -804,8 +804,15 @@ impl<'a> TypeChecker<'a>{
                         let def = &self.context.enums[enum_id];
                         let variant = def.variants.iter().find(|variant_def| variant_def.id == id).expect("There should be a variant here");
                         let generic_args = self.lowerer().get_generic_args(path).expect("There should be some generic args here");
-                        if as_callee{
-                            let params = TypeSubst::new(&generic_args).instantiate_types(variant.fields.iter().map(|field| &field.ty));
+                        if as_callable{
+                            let mut all_anon_fields = true;
+                            let params = TypeSubst::new(&generic_args).instantiate_types(variant.fields.iter().map(|field|{
+                                all_anon_fields &= self.ident_interner.get(field.name.index).parse::<usize>().is_ok();
+                                &field.ty
+                            }));
+                            if !all_anon_fields{
+                                self.error(format!("Cannot use variant '{}' as callable.",resolved_path.format(self.ident_interner)), resolved_path.span);
+                            }
                             Type::new_function(params,Type::new_enum(generic_args, enum_id))
                         }
                         else{
@@ -818,8 +825,15 @@ impl<'a> TypeChecker<'a>{
                     hir::Resolution::Definition(hir::DefKind::Struct,id) => {
                         let struct_def = &self.context.structs[id];
                         let generic_args = self.lowerer().get_generic_args(path).expect("There should be some generic args here");
-                        if as_callee{
-                            let params = TypeSubst::new(&generic_args).instantiate_types(struct_def.fields.iter().map(|field| &field.ty));
+                        if as_callable{
+                            let mut all_anon_fields = true;
+                            let params = TypeSubst::new(&generic_args).instantiate_types(struct_def.fields.iter().map(|field|{
+                                all_anon_fields &= self.ident_interner.get(field.name.index).parse::<usize>().is_ok();
+                                &field.ty
+                            }));
+                            if !all_anon_fields{
+                                self.error(format!("Cannot use struct '{}' as callable.",resolved_path.format(self.ident_interner)), resolved_path.span);
+                            }
                             Type::new_function(params,Type::new_struct(generic_args, id))
                         }
                         else{
