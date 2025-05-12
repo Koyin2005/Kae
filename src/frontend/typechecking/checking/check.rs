@@ -514,6 +514,9 @@ impl<'a> TypeChecker<'a>{
                     None
                 };
                 let Some(Type::Function(params,return_type)) = field_ty else {
+                    if receiver_ty.has_error(){
+                        return Type::new_error();
+                    }
                     return self.new_error(format!("{} has no method '{}'.",self.format_type(&receiver_ty),self.ident_interner.get(name.index)), name.span)
                 };
                 let sig = FuncSig{params,return_type:*return_type};
@@ -753,11 +756,11 @@ impl<'a> TypeChecker<'a>{
         }
     }
     fn check_generic_count(&self,expected:usize,got:usize,span:SourceLocation) -> bool{
-        if got != expected{
-            self.error(format!("Expected '{}' generic arg{} got '{}'.",expected,if expected == 1 { "" } else {"s"},got), span);
+        if got == expected{
             true
         }
         else{
+            self.error(format!("Expected '{}' generic arg{} got '{}'.",expected,if expected == 1 { "" } else {"s"},got), span);
             false
         }
     }

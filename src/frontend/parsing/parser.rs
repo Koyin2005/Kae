@@ -734,6 +734,25 @@ impl<'a> Parser<'a>{
                     }
                 )
             }
+            else if self.matches(TokenKind::LeftParen){
+                let mut fields = Vec::new();
+                while !self.check(TokenKind::RightParen) && !self.is_at_end(){
+                    let field_pattern = self.pattern()?;
+                    let field_name = self.new_symbol(fields.len().to_string(), field_pattern.location);
+                    fields.push((field_name,field_pattern));
+                    if !self.matches(TokenKind::Coma){
+                        break;
+                    }
+                }
+                self.expect(TokenKind::RightParen, "Expect ')'.");
+                (SourceLocation::new(path.location.start_line,self.prev_token.line),
+                    ParsedPatternNodeKind::Struct {
+                        path,
+                        fields
+                    }
+                )
+
+            }
             else if self.interner.get(head.name.content).chars().all(|char| char == '_') && path.segments.iter().all(|segment| self.interner.get(segment.name.content).chars().all(|char| char == '_')){
                 (path.location,ParsedPatternNodeKind::Wildcard)
             }
