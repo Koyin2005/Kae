@@ -463,7 +463,7 @@ impl<'a> TypeChecker<'a>{
                 return_ty
             }
             else{
-                self.new_error(format!("Expected '{}' args got '{}'.",params.len(),args.len()), callee.span)
+                self.new_error(format!("Expected '{}' arg{} got '{}'.",params.len(),if params.len() == 1 {""} else {"s"},args.len()), callee.span)
             }
         }
         else if callee_ty.has_error(){
@@ -490,8 +490,6 @@ impl<'a> TypeChecker<'a>{
                 return Some((None,FuncSig { params: vec![], return_type: Type::Int }));
             }
         }
-
-
         self.context.get_methods(ty, method).first().map(|&(id,method,ref subst)|{
             let generics = self.context.expect_generics_for(id);
             let sig = {
@@ -543,7 +541,7 @@ impl<'a> TypeChecker<'a>{
         let base = generic_params.map_or(0, |generics| generics.base );
         let method_sig = TypeSubst::new_with_base(&generic_args,base).instantiate_signature(&method_sig);
         if method_sig.params.len() != args.len(){
-            self.error(format!("Expected {} args got {}.",method_sig.params.len(),args.len()), name.span);
+            self.error(format!("Expected {} arg{} got {}.",method_sig.params.len(),if method_sig.params.len() == 1 { ""} else {"s"},args.len()), name.span);
             return method_sig.return_type;
         }
         for (param,arg) in method_sig.params.into_iter().zip(args){
