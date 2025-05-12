@@ -118,7 +118,7 @@ impl<'a> TypeChecker<'a>{
     }
     fn is_type_recursive(&self,ty:&Type,id:DefId)->bool{
         match ty{
-            Type::Int | Type::Float | Type::Bool | Type::String | Type::Error | Type::Never | Type::Param(_,_) | Type::Infer(_) => false,
+            Type::Int | Type::Float | Type::Bool | Type::String | Type::Error | Type::Never | Type::Param(_,_) => false,
             Type::Function(_,_) | Type::Array(_) => false,
             Type::Tuple(elements) => {
                 elements.iter().any(|element| self.is_type_recursive(element, id))

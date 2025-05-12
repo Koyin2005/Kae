@@ -48,7 +48,6 @@ impl<'a> TypeSubst<'a>{
             Type::String => Type::String,
             Type::Float => Type::Float,
             Type::Error => Type::Error,
-            _ => todo!("Remove this")
 
         }
     }
