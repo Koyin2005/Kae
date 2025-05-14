@@ -24,6 +24,7 @@ pub enum Type {
     String,
     Never,
     Error,
+    SelfAlias(DefId),
     Param(u32,SymbolIndex),
     Function(Vec<Type>,Box<Type>),
     Array(Box<Type>),
@@ -110,16 +111,6 @@ impl Type{
             _ => None
         }
     }
-    pub fn is_closed(&self) -> bool{
-        match self{
-            Type::Int | Type::Bool | Type::String | Type::Never | Type::Error | Type::Float => true,
-            Type::Array(elements) => elements.is_closed(),
-            Type::Function(params, return_ty) => return_ty.is_closed() && params.iter().all(|param| param.is_closed()),
-            Type::Adt(args, _,_) => args.iter().all(|param| param.is_closed()),
-            Type::Tuple(elements) => elements.iter().all(|element| element.is_closed()),
-            Type::Param(_,_) => false
-        }
-    }
     pub fn new_struct(args:GenericArgs,id:DefId) -> Self{
         Self::Adt(args, id, AdtKind::Struct)
     }
@@ -137,6 +128,9 @@ impl Type{
     }
     pub fn new_array(element : Self) -> Self{
         Self::Array(Box::new(element))
+    }
+    pub fn new_self_alias(trait_ : DefId) -> Self{
+        Self::SelfAlias(trait_)
     }
     pub fn new_error() -> Self{
         Type::Error

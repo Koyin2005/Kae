@@ -1,5 +1,6 @@
 use std::cell::{Cell, RefCell};
-use fxhash::{FxHashMap, FxHashSet};
+use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
+use indexmap::{IndexMap, IndexSet};
 use crate::{
     data_structures::IndexVec, 
     frontend::{
@@ -104,20 +105,22 @@ impl<'a> TypeChecker<'a>{
             }
         }
     }
-    fn check_function<'b>(&self,sig:&FuncSig,param_patterns:impl Iterator<Item = (&'b hir::Pattern,&'b hir::Type)>,body:&hir::Expr){
+    fn check_function<'b>(&self,sig:&FuncSig,param_patterns:impl Iterator<Item = (&'b hir::Pattern,&'b hir::Type)>,body:Option<&hir::Expr>){
         let FuncSig { params:param_types, return_type } = sig;
         for ((param_pattern,ty),param_ty) in param_patterns.zip(param_types){
             self.check_pattern(param_pattern, param_ty.clone());
             self.check_type(ty);
         }
         self.prev_functions.borrow_mut().push(FuncContext { return_type: return_type.clone() });
-        self.check_expr(body, Expectation::CoercesTo(return_type.clone()));
+        if let Some(body) = body{
+            self.check_expr(body, Expectation::CoercesTo(return_type.clone()));
+        }
         self.prev_functions.borrow_mut().pop();
 
     }
     fn is_type_recursive(&self,ty:&Type,id:DefId)->bool{
         match ty{
-            Type::Int | Type::Float | Type::Bool | Type::String | Type::Error | Type::Never | Type::Param(_,_) => false,
+            Type::Int | Type::Float | Type::Bool | Type::String | Type::Error | Type::Never | Type::Param(_,_) | Type::SelfAlias(_) => false,
             Type::Function(_,_) | Type::Array(_) => false,
             Type::Tuple(elements) => {
                 elements.iter().any(|element| self.is_type_recursive(element, id))
@@ -165,7 +168,7 @@ impl<'a> TypeChecker<'a>{
             },
             hir::Item::Function(function) => {
                 let sig = (&self.context.functions[function.id].sig).clone();
-                self.check_function(&sig,  function.function.params.iter().map(|param| (&param.pattern,&param.ty)), &function.function.body);
+                self.check_function(&sig,  function.function.params.iter().map(|param| (&param.pattern,&param.ty)),Some(&function.function.body));
             },
             hir::Item::Enum(enum_def) => {
                 for (i,variant) in enum_def.variants.iter().enumerate(){
@@ -189,16 +192,49 @@ impl<'a> TypeChecker<'a>{
                     }
                 }
             },
-            &hir::Item::Impl(id,ref ty,ref _generics,ref methods) => {
+            &hir::Item::Impl(id,ref ty,ref _generics,ref methods,ref trait_path) => {
                 self.check_type(ty);
                 let impl_ = &self.context.impls[id];
                 let old_self_type = self.self_type.replace(Some(self.lower_type(ty)));
+                if let Some(path) = trait_path{
+                    self.check_path(path);
+                    let (trait_,span) = match path{
+                        hir::QualifiedPath::Resolved(path) => {
+                            if let hir::Resolution::Definition(hir::DefKind::Trait,id) = path.final_res{
+                                (Some(id),path.span)
+                            }
+                            else{
+                                (None,path.span)
+                            }
+                        },
+                        hir::QualifiedPath::TypeRelative(ty,_) => (None,ty.span)
+                    };
+                    if let Some(trait_) = trait_{
+                        let trait_methods : IndexSet<SymbolIndex,FxBuildHasher> = self.context.traits[trait_].methods.iter().copied().map(|id| self.context.ident(id).index).collect();
+                        let mut method_spans : IndexMap<SymbolIndex,SourceLocation,FxBuildHasher> = IndexMap::default();
+                        let methods : IndexSet<SymbolIndex,FxBuildHasher> = impl_.methods.iter().copied().map(|method| {
+                            let name = self.context.ident(method);
+                            method_spans.insert(name.index,name.span);
+                            name.index
+                        }).collect();
+                        for &method_name in trait_methods.difference(&methods){
+                            let span = method_spans.get(&method_name).copied().unwrap_or(impl_.span);
+                            self.error(format!("Missing implementation of method '{}' for trait '{}'.",self.ident_interner.get(method_name),self.ident_interner.get(self.context.ident(trait_).index)), span);
+                        }
+                    }
+                    else{
+                        self.error(format!("Cannot implement '{}' for '{}'.",path.format(self.ident_interner), self.format_type(&self.lower_type(ty))),span);
+                    }
+                }
                 for (method_def,method) in methods.iter().zip(impl_.methods.iter().map(|&id| &self.context.methods[id])){
-                    self.check_function(&method.sig,  method_def.function.params.iter().map(|param| (&param.pattern,&param.ty)), &method_def.function.body);
+                    self.check_function(&method.sig,  method_def.function.params.iter().map(|param| (&param.pattern,&param.ty)),Some(&method_def.function.body));
                 }
                 *self.self_type.borrow_mut() =  old_self_type;
             },
-            &hir::Item::Trait(trait_id) => {
+            hir::Item::Trait(trait_) => {
+                for (method_def,method) in trait_.methods.iter().zip(self.context.traits[trait_.id].methods.iter().map(|&id| &self.context.methods[id])){
+                    self.check_function(&method.sig,  method_def.params.iter().map(|param| (&param.pattern,&param.ty)),None);
+                }
                 
             }
         }
@@ -788,7 +824,7 @@ impl<'a> TypeChecker<'a>{
                 let param_types = function.params.iter().map(|param| self.lower_type(&param.ty)).collect();
                 let return_type = function.return_type.as_ref().map_or_else(|| Type::new_unit(), |ty| self.lower_type(ty));
                 let sig = FuncSig{params:param_types,return_type};
-                self.check_function(&sig, param_patterns, &function.body);
+                self.check_function(&sig, param_patterns, Some(&function.body));
                 sig.as_type()
             },
             hir::ExprKind::Field(base, field) => {
@@ -844,12 +880,12 @@ impl<'a> TypeChecker<'a>{
     }
     fn get_generic_count(&self,res:&hir::Resolution) -> usize{
         match res{
-            &hir::Resolution::Definition(hir::DefKind::Struct|hir::DefKind::Enum|hir::DefKind::Function,id) => self.context.expect_generics_for(id).param_names.len(),
+            &hir::Resolution::Definition(hir::DefKind::Struct|hir::DefKind::Enum|hir::DefKind::Function|hir::DefKind::Trait,id) => self.context.expect_generics_for(id).param_names.len(),
             hir::Resolution::Variable(_) | 
             hir::Resolution::Definition(hir::DefKind::Variant|hir::DefKind::Param, _) | 
             hir::Resolution::Primitive(_) | 
             hir::Resolution::Builtin(hir::BuiltinKind::Panic)|
-            hir::Resolution::SelfType | hir::Resolution::None => 0
+            hir::Resolution::SelfType | hir::Resolution::None | hir::Resolution::SelfAlias(_) => 0
         }
     }
     fn check_generic_count(&self,expected:usize,got:usize,span:SourceLocation) -> bool{
@@ -978,7 +1014,7 @@ impl<'a> TypeChecker<'a>{
                         }
                     },
                     hir::Resolution::Primitive(_) | 
-                    hir::Resolution::Definition(hir::DefKind::Param|hir::DefKind::Enum,_) |
+                    hir::Resolution::Definition(hir::DefKind::Param|hir::DefKind::Enum|hir::DefKind::Trait,_) | hir::Resolution::SelfAlias(_)|
                     hir::Resolution::None => 
                         self.new_error(format!("Cannot use type '{}' as expr.",resolved_path.format(self.ident_interner)), resolved_path.span),
                 }

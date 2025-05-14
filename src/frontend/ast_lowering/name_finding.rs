@@ -4,7 +4,7 @@ use fxhash::{FxHashMap, FxHashSet};
 use crate::{
     data_structures::IndexVec, 
     frontend::{ast_lowering::{hir::Ident, SymbolIndex, SymbolInterner}, 
-    parsing::ast::{self, NodeId, ParsedAssignmentTargetKind}, tokenizing::SourceLocation, }, 
+    parsing::ast::{self, ExprNode, FunctionSig, NodeId, ParsedAssignmentTargetKind}, tokenizing::SourceLocation, }, 
     identifiers::VariableIndex, GlobalSymbols
 };
 
@@ -19,7 +19,7 @@ pub type NodeMap<T> = FxHashMap<NodeId,T>;
 pub struct NamesFound{
     pub(super) variables : IndexVec<VariableIndex,(usize,Ident)>,
     pub(super) variable_defs: FxHashMap<NodeId,VariableIndex>,
-    pub(super) scope_map : FxHashMap<NodeId,Option<ScopeId>>,
+    pub(super) scope_map : FxHashMap<NodeId,Vec<ScopeId>>,
     pub(super) variable_def_map : FxHashMap<NodeId,Vec<VariableIndex>>,
     pub(super) structs : DefIdMap<Record>,
     pub(super) enum_defs : DefIdMap<(Ident,Vec<(DefId,Record)>)>,
@@ -126,7 +126,7 @@ impl<'b,'a> NameFinder<'b>{
     }
     fn end_scope(&mut self,id:NodeId){
         let scope = self.pop_scope();
-        self.info.scope_map.entry(id).or_insert(Some(scope));
+        self.info.scope_map.entry(id).or_insert(Vec::new()).push(scope);
     }
     fn add_node_to_def(&mut self,id:NodeId,def_id:DefId){
         self.info.node_to_def_map.insert(id, def_id);
@@ -196,8 +196,8 @@ impl<'b,'a> NameFinder<'b>{
                 }
                 self.find_names_in_expr(rhs);
             },
-            ast::ExprNodeKind::Function(function) => {
-                self.find_names_in_function(id,function);
+            ast::ExprNodeKind::Function(sig,body) => {
+                self.find_names_in_function(id,sig,Some(body));
             }
             ast::ExprNodeKind::StructInit { path:_, fields } => fields.iter().for_each(|(_,expr)| self.find_names_in_expr(expr)),
             //Ignore any expressions that can't introduce new names or that make use of names
@@ -248,17 +248,19 @@ impl<'b,'a> NameFinder<'b>{
         };
         self.info.generics.insert(owner,generic_params);
     }
-    fn find_names_in_function(&mut self,id:NodeId,function:&'a ast::ParsedFunction){
+    fn find_names_in_function(&mut self,id:NodeId,sig:&'a FunctionSig,body:Option<&ExprNode>){
         self.begin_scope(ScopeKind::Function(id));
         self.prev_last_local_variables.push(std::mem::replace(&mut self.next_local_variable,0));
         let mut bindings = BTreeMap::new();
         let mut seen_symbols = BTreeMap::new();
-        for param in &function.params{
+        for param in &sig.params{
             self.find_names_in_pattern(&param.pattern, &mut bindings,&mut seen_symbols);
             self.define_bindings(param.pattern.id,&bindings, &seen_symbols);
             bindings.clear();
         }
-        self.find_names_in_expr(&function.body);
+        if let Some(body) = body{
+            self.find_names_in_expr(&body);
+        }
         self.next_local_variable = self.prev_last_local_variables.pop().expect("Any popped scopes must have prev scope");
         self.end_scope(id);
     }
@@ -267,6 +269,15 @@ impl<'b,'a> NameFinder<'b>{
             let field = field.into();
             field
         }).collect()
+    }
+    fn find_names_in_method(&mut self, method_id: NodeId, name: ast::Symbol, generic_params:Option<&ast::ParsedGenericParams>, sig: &FunctionSig, method_body: Option<&ExprNode>){
+        let method_def_id = self.def_ids.next();
+        self.add_node_to_def(method_id, method_def_id);
+        self.info.name_map.insert(method_def_id, name.into());
+        self.begin_scope(ScopeKind::AssocItem(method_def_id));
+        self.find_generic_params(method_def_id,generic_params);
+        self.find_names_in_function(method_id,&sig,method_body);
+        self.end_scope(method_id);
     }
     fn find_names_in_stmt(&mut self,stmt:&'a ast::StmtNode){
         match stmt {
@@ -329,15 +340,16 @@ impl<'b,'a> NameFinder<'b>{
             ast::StmtNode::Fun(function_def) => {
                 let func_def_id = self.def_ids.next();
                 self.add_node_to_def(function_def.id, func_def_id);
-                self.info.name_map.insert(func_def_id, function_def.name.into());
+                let proto = &function_def.function.proto;
+                self.info.name_map.insert(func_def_id, proto.name.into());
 
                 self.begin_scope(ScopeKind::Item(func_def_id));
-                self.find_generic_params(func_def_id,function_def.generic_params.as_ref());
-                self.find_names_in_function(function_def.id,&function_def.function);
+                self.find_generic_params(func_def_id,proto.generic_params.as_ref());
+                self.find_names_in_function(function_def.id,&proto.sig,Some(&function_def.function.body));
                 self.end_scope(function_def.id);
-                let symbol = function_def.name.content;
+                let symbol = proto.name.content;
                 if !self.get_current_scope_mut().add_binding(symbol,Resolution::Definition(DefKind::Function,func_def_id)).is_none(){
-                    self.error(format!("Repeated item '{}'.",self.interner.get(function_def.name.content)), function_def.name.location);
+                    self.error(format!("Repeated item '{}'.",self.interner.get(proto.name.content)), proto.name.location);
                 }
             },
             ast::StmtNode::Impl(impl_) => {
@@ -348,20 +360,24 @@ impl<'b,'a> NameFinder<'b>{
                 let self_symbol = self.global_symbols.upper_self_symbol();
                 self.get_current_scope_mut().add_binding(self_symbol,Resolution::SelfType);
                 for method in &impl_.methods{
-                    let function = &method.function;
-                    let method_id = self.def_ids.next();
-                    self.add_node_to_def(method.id, method_id);
-                    self.info.name_map.insert(method_id, method.name.into());
-                    self.begin_scope(ScopeKind::AssocItem(method_id));
-                    self.find_generic_params(method_id,method.generic_params.as_ref());
-                    self.find_names_in_function(method.id,&function);
-                    self.end_scope(method.id);
+                    self.find_names_in_method(method.id,method.function.proto.name,method.function.proto.generic_params.as_ref(),&method.function.proto.sig,Some(&method.function.body));
                 }
                 self.end_scope(impl_.id);
             },
             ast::StmtNode::Trait(trait_) => {
                 let trait_def_id = self.def_ids.next();
                 self.add_node_to_def(trait_.id, trait_def_id);
+                self.begin_scope(ScopeKind::Item(trait_def_id));
+                self.info.name_map.insert(trait_def_id, trait_.name.into());
+                let self_symbol = self.global_symbols.upper_self_symbol();
+                self.get_current_scope_mut().add_binding(self_symbol,Resolution::SelfAlias(trait_def_id));
+                for &(id,_,ref proto) in &trait_.methods{
+                    self.find_names_in_method(id, proto.name, proto.generic_params.as_ref(),&proto.sig, None);
+                }
+                self.end_scope(trait_.id);
+                if !self.get_current_scope_mut().add_binding(trait_.name.content,Resolution::Definition(DefKind::Trait,trait_def_id)).is_none(){
+                    self.error(format!("Repeated item '{}'.",self.interner.get(trait_.name.content)), trait_.name.location);
+                }
             }
         }
     }

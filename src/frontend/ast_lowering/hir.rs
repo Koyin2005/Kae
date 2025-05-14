@@ -81,12 +81,27 @@ pub struct EnumDef{
     pub generics:Generics,
     pub variants:Vec<VariantDef>
 }
+pub struct Trait{
+    pub id: DefId,
+    pub name: Ident,
+    pub span : SourceLocation,
+    pub generics: Generics,
+    pub methods : Vec<TraitMethod>
+}
+pub struct TraitMethod{
+    pub id : DefId,
+    pub name : Ident,
+    pub generics: Generics,
+    pub has_receiver: bool,
+    pub params : Vec<Param>,
+    pub return_type : Option<Type>
+}
 pub enum Item {
     Struct(StructDef),
     Enum(EnumDef),
     Function(FunctionDef),
-    Impl(DefId,Type,Generics,Vec<FunctionDef>),
-    Trait(DefId)
+    Impl(DefId,Type,Generics,Vec<FunctionDef>,Option<QualifiedPath>),
+    Trait(Trait)
 }
 #[derive(Clone,Debug)]
 pub struct Expr{
@@ -358,6 +373,7 @@ pub enum Resolution {
     Variable(VariableIndex),
     Builtin(BuiltinKind),
     SelfType,
+    SelfAlias(DefId),
     None
 }
 
@@ -370,6 +386,7 @@ pub enum DefKind {
     Enum,
     Param,
     Variant,
+    Trait,
 }
 #[derive(Clone,Debug)]
 pub struct FieldExpr{

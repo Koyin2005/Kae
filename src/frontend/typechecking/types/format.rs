@@ -55,6 +55,7 @@ impl<'b> TypeFormatter<'b>{
                     buffer.push(']');
                 }
             },
+            Type::SelfAlias(_) => buffer.push_str("Self"),
         }
     }
 

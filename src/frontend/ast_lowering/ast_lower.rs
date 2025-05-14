@@ -55,8 +55,8 @@ impl<'a> AstLowerer<'a>{
     }
     fn begin_scope(&mut self,id:NodeId){
         self.prev_scopes.push(self.resolver.current_scope_id());
-        let scope = self.name_info.scope_map.get_mut(&id).expect("There should be a scope for this id").take().expect("It should be some for now");
-        self.resolver.set_current_scope(scope);
+        let scopes = self.name_info.scope_map.get_mut(&id).expect("There should be a scope for this id");
+        self.resolver.set_current_scope(scopes.pop().expect("There should be a scope here"));
     }
     fn end_scope(&mut self){
         let prev_scope = self.prev_scopes.pop().expect("There should be a scope here.");
@@ -234,10 +234,10 @@ impl<'a> AstLowerer<'a>{
             span
         })
     }
-    fn lower_function(&mut self,id:NodeId,function:ast::ParsedFunction) -> Result<hir::Function,LoweringErr>{
-        self.begin_scope(id);
+    fn lower_function_sig(&mut self,sig:ast::FunctionSig) -> Result<(Vec<hir::Param>,Option<hir::Type>),LoweringErr>{
+        
         let params =  (||{
-            let params : Vec<_> = function.params.into_iter().map(|param|{
+            let params : Vec<_> = sig.params.into_iter().map(|param|{
                 let pattern = self.define_bindings_and_lower_pattern(param.pattern);
                 (pattern,self.lower_type(&param.ty))
             }).collect();
@@ -250,12 +250,20 @@ impl<'a> AstLowerer<'a>{
                 })
             }).collect::<Result<Vec<_>,_>>()
         })();
-        let return_type =  function.return_type.map(|ty| self.lower_type(&ty)).map_or(Ok(None), |ty| ty.map(Some));
-        let body = self.lower_expr(function.body);
+
+        let return_type = sig.return_type.map(|return_type| self.lower_type(&return_type)).transpose();
+        params.and_then(|params| return_type.map(|return_type| (params,return_type)))
+    }
+    fn lower_function(&mut self,id:NodeId,sig:ast::FunctionSig,body:ast::ExprNode) -> Result<hir::Function,LoweringErr>{
+        self.begin_scope(id);
+        let params_and_return_type = self.lower_function_sig(sig);
+        let body = self.lower_expr(body);
         self.end_scope();
+
+        let (params,return_type) = params_and_return_type?;
         Ok(hir::Function{
-            params:params?,
-            return_type:return_type?,
+            params:params,
+            return_type:return_type,
             body:body?
         })
 
@@ -417,7 +425,7 @@ impl<'a> AstLowerer<'a>{
                 self.end_scope();
                 hir::ExprKind::Block(stmts, expr?)
             },
-            ast::ExprNodeKind::Function(function) => hir::ExprKind::Function(Box::new(self.lower_function(expr.id,*function)?)),
+            ast::ExprNodeKind::Function(sig,body) => hir::ExprKind::Function(Box::new(self.lower_function(expr.id,sig,*body)?)),
             ast::ExprNodeKind::Print(args) => hir::ExprKind::Print(args.into_iter().map(|arg| self.lower_expr(arg)).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>()?),
             ast::ExprNodeKind::GetPath(path) => {
                 hir::ExprKind::Path(match path.infer_path{
@@ -600,11 +608,15 @@ impl<'a> AstLowerer<'a>{
                 }),enum_id)),name.span)
             },
             ast::StmtNode::Fun(function_def) => {
-                //Scope handling is implicity done in lower_function
                 let func_id = self.expect_def_id(function_def.id, "Should be a function");
                 let name = self.name_info.name_map[func_id];
-                let generics = self.lower_generic_params(func_id,function_def.generic_params);
-                let function = self.lower_function(function_def.id, function_def.function);
+                //Begin item scope
+                self.begin_scope(function_def.id);
+                let ast::ParsedFunction{proto:ast::FunctionProto{name:_,generic_params,sig},body} = function_def.function;
+                let generics = self.lower_generic_params(func_id,generic_params);
+                let function = self.lower_function(function_def.id, sig,body);
+                //End item scope
+                self.end_scope();
                 let function = function?;
                 let span = SourceLocation::new(name.span.start_line, function.body.span.end_line);
                 (hir::StmtKind::Item(self.add_item_with_def(Item::Function(FunctionDef { id : func_id, generics, name, function }),func_id)),span)
@@ -613,17 +625,20 @@ impl<'a> AstLowerer<'a>{
                 let impl_id =  self.expect_def_id(impl_.id,"There should be an impl");
                 let generics = self.lower_generic_params(impl_id, impl_.generic_params);
                 self.begin_scope(impl_.id);
+                let trait_path = impl_.trait_.map(|trait_| self.lower_path(&trait_)).transpose();
                 let ty = self.lower_type(&impl_.ty);
-                let methods = {
+                let methods = (||{
                     let mut had_error = false;
                     let mut methods = Vec::with_capacity(impl_.methods.len());
-                    for method in impl_.methods{
+                    for mut method in impl_.methods{
                         let method = (||{
                             let method_id = self.expect_def_id(method.id, "Should be a method");
                             let name = self.name_info.name_map[method_id];
-                            let generics = self.lower_generic_params(method_id,method.generic_params);
-                            let function = self.lower_function(method.id, method.function)?;
-                            Ok(FunctionDef { id:method_id, generics, name, function })
+                            self.begin_scope(method.id);
+                            let generics = self.lower_generic_params(method_id,method.function.proto.generic_params.take());
+                            let function = self.lower_function(method.id,method.function.proto.sig, method.function.body);
+                            self.end_scope();
+                            Ok(FunctionDef { id:method_id, generics, name, function:function? })
                         })();
                         match method {
                             Ok(method) => {
@@ -637,14 +652,49 @@ impl<'a> AstLowerer<'a>{
                     if had_error{
                         return Err(LoweringErr);
                     }
-                    methods
-                };
+                    Ok(methods)
+                })();
                 self.end_scope();
-                (hir::StmtKind::Item(self.add_item_with_def(Item::Impl(impl_id,ty?,generics, methods), impl_id)),impl_.span)
+                (hir::StmtKind::Item(self.add_item_with_def(Item::Impl(impl_id,ty?,generics, methods?,trait_path?), impl_id)),impl_.span)
             },
             ast::StmtNode::Trait(trait_) => {
                 let trait_def_id = self.expect_def_id(trait_.id, "There should be a trait");
-                (hir::StmtKind::Item(self.add_item_with_def(Item::Trait(trait_def_id), trait_def_id)),trait_.span)
+                let name = self.name_info.name_map[trait_def_id];
+                let generics = Generics { params: Vec::new() };
+                self.begin_scope(trait_.id);
+                let methods = (||{
+                        let mut had_error = false;
+                        let mut methods = Vec::with_capacity(trait_.methods.len());
+                        for (id,has_receiver,mut proto) in trait_.methods{
+                            let method_id = self.expect_def_id(id, "There should be a method");
+                            self.begin_scope(id);
+                            let name = self.name_info.name_map[method_id];
+                            let generics = self.lower_generic_params(method_id, proto.generic_params.take());
+                            let Ok((params,return_type)) = self.lower_function_sig(proto.sig) else{
+                                had_error |= true;
+                                self.end_scope();
+                                continue;
+                            };
+                            self.end_scope();
+                            methods.push(hir::TraitMethod{
+                                id:method_id,
+                                name,
+                                generics,
+                                has_receiver,
+                                params,
+                                return_type,
+                            });
+                        }
+                    (!had_error).then(|| methods).ok_or(LoweringErr)
+                })();
+                self.end_scope();
+                (hir::StmtKind::Item(self.add_item_with_def(Item::Trait(hir::Trait{
+                    id:trait_def_id,
+                    name,
+                    span:trait_.span,
+                    generics,
+                    methods:methods?,
+                }), trait_def_id)),trait_.span)
             }
         };
         Ok(hir::Stmt{

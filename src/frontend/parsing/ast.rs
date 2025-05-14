@@ -88,7 +88,7 @@ pub enum ExprNodeKind {
         lhs : ParsedAssignmentTarget,
         rhs : Box<ExprNode>
     },
-    Function(Box<ParsedFunction>),
+    Function(FunctionSig,Box<ExprNode>),
     Call{
         callee : Box<ExprNode>,
         args : Vec<ExprNode>
@@ -192,20 +192,20 @@ pub struct EnumDef{
 pub struct Impl{
     pub span : SourceLocation,
     pub id : NodeId,
+    pub trait_: Option<Path>,
     pub generic_params : Option<ParsedGenericParams>,
     pub ty : ParsedType,
     pub methods : Vec<ParsedMethod>
 }
 pub struct FuncDef{
     pub id : NodeId,
-    pub name : Symbol,
-    pub generic_params : Option<ParsedGenericParams>,
     pub function : ParsedFunction
 }
 pub struct Trait{
     pub id : NodeId,
     pub span : SourceLocation,
-    pub name : Symbol
+    pub name : Symbol,
+    pub methods : Vec<(NodeId,bool,FunctionProto)>
 }
 pub enum StmtNode{
     Expr{
@@ -268,14 +268,20 @@ pub struct ParsedParam{
 
 pub struct ParsedMethod{
     pub id : NodeId,
-    pub name : Symbol,
     pub has_receiver : bool,
-    pub generic_params : Option<ParsedGenericParams>,
-    pub function : ParsedFunction
+    pub function : ParsedFunction,
 }
-pub struct ParsedFunction{
+pub struct FunctionProto{
+    pub name : Symbol,
+    pub generic_params : Option<ParsedGenericParams>,
+    pub sig : FunctionSig
+}
+pub struct FunctionSig{
     pub params : Vec<ParsedParam>,
     pub return_type : Option<ParsedType>,
+}
+pub struct ParsedFunction{
+    pub proto : FunctionProto,
     pub body : ExprNode
 }
 #[derive(Clone,Debug)]

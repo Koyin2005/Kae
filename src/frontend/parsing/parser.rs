@@ -1,10 +1,7 @@
-use crate::{frontend::{parsing::ast::{ParsedGenericParam, ParsedMethod, ParsedParam, Symbol}, tokenizing::{tokens::{Token, TokenKind}, SourceLocation}}, identifiers::SymbolInterner};
+use crate::{frontend::{parsing::ast::{FunctionSig, ParsedGenericParam, ParsedMethod, ParsedParam, Symbol}, tokenizing::{tokens::{Token, TokenKind}, SourceLocation}}, identifiers::SymbolInterner};
 
 use super::ast::{
-    EnumDef, ExprNode, ExprNodeKind, FuncDef, 
-    Impl, InferPath, InferPathKind, LiteralKind, NodeId, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, 
-    ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, Path, 
-    PathSegment, PatternMatchArmNode, StmtNode, StructDef, Trait
+    EnumDef, ExprNode, ExprNodeKind, FuncDef, FunctionProto, Impl, InferPath, InferPathKind, LiteralKind, NodeId, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, Path, PathSegment, PatternMatchArmNode, StmtNode, StructDef, Trait
 };
 
 #[repr(u8)]
@@ -431,23 +428,29 @@ impl<'a> Parser<'a>{
             by_ref : false
         })
     }
-    fn parse_function_return_type_and_body(&mut self)->Result<(Option<ParsedType>,ExprNode),ParsingFailed>{
-
-        let return_type = if self.matches(TokenKind::ThinArrow){
-            Some(self.parse_type()?)
-        } else {
-            None
-        };
-        let body = if self.matches(TokenKind::LeftBrace){self.block()? }else{
-            let expr = self.expression()?;
-            if Self::needs_semi_for_stmt(&expr){
-                self.expect(TokenKind::Semicolon, "Expected ';'.");
-            }
-            expr
-        };
-        Ok((return_type,body))
+    fn parse_function_return_type(&mut self) -> Result<Option<ParsedType>,ParsingFailed>{
+        self.matches(TokenKind::ThinArrow).then(|| self.parse_type()).transpose()
     }
-    fn parse_function_body_and_params(&mut self)->Result<ParsedFunction,ParsingFailed>{
+    fn parse_function_prototype(&mut self) -> Result<FunctionProto,ParsingFailed>{
+        let name = self.parse_identifer("Expect a valid function name.");
+        let generic_params = self.optional_generic_params()?;
+        self.expect(TokenKind::LeftParen, "Expected '(' after function name.");
+        let sig = self.parse_function_signature()?;
+        Ok(FunctionProto { name, generic_params, sig })
+    }
+    fn parse_function_signature(&mut self) -> Result<FunctionSig,ParsingFailed>{
+        let params = self.parse_function_params()?;
+        let return_type = self.parse_function_return_type()?;
+        Ok(FunctionSig { params, return_type })
+    }
+    fn parse_function_body(&mut self) -> Result<ExprNode,ParsingFailed>{
+        let body = if self.matches(TokenKind::LeftBrace){self.block()? }else{
+            self.expect(TokenKind::FatArrow, "Expected '=>'");
+            self.expression()?
+        };
+        Ok(body)
+    }
+    fn parse_function_params(&mut self) -> Result<Vec<ParsedParam>,ParsingFailed>{
         let params = if self.check(TokenKind::RightParen) { Vec::new() } else {
             let mut params = Vec::new();
             loop{
@@ -458,24 +461,18 @@ impl<'a> Parser<'a>{
             }
         };
         self.expect(TokenKind::RightParen, "Expect ')'."); 
-        let (return_type,body) = self.parse_function_return_type_and_body()?;
-        Ok(ParsedFunction{
-            params,
-            return_type,
-            body
-        })
+        Ok(params)
+
     }
     fn function(&mut self,start:u32)->Result<ExprNode,ParsingFailed>{
         self.expect(TokenKind::LeftParen, "Expect '(' after 'fun'.");
-        let function = self.parse_function_body_and_params()?;
+        let sig = self.parse_function_signature()?;
+        let body = self.parse_function_body()?;
         let end_line = self.prev_token.line;
         Ok(ExprNode{ id : self.next_id(), 
             location: SourceLocation::new(start, end_line), 
-            kind: ExprNodeKind::Function(Box::new(
-                    function
-                )) 
+            kind: ExprNodeKind::Function(sig,Box::new(body)) 
         })
-
     }
     fn return_expression(&mut self)->Result<ExprNode,ParsingFailed>{
         let line = self.prev_token.line;
@@ -985,14 +982,12 @@ impl<'a> Parser<'a>{
         Ok(StmtNode::Struct(StructDef{ id : self.next_id(), name, generic_params, fields }))
     }
     fn fun_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
-        let name = self.parse_identifer("Expect valid function name.");
-        let generic_params = self.optional_generic_params()?;
-        
-        self.expect(TokenKind::LeftParen, "Expect '(' after function name.");
-        let function = self.parse_function_body_and_params()?;
-        Ok(StmtNode::Fun(FuncDef{ id : self.next_id(), name,generic_params, function }))
+        let proto = self.parse_function_prototype()?;
+        let body = self.parse_function_body()?;
+        Ok(StmtNode::Fun(FuncDef{ id : self.next_id(), function : ParsedFunction { proto, body } }))
     }
-    fn parse_method(&mut self)->Result<(Symbol,Option<ParsedGenericParams>,bool,ParsedFunction),ParsingFailed>{
+    fn parse_method_prototype(&mut self) -> Result<(FunctionProto,bool),ParsingFailed>{
+        
         #[derive(Clone, Copy,PartialEq, Eq)]
         enum SelfParam{
             ByRef,
@@ -1045,8 +1040,13 @@ impl<'a> Parser<'a>{
             }
         }
         self.expect(TokenKind::RightParen, "Expect ')'.");
-        let (return_type,body) = self.parse_function_return_type_and_body()?;
-        Ok((name,generic_params,has_self,ParsedFunction { params, return_type, body }))
+        let return_type = self.parse_function_return_type()?;
+        Ok((FunctionProto{name,generic_params,sig:FunctionSig{params,return_type}},has_self))
+    }
+    fn parse_method(&mut self)->Result<(ParsedFunction,bool),ParsingFailed>{
+        let (proto,has_receiver) = self.parse_method_prototype()?;
+        let body = self.parse_function_body()?;
+        Ok((ParsedFunction{proto,body},has_receiver))
     }
     fn impl_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
         let start_line = self.current_token.line;
@@ -1082,22 +1082,31 @@ impl<'a> Parser<'a>{
         while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
             self.expect(TokenKind::Fun, "Expected 'fun'.");
             let id = self.next_id();
-            let (method_name,generic_params,has_receiver,method) = self.parse_method()?;
-            methods.push(ParsedMethod{id,name:method_name,has_receiver,generic_params,function:method});
+            let (method,has_receiver) = self.parse_method()?;
+            methods.push(ParsedMethod{id,has_receiver,function:method});
         }
         self.expect(TokenKind::RightBrace, "Expect '}'.");
         let end_line = self.current_token.line;
-        Ok(StmtNode::Impl(Impl{ id : self.next_id(), span : SourceLocation { start_line, end_line }, ty,generic_params, methods }))
+        Ok(StmtNode::Impl(Impl{ id : self.next_id(), span : SourceLocation { start_line, end_line }, ty,generic_params, methods,trait_:trait_path}))
     }
     fn trait_stmt(&mut self) -> Result<StmtNode,ParsingFailed>{
         let name = self.parse_identifer("Expected a valid name for 'trait'.");
-        let start  =name.location.start_line;
+        let start  = name.location.start_line;
         self.expect(TokenKind::LeftBrace, "Expect '{' after trait name.");
+        let mut methods = Vec::new();
+        while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
+            self.expect(TokenKind::Fun, "Expected 'fun'.");
+            let method_id = self.next_id();
+            let (method_proto,has_receiver) = self.parse_method_prototype()?;
+            self.expect(TokenKind::Semicolon, "Expected ';'.");
+            methods.push((method_id,has_receiver,method_proto));
+        }
         self.expect(TokenKind::RightBrace, "Expect '}' at the end of trait declaratino.");
         let end_line = self.current_token.line;
         Ok(StmtNode::Trait(Trait{
             id:self.next_id(),
             name,
+            methods,
             span:SourceLocation::new(start, end_line)
         }))
     }

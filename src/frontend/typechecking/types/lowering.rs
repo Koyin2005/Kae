@@ -33,21 +33,9 @@ impl<'a> TypeLower<'a>{
                         })?;
                         &segment.args
                     },
-                    Resolution::Definition(DefKind::Function, id) => {
+                    res @ Resolution::Definition(DefKind::Trait|DefKind::Function|DefKind::Struct|DefKind::Enum, _) => {
                         let segment = path.segments.iter().rev().find(|segment|{
-                            matches!(segment.res,Resolution::Definition(DefKind::Function, seg_id) if seg_id == id)
-                        })?;
-                        &segment.args
-                    },
-                    Resolution::Definition(DefKind::Struct,id) => {
-                        let segment = path.segments.iter().rev().find(|segment|{
-                            matches!(segment.res,Resolution::Definition(DefKind::Struct, seg_id) if seg_id == id)
-                        })?;
-                        &segment.args
-                    },
-                    Resolution::Definition(DefKind::Enum, id) => {
-                        let segment = path.segments.iter().rev().find(|segment|{
-                            matches!(segment.res,Resolution::Definition(DefKind::Enum, seg_id) if seg_id == id)
+                            segment.res == res
                         })?;
                         &segment.args
                     },
@@ -57,7 +45,7 @@ impl<'a> TypeLower<'a>{
                         })?;
                         &segment.args
                     },
-                    Resolution::Primitive(_) | Resolution::Variable(_) | Resolution::Definition(DefKind::Param, _) | Resolution::SelfType | Resolution::Builtin(_) => return Some(GenericArgs::new_empty())
+                    Resolution::SelfAlias(_) | Resolution::Primitive(_) | Resolution::Variable(_) | Resolution::Definition(DefKind::Param, _) | Resolution::SelfType | Resolution::Builtin(_) => return Some(GenericArgs::new_empty())
                 }
             }
         };
@@ -92,6 +80,9 @@ impl<'a> TypeLower<'a>{
                             },
                             Resolution::SelfType => {
                                 self.self_type.clone().expect("Should always have a self type whenever Self appears")
+                            },
+                            Resolution::SelfAlias(id) => {
+                                Type::SelfAlias(id)
                             }
                             _ => {
                                 TypeError.emit(format!("Cannot use '{}' as type.",resolved_path.format(self.interner)), resolved_path.span);

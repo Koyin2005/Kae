@@ -1,4 +1,4 @@
-use crate::{data_structures::IndexVec, frontend::{ast_lowering::hir::{self, DefId, Ident, Item}, typechecking::context::{EnumDef, FieldDef, FuncSig, FunctionDef, Generics, Impl, MethodDef, StructDef, TypeContext, VariantDef}}, identifiers::ItemIndex, GlobalSymbols, SymbolInterner};
+use crate::{data_structures::IndexVec, frontend::{ast_lowering::hir::{self, DefId, Ident, Item}, typechecking::context::{EnumDef, FieldDef, FuncSig, FunctionDef, Generics, Impl, MethodDef, StructDef, Trait, TypeContext, VariantDef}}, identifiers::ItemIndex, GlobalSymbols, SymbolInterner};
 
 use super::{lowering::TypeLower, Type};
 
@@ -83,7 +83,7 @@ impl<'a> ItemCollector<'a>{
                 });
                 true
             },
-            &Item::Impl(id,_,ref generics,ref methods) => {
+            &Item::Impl(id,_,ref generics,ref methods,_) => {
                 self.collect_generic_defs(id, generics);
                 for method in methods{
                     let prev_generic_index = self.next_index_for_param;
@@ -95,7 +95,15 @@ impl<'a> ItemCollector<'a>{
                 true
             },
             Item::Trait(trait_) => {
-                false
+                self.collect_generic_defs(trait_.id, &trait_.generics);
+                for method in &trait_.methods{
+                    let prev_generic_index = self.next_index_for_param;
+                    self.add_child(trait_.id, method.id);
+                    self.collect_generic_defs(method.id, &method.generics);
+                    self.next_index_for_param = prev_generic_index;
+                }
+                self.next_index_for_param = prev_generic_param_index;
+                true
             }
         }
     }
@@ -131,7 +139,7 @@ impl<'a> ItemCollector<'a>{
                     self.context.enums[enum_def.id].variants[i].fields.extend(fields);
                 }
             },
-            &Item::Impl(id,ref ty,_,ref methods) => {
+            &Item::Impl(id,ref ty,_,ref methods,ref trait_path) => {
                 let self_type = self.lower_type(ty);
                 let mut method_ids = Vec::new();
                 for method in methods{
@@ -151,10 +159,32 @@ impl<'a> ItemCollector<'a>{
                 self.context.impls.insert(id, Impl{
                     span:ty.span,
                     ty:self_type,
-                    methods:method_ids
+                    methods:method_ids,
+                    trait_:trait_path.clone()
                 });
             },
             Item::Trait(trait_) => {
+                let self_type = Type::Error;
+                let mut method_ids = Vec::new();
+                for method in &trait_.methods{
+                    let has_receiver = method.params.first().is_some_and(|param| matches!(param.pattern.kind,hir::PatternKind::Binding(_,name,_) if name.index == self.symbols.lower_self_symbol()));
+                    method_ids.push(method.id);
+                    self.add_name(method.id, method.name);
+                    self.context.methods.insert(method.id, MethodDef{
+                        name:method.name,
+                        has_receiver,
+                        sig:FuncSig { 
+                            params: method.params.iter().map(|param| self.lower_type_with(&param.ty,&self_type)).collect(), 
+                            return_type: method.return_type.as_ref().map_or(Type::new_unit(), |ty| self.lower_type_with(&ty,&self_type))
+                        } 
+                    });
+                }
+                self.context.name_map.insert(trait_.id, trait_.name);
+                self.context.traits.insert(trait_.id, Trait{
+                    span:trait_.span,
+                    methods:method_ids
+                });
+
                 
             }
         }

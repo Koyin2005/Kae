@@ -1,4 +1,4 @@
-use crate::{frontend::{ast_lowering::hir::{DefId, DefIdMap, Ident}, tokenizing::SourceLocation}, identifiers::SymbolIndex};
+use crate::{frontend::{ast_lowering::hir::{DefId, DefIdMap, Ident, QualifiedPath}, tokenizing::SourceLocation}, identifiers::SymbolIndex};
 
 use super::types::{generics::GenericArgs, subst::TypeSubst, Type};
 
@@ -49,9 +49,13 @@ pub struct MethodDef{
 pub struct Impl{
     pub span : SourceLocation,
     pub ty : Type,
+    pub trait_ : Option<QualifiedPath>,
     pub methods : Vec<DefId>
 }
-
+pub struct Trait{
+    pub span : SourceLocation,
+    pub methods : Vec<DefId>
+}
 pub enum TypeMember<'a>{
     Variant(DefId,GenericArgs,&'a VariantDef),
     Method{
@@ -69,6 +73,7 @@ pub struct TypeContext{
     pub(super) child_to_owner_map : DefIdMap<DefId>,
     pub(super) impls : DefIdMap<Impl>,
     pub(super) impl_ids : Vec<DefId>,
+    pub(super) traits : DefIdMap<Trait>,
     pub(super) name_map : DefIdMap<Ident>,
 }
 impl TypeContext{
@@ -83,6 +88,7 @@ impl TypeContext{
             params_to_indexes : DefIdMap::new(),
             child_to_owner_map : DefIdMap::new(),
             impls : DefIdMap::new(),
+            traits: DefIdMap::new(),
             impl_ids : Vec::new()
         }
     }
