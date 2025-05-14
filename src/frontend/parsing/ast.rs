@@ -205,7 +205,13 @@ pub struct Trait{
     pub id : NodeId,
     pub span : SourceLocation,
     pub name : Symbol,
-    pub methods : Vec<(NodeId,bool,FunctionProto)>
+    pub methods : Vec<TraitMethod>
+}
+pub struct TraitMethod{
+    pub id : NodeId,
+    pub has_receiver: bool,
+    pub proto : FunctionProto,
+    pub body : Option<ExprNode>
 }
 pub enum StmtNode{
     Expr{

@@ -1,4 +1,4 @@
-use crate::{frontend::{ast_lowering::hir::{DefId, DefIdMap, Ident, QualifiedPath}, tokenizing::SourceLocation}, identifiers::SymbolIndex};
+use crate::{frontend::{ast_lowering::hir::{self, DefId, DefIdMap, Ident, QualifiedPath}, tokenizing::SourceLocation}, identifiers::SymbolIndex};
 
 use super::types::{generics::GenericArgs, subst::TypeSubst, Type};
 
@@ -52,9 +52,14 @@ pub struct Impl{
     pub trait_ : Option<QualifiedPath>,
     pub methods : Vec<DefId>
 }
+#[derive(Clone,Copy)]
+pub struct TraitMethod{
+    pub id : DefId,
+    pub has_default_impl : bool
+}
 pub struct Trait{
     pub span : SourceLocation,
-    pub methods : Vec<DefId>
+    pub methods : Vec<TraitMethod>
 }
 pub enum TypeMember<'a>{
     Variant(DefId,GenericArgs,&'a VariantDef),
@@ -91,6 +96,38 @@ impl TypeContext{
             traits: DefIdMap::new(),
             impl_ids : Vec::new()
         }
+    }
+    pub fn as_trait_with_span(&self,path:&hir::QualifiedPath) -> (Option<DefId>,SourceLocation){
+        let (trait_,span) = match path{
+            hir::QualifiedPath::Resolved(path) => {
+                if let hir::Resolution::Definition(hir::DefKind::Trait,id) = path.final_res{
+                    (Some(id),path.span)
+                }
+                else{
+                    (None,path.span)
+                }
+            },
+            hir::QualifiedPath::TypeRelative(ty,_) => (None,ty.span)
+        };
+        (trait_,span)
+
+    }
+    pub fn get_default_trait_methods<'a>(&'a self,ty:&'a Type,method_name:SymbolIndex) -> Vec<(DefId,&'a MethodDef,TypeSubst<'a>)>{
+        let mut valid_methods = Vec::new();
+        for &id in self.impl_ids.iter(){
+            let impl_ = &self.impls[id];
+            let ty_with_impl = &impl_.ty;
+            if let Some((Some(trait_),_)) = impl_.trait_.as_ref().map(|trait_| self.as_trait_with_span(&trait_)){
+                let trait_ = &self.traits[trait_];
+                if let Some(subst) = ty_with_impl.get_substitution(ty){
+                    valid_methods.extend(trait_.methods.iter().filter_map(|&method|{
+                        let method_def = &self.methods[method.id];
+                        (method_def.name.index == method_name && method.has_default_impl).then_some((method.id,method_def,TypeSubst::new_from(subst.clone())))
+                    }));
+                }
+            }
+        }
+        valid_methods
     }
     pub fn get_methods<'a>(&'a self,ty:&'a Type,method_name:SymbolIndex) -> Vec<(DefId,&'a MethodDef,TypeSubst<'a>)>{
         let mut valid_methods = Vec::new();

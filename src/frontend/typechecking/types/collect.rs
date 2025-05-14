@@ -1,4 +1,4 @@
-use crate::{data_structures::IndexVec, frontend::{ast_lowering::hir::{self, DefId, Ident, Item}, typechecking::context::{EnumDef, FieldDef, FuncSig, FunctionDef, Generics, Impl, MethodDef, StructDef, Trait, TypeContext, VariantDef}}, identifiers::ItemIndex, GlobalSymbols, SymbolInterner};
+use crate::{data_structures::IndexVec, frontend::{ast_lowering::hir::{self, DefId, Ident, Item}, typechecking::context::{EnumDef, FieldDef, FuncSig, FunctionDef, Generics, Impl, MethodDef, StructDef, Trait, TraitMethod, TypeContext, VariantDef}}, identifiers::ItemIndex, GlobalSymbols, SymbolInterner};
 
 use super::{lowering::TypeLower, Type};
 
@@ -165,10 +165,10 @@ impl<'a> ItemCollector<'a>{
             },
             Item::Trait(trait_) => {
                 let self_type = Type::Error;
-                let mut method_ids = Vec::new();
+                let mut methods = Vec::new();
                 for method in &trait_.methods{
                     let has_receiver = method.params.first().is_some_and(|param| matches!(param.pattern.kind,hir::PatternKind::Binding(_,name,_) if name.index == self.symbols.lower_self_symbol()));
-                    method_ids.push(method.id);
+                    methods.push(TraitMethod{id:method.id,has_default_impl:method.body.is_some()});
                     self.add_name(method.id, method.name);
                     self.context.methods.insert(method.id, MethodDef{
                         name:method.name,
@@ -182,7 +182,7 @@ impl<'a> ItemCollector<'a>{
                 self.context.name_map.insert(trait_.id, trait_.name);
                 self.context.traits.insert(trait_.id, Trait{
                     span:trait_.span,
-                    methods:method_ids
+                    methods
                 });
 
                 

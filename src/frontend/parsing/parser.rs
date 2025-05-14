@@ -1,7 +1,7 @@
 use crate::{frontend::{parsing::ast::{FunctionSig, ParsedGenericParam, ParsedMethod, ParsedParam, Symbol}, tokenizing::{tokens::{Token, TokenKind}, SourceLocation}}, identifiers::SymbolInterner};
 
 use super::ast::{
-    EnumDef, ExprNode, ExprNodeKind, FuncDef, FunctionProto, Impl, InferPath, InferPathKind, LiteralKind, NodeId, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, Path, PathSegment, PatternMatchArmNode, StmtNode, StructDef, Trait
+    EnumDef, ExprNode, ExprNodeKind, FuncDef, FunctionProto, Impl, InferPath, InferPathKind, LiteralKind, NodeId, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, Path, PathSegment, PatternMatchArmNode, StmtNode, StructDef, Trait, TraitMethod
 };
 
 #[repr(u8)]
@@ -1095,11 +1095,16 @@ impl<'a> Parser<'a>{
         self.expect(TokenKind::LeftBrace, "Expect '{' after trait name.");
         let mut methods = Vec::new();
         while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
-            self.expect(TokenKind::Fun, "Expected 'fun'.");
+            self.expect(TokenKind::Fun, "Expected 'fun' for trait method.");
             let method_id = self.next_id();
             let (method_proto,has_receiver) = self.parse_method_prototype()?;
-            self.expect(TokenKind::Semicolon, "Expected ';'.");
-            methods.push((method_id,has_receiver,method_proto));
+            let body = (!self.matches(TokenKind::Semicolon)).then(|| self.parse_function_body()).transpose()?;
+            methods.push(TraitMethod{
+                id:method_id,
+                has_receiver,
+                proto:method_proto,
+                body
+            });
         }
         self.expect(TokenKind::RightBrace, "Expect '}' at the end of trait declaratino.");
         let end_line = self.current_token.line;

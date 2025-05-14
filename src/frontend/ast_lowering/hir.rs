@@ -94,7 +94,8 @@ pub struct TraitMethod{
     pub generics: Generics,
     pub has_receiver: bool,
     pub params : Vec<Param>,
-    pub return_type : Option<Type>
+    pub return_type : Option<Type>,
+    pub body : Option<Expr>
 }
 pub enum Item {
     Struct(StructDef),
@@ -395,7 +396,7 @@ pub struct FieldExpr{
     pub span : SourceLocation
 }
 
-
+#[derive(Debug)]
 pub struct DefIdMap<T>(FxHashMap<DefId,T>);
 impl<T> DefIdMap<T>{
     pub fn new() -> Self{

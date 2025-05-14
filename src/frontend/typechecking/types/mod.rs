@@ -51,6 +51,7 @@ impl PartialEq for Type{
                 generic_args == other_generic_args
             },
             (Self::Array(element),Self::Array(other_element)) => element == other_element,
+            (Self::SelfAlias(id),Self::SelfAlias(other)) => id == other,
             _ => false
         }
     }

@@ -6,7 +6,7 @@ use crate::{
     frontend::{
         ast_lowering::hir::{self, DefId, DefIdMap, HirId}, 
         tokenizing::SourceLocation, 
-        typechecking::{context::{FuncSig, Generics, TypeContext, TypeMember}, error::TypeError, types::{format::TypeFormatter, generics::GenericArgs, lowering::TypeLower, subst::TypeSubst, AdtKind, Type}}
+        typechecking::{context::{FuncSig, Generics, TypeContext, TypeMember}, error::TypeError, types::{format::TypeFormatter, generics::GenericArgs, lowering::TypeLower, subst::{SelfTypeSubst, Subst, TypeSubst}, AdtKind, Type}}
     }, 
     identifiers::{GlobalSymbols, ItemIndex, SymbolIndex, SymbolInterner}
 };
@@ -198,19 +198,11 @@ impl<'a> TypeChecker<'a>{
                 let old_self_type = self.self_type.replace(Some(self.lower_type(ty)));
                 if let Some(path) = trait_path{
                     self.check_path(path);
-                    let (trait_,span) = match path{
-                        hir::QualifiedPath::Resolved(path) => {
-                            if let hir::Resolution::Definition(hir::DefKind::Trait,id) = path.final_res{
-                                (Some(id),path.span)
-                            }
-                            else{
-                                (None,path.span)
-                            }
-                        },
-                        hir::QualifiedPath::TypeRelative(ty,_) => (None,ty.span)
-                    };
+                    let (trait_,span) = self.context.as_trait_with_span(path);
                     if let Some(trait_) = trait_{
-                        let trait_methods : IndexSet<SymbolIndex,FxBuildHasher> = self.context.traits[trait_].methods.iter().copied().map(|id| self.context.ident(id).index).collect();
+                        let trait_methods : IndexSet<SymbolIndex,FxBuildHasher> = self.context.traits[trait_].methods.iter().copied().filter_map(|method|{
+                            (!method.has_default_impl).then_some(self.context.ident(method.id).index)
+                        }).collect();
                         let mut method_spans : IndexMap<SymbolIndex,SourceLocation,FxBuildHasher> = IndexMap::default();
                         let methods : IndexSet<SymbolIndex,FxBuildHasher> = impl_.methods.iter().copied().map(|method| {
                             let name = self.context.ident(method);
@@ -232,8 +224,8 @@ impl<'a> TypeChecker<'a>{
                 *self.self_type.borrow_mut() =  old_self_type;
             },
             hir::Item::Trait(trait_) => {
-                for (method_def,method) in trait_.methods.iter().zip(self.context.traits[trait_.id].methods.iter().map(|&id| &self.context.methods[id])){
-                    self.check_function(&method.sig,  method_def.params.iter().map(|param| (&param.pattern,&param.ty)),None);
+                for (method_def,method) in trait_.methods.iter().zip(self.context.traits[trait_.id].methods.iter().map(|&method| &self.context.methods[method.id])){
+                    self.check_function(&method.sig,  method_def.params.iter().map(|param| (&param.pattern,&param.ty)),method_def.body.as_ref());
                 }
                 
             }
@@ -566,7 +558,22 @@ impl<'a> TypeChecker<'a>{
             };
             let sig = subst.instantiate_signature(&sig);
             (Some(generics),sig)
+        }).or_else(|| self.context.get_default_trait_methods(ty, method).first().map(|&(id,method,ref subst)|{
+
+            let trait_id = self.context.expect_owner_of(id);
+            let subst = SelfTypeSubst{ty,id:trait_id}.chain(subst);
+            let generics = self.context.expect_generics_for(id);
+            let sig = {
+                let mut sig = method.sig.clone();
+                if method.has_receiver && !keep_receiver{
+                    sig.params.remove(0);
+                }
+                sig
+            };
+            let sig = subst.instantiate_signature(&sig);
+            (Some(generics),sig)
         })
+        )
     }
     ///Checks a method call
     /// or a call of a field

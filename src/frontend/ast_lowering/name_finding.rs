@@ -371,8 +371,8 @@ impl<'b,'a> NameFinder<'b>{
                 self.info.name_map.insert(trait_def_id, trait_.name.into());
                 let self_symbol = self.global_symbols.upper_self_symbol();
                 self.get_current_scope_mut().add_binding(self_symbol,Resolution::SelfAlias(trait_def_id));
-                for &(id,_,ref proto) in &trait_.methods{
-                    self.find_names_in_method(id, proto.name, proto.generic_params.as_ref(),&proto.sig, None);
+                for trait_method in &trait_.methods{
+                    self.find_names_in_method(trait_method.id, trait_method.proto.name, trait_method.proto.generic_params.as_ref(),&trait_method.proto.sig, trait_method.body.as_ref());
                 }
                 self.end_scope(trait_.id);
                 if !self.get_current_scope_mut().add_binding(trait_.name.content,Resolution::Definition(DefKind::Trait,trait_def_id)).is_none(){

@@ -665,12 +665,17 @@ impl<'a> AstLowerer<'a>{
                 let methods = (||{
                         let mut had_error = false;
                         let mut methods = Vec::with_capacity(trait_.methods.len());
-                        for (id,has_receiver,mut proto) in trait_.methods{
-                            let method_id = self.expect_def_id(id, "There should be a method");
-                            self.begin_scope(id);
+                        for trait_method in trait_.methods{
+                            let method_id = self.expect_def_id(trait_method.id, "There should be a method");
+                            self.begin_scope(trait_method.id);
                             let name = self.name_info.name_map[method_id];
-                            let generics = self.lower_generic_params(method_id, proto.generic_params.take());
-                            let Ok((params,return_type)) = self.lower_function_sig(proto.sig) else{
+                            let generics = self.lower_generic_params(method_id, trait_method.proto.generic_params);
+                            let Ok((params,return_type)) = self.lower_function_sig(trait_method.proto.sig) else{
+                                had_error |= true;
+                                self.end_scope();
+                                continue;
+                            };
+                            let Ok(body) = trait_method.body.map(|body| self.lower_expr(body)).transpose() else {
                                 had_error |= true;
                                 self.end_scope();
                                 continue;
@@ -680,9 +685,10 @@ impl<'a> AstLowerer<'a>{
                                 id:method_id,
                                 name,
                                 generics,
-                                has_receiver,
+                                has_receiver:trait_method.has_receiver,
                                 params,
                                 return_type,
+                                body
                             });
                         }
                     (!had_error).then(|| methods).ok_or(LoweringErr)

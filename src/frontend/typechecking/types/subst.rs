@@ -1,11 +1,11 @@
 use fxhash::FxHashMap;
 
-use crate::frontend::typechecking::context::FuncSig;
+use crate::frontend::{ast_lowering::hir::DefId, typechecking::context::FuncSig};
 
 use super::{generics::GenericArgs, Type};
 #[derive(Clone)]
 pub struct TypeSubst<'a>{
-    subst : FxHashMap<u32,&'a Type>
+    subst : FxHashMap<u32,&'a Type>,
 }
 
 impl<'a> TypeSubst<'a>{
@@ -25,10 +25,11 @@ impl<'a> TypeSubst<'a>{
             (i as u32,ty)
         }).collect()}
     }
-    pub fn instantiate_types<'b,I:Iterator<Item = &'b Type>>(&self,types:I) -> Vec<Type>{
-        types.map(|ty| self.instantiate_type(ty)).collect()
-    }
-    pub fn instantiate_type(&self,ty:&Type) -> Type{
+}
+
+impl<'a> Subst for TypeSubst<'a>{
+    
+    fn instantiate_type(&self,ty:&Type) -> Type{
         match ty{
             &Type::Param(index,_) => {
                 if let Some(&&ty) = self.subst.get(&index).as_ref(){
@@ -38,10 +39,26 @@ impl<'a> TypeSubst<'a>{
                     ty.clone()
                 }
             },
-            Type::Function(params,return_type) => Type::new_function(params.iter().map(|param| self.instantiate_type(param)).collect(), self.instantiate_type(return_type)),
+            _ => self.super_instantiate_type(ty)
+
+        }
+    }
+}
+pub trait Subst : Sized{
+    fn instantiate_type(&self,ty:&Type) -> Type;
+    fn instantiate_types<'b,I:Iterator<Item = &'b Type>>(&self,types:I) -> Vec<Type>{
+        types.map(|ty| self.instantiate_type(ty)).collect()
+    }
+    fn instantiate_signature(&self,sig:&FuncSig) -> FuncSig{
+        FuncSig { params: self.instantiate_types(sig.params.iter()), return_type: self.instantiate_type(&sig.return_type) }
+    }
+    fn super_instantiate_type(&self,ty:&Type) -> Type{
+        match ty{
+            &Type::Param(index,name) => { Type::Param(index,name) },
+            Type::Function(params,return_type) => Type::new_function(self.instantiate_types(params.iter()), self.instantiate_type(return_type)),
             Type::Array(element_type) => Type::new_array(self.instantiate_type(element_type)),
-            &Type::Adt(ref generic_args,id,kind) => Type::Adt(GenericArgs::new(generic_args.iter().map(|arg| self.instantiate_type(arg)).collect()), id, kind),
-            Type::Tuple(elements) => Type::new_tuple(elements.iter().map(|element| self.instantiate_type(element)).collect()),
+            &Type::Adt(ref generic_args,id,kind) => Type::Adt(GenericArgs::new(self.instantiate_types(generic_args.iter())), id, kind),
+            Type::Tuple(elements) => Type::new_tuple(self.instantiate_types(elements.iter())),
             Type::Int => Type::Int,
             Type::Bool => Type::Bool,
             Type::Never => Type::Never,
@@ -52,7 +69,34 @@ impl<'a> TypeSubst<'a>{
 
         }
     }
-    pub fn instantiate_signature(&self,sig:&FuncSig) -> FuncSig{
-        FuncSig { params: self.instantiate_types(sig.params.iter()), return_type: self.instantiate_type(&sig.return_type) }
+    fn chain<U:Subst>(self,next:U) -> ChainedSubst<Self,U>{
+        ChainedSubst { first: self, second: next }
+    } 
+}
+
+pub struct SelfTypeSubst<'a>{
+    pub ty : &'a Type,
+    pub id : DefId
+}
+impl<'a,T:Subst> Subst for &'a T{
+    fn instantiate_type(&self,ty:&Type) -> Type {
+        (*self).instantiate_type(ty)
+    }
+}
+impl<'a> Subst for SelfTypeSubst<'a>{
+    fn instantiate_type(&self,ty:&Type) -> Type {
+        match ty{
+            &Type::SelfAlias(id) if id == self.id => self.ty.clone(),
+            _ => self.super_instantiate_type(ty)
+        }
+    }
+}
+pub struct ChainedSubst<Subst1,Subst2>{
+    pub first : Subst1,
+    pub second : Subst2
+}
+impl<T:Subst,U:Subst> Subst for ChainedSubst<T,U>{
+    fn instantiate_type(&self,ty:&Type) -> Type {
+        self.second.instantiate_type(&self.first.instantiate_type(ty))
     }
 }
