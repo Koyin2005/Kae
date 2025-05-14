@@ -203,6 +203,7 @@ pub struct FuncDef{
 }
 pub struct Trait{
     pub id : NodeId,
+    pub generics : Option<ParsedGenericParams>,
     pub span : SourceLocation,
     pub name : Symbol,
     pub methods : Vec<TraitMethod>

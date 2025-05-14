@@ -660,7 +660,7 @@ impl<'a> AstLowerer<'a>{
             ast::StmtNode::Trait(trait_) => {
                 let trait_def_id = self.expect_def_id(trait_.id, "There should be a trait");
                 let name = self.name_info.name_map[trait_def_id];
-                let generics = Generics { params: Vec::new() };
+                let generics = self.lower_generic_params(trait_def_id, trait_.generics);
                 self.begin_scope(trait_.id);
                 let methods = (||{
                         let mut had_error = false;

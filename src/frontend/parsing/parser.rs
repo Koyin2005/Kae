@@ -1092,6 +1092,7 @@ impl<'a> Parser<'a>{
     fn trait_stmt(&mut self) -> Result<StmtNode,ParsingFailed>{
         let name = self.parse_identifer("Expected a valid name for 'trait'.");
         let start  = name.location.start_line;
+        let generic_params = self.optional_generic_params()?;
         self.expect(TokenKind::LeftBrace, "Expect '{' after trait name.");
         let mut methods = Vec::new();
         while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
@@ -1110,6 +1111,7 @@ impl<'a> Parser<'a>{
         let end_line = self.current_token.line;
         Ok(StmtNode::Trait(Trait{
             id:self.next_id(),
+            generics:generic_params,
             name,
             methods,
             span:SourceLocation::new(start, end_line)

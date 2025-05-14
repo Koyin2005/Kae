@@ -368,6 +368,7 @@ impl<'b,'a> NameFinder<'b>{
                 let trait_def_id = self.def_ids.next();
                 self.add_node_to_def(trait_.id, trait_def_id);
                 self.begin_scope(ScopeKind::Item(trait_def_id));
+                self.find_generic_params(trait_def_id,trait_.generics.as_ref());
                 self.info.name_map.insert(trait_def_id, trait_.name.into());
                 let self_symbol = self.global_symbols.upper_self_symbol();
                 self.get_current_scope_mut().add_binding(self_symbol,Resolution::SelfAlias(trait_def_id));
