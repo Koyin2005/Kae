@@ -4,7 +4,7 @@ use super::ast::{
     EnumDef, ExprNode, ExprNodeKind, FuncDef, 
     Impl, InferPath, InferPathKind, LiteralKind, NodeId, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, 
     ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, Path, 
-    PathSegment, PatternMatchArmNode, StmtNode, StructDef
+    PathSegment, PatternMatchArmNode, StmtNode, StructDef, Trait
 };
 
 #[repr(u8)]
@@ -985,8 +985,7 @@ impl<'a> Parser<'a>{
         Ok(StmtNode::Struct(StructDef{ id : self.next_id(), name, generic_params, fields }))
     }
     fn fun_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
-        self.expect(TokenKind::Identifier, "Expect valid function name.");
-        let name = self.intern_symbol(self.prev_token.lexeme.to_string(),SourceLocation::one_line(self.prev_token.line));
+        let name = self.parse_identifer("Expect valid function name.");
         let generic_params = self.optional_generic_params()?;
         
         self.expect(TokenKind::LeftParen, "Expect '(' after function name.");
@@ -1074,6 +1073,10 @@ impl<'a> Parser<'a>{
                 location:name.location,
             }
         ], location: name.location });
+        let trait_path = if self.matches(TokenKind::Colon){
+            self.expect(TokenKind::Identifier, "Expected an identifier for a trait");
+            Some(self.parse_path()?)
+        } else { None };
         self.expect(TokenKind::LeftBrace, "Expect '{' after impl type.");
         let mut methods = Vec::new();
         while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
@@ -1086,11 +1089,23 @@ impl<'a> Parser<'a>{
         let end_line = self.current_token.line;
         Ok(StmtNode::Impl(Impl{ id : self.next_id(), span : SourceLocation { start_line, end_line }, ty,generic_params, methods }))
     }
+    fn trait_stmt(&mut self) -> Result<StmtNode,ParsingFailed>{
+        let name = self.parse_identifer("Expected a valid name for 'trait'.");
+        let start  =name.location.start_line;
+        self.expect(TokenKind::LeftBrace, "Expect '{' after trait name.");
+        self.expect(TokenKind::RightBrace, "Expect '}' at the end of trait declaratino.");
+        let end_line = self.current_token.line;
+        Ok(StmtNode::Trait(Trait{
+            id:self.next_id(),
+            name,
+            span:SourceLocation::new(start, end_line)
+        }))
+    }
     fn try_non_expr_stmt(&mut self)->Option<Result<StmtNode,ParsingFailed>>{
         Some(if self.matches(TokenKind::Let){
             self.let_stmt()
         }
-        else if self.matches(TokenKind::Fun){
+        else if self.matches(TokenKind::Fun) && self.check(TokenKind::Identifier){
             self.fun_stmt()
         }
         else if self.matches(TokenKind::Struct){
@@ -1101,6 +1116,9 @@ impl<'a> Parser<'a>{
         }
         else if self.matches(TokenKind::Impl){
             self.impl_stmt()
+        }
+        else if self.matches(TokenKind::Trait){
+            self.trait_stmt()
         }
         else{
             return None

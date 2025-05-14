@@ -85,7 +85,8 @@ pub enum Item {
     Struct(StructDef),
     Enum(EnumDef),
     Function(FunctionDef),
-    Impl(DefId,Type,Generics,Vec<FunctionDef>)
+    Impl(DefId,Type,Generics,Vec<FunctionDef>),
+    Trait(DefId)
 }
 #[derive(Clone,Debug)]
 pub struct Expr{

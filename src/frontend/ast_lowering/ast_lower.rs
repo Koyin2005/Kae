@@ -46,6 +46,9 @@ impl<'a> AstLowerer<'a>{
         self.next_id = self.next_id.next();
         prev_id
     }
+    fn expect_def_id(&self,id:NodeId,msg:&str) -> DefId{
+        self.name_info.expect_def_id_with_message(id, msg)
+    }
     fn error(&self,msg:String,span:SourceLocation){
         eprintln!("Error on Line {}: {}",span.start_line,msg);
         self.had_error.set(true);
@@ -557,7 +560,7 @@ impl<'a> AstLowerer<'a>{
                 (hir::StmtKind::Let(pattern?, ty.map_or(Ok(None), |ty| ty.map(Some))?, expr?),span)
             },
             ast::StmtNode::Struct(struct_def) => {
-                let struct_id = self.name_info.expect_def_id_with_message(struct_def.id, "Should be a struct");
+                let struct_id = self.expect_def_id(struct_def.id, "Should be a struct");
                 let generics = self.lower_generic_params(struct_id,struct_def.generic_params);
                 let name = self.name_info.structs[struct_id].name;
                 self.begin_scope(struct_def.id);
@@ -572,7 +575,7 @@ impl<'a> AstLowerer<'a>{
                 (hir::StmtKind::Item(item_id),name.span)
             },
             ast::StmtNode::Enum(enum_def) => {
-                let enum_id = self.name_info.expect_def_id_with_message(enum_def.id, "Should be an enum");
+                let enum_id = self.expect_def_id(enum_def.id, "Should be an enum");
                 self.begin_scope(enum_def.id);
                 let generics = self.lower_generic_params(enum_id,enum_def.generic_params);
                 let (name,ref variants) = self.name_info.enum_defs[enum_id];
@@ -598,7 +601,7 @@ impl<'a> AstLowerer<'a>{
             },
             ast::StmtNode::Fun(function_def) => {
                 //Scope handling is implicity done in lower_function
-                let func_id = self.name_info.expect_def_id_with_message(function_def.id, "Should be a function");
+                let func_id = self.expect_def_id(function_def.id, "Should be a function");
                 let name = self.name_info.name_map[func_id];
                 let generics = self.lower_generic_params(func_id,function_def.generic_params);
                 let function = self.lower_function(function_def.id, function_def.function);
@@ -607,7 +610,7 @@ impl<'a> AstLowerer<'a>{
                 (hir::StmtKind::Item(self.add_item_with_def(Item::Function(FunctionDef { id : func_id, generics, name, function }),func_id)),span)
             },
             ast::StmtNode::Impl(impl_) => {
-                let impl_id =  self.name_info.expect_def_id_with_message(impl_.id,"There should be an impl");
+                let impl_id =  self.expect_def_id(impl_.id,"There should be an impl");
                 let generics = self.lower_generic_params(impl_id, impl_.generic_params);
                 self.begin_scope(impl_.id);
                 let ty = self.lower_type(&impl_.ty);
@@ -616,7 +619,7 @@ impl<'a> AstLowerer<'a>{
                     let mut methods = Vec::with_capacity(impl_.methods.len());
                     for method in impl_.methods{
                         let method = (||{
-                            let method_id = self.name_info.expect_def_id_with_message(method.id, "Should be a method");
+                            let method_id = self.expect_def_id(method.id, "Should be a method");
                             let name = self.name_info.name_map[method_id];
                             let generics = self.lower_generic_params(method_id,method.generic_params);
                             let function = self.lower_function(method.id, method.function)?;
@@ -638,6 +641,10 @@ impl<'a> AstLowerer<'a>{
                 };
                 self.end_scope();
                 (hir::StmtKind::Item(self.add_item_with_def(Item::Impl(impl_id,ty?,generics, methods), impl_id)),impl_.span)
+            },
+            ast::StmtNode::Trait(trait_) => {
+                let trait_def_id = self.expect_def_id(trait_.id, "There should be a trait");
+                (hir::StmtKind::Item(self.add_item_with_def(Item::Trait(trait_def_id), trait_def_id)),trait_.span)
             }
         };
         Ok(hir::Stmt{

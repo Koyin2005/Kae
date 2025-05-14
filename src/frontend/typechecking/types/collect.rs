@@ -93,6 +93,9 @@ impl<'a> ItemCollector<'a>{
                 }
                 self.next_index_for_param = prev_generic_param_index;
                 true
+            },
+            Item::Trait(trait_) => {
+                false
             }
         }
     }
@@ -150,6 +153,9 @@ impl<'a> ItemCollector<'a>{
                     ty:self_type,
                     methods:method_ids
                 });
+            },
+            Item::Trait(trait_) => {
+                
             }
         }
     }

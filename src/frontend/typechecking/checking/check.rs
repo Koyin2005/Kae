@@ -198,6 +198,9 @@ impl<'a> TypeChecker<'a>{
                 }
                 *self.self_type.borrow_mut() =  old_self_type;
             },
+            &hir::Item::Trait(trait_id) => {
+                
+            }
         }
     }
     fn check_stmt(&self,stmt : &hir::Stmt) {

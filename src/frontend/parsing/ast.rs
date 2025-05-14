@@ -202,7 +202,11 @@ pub struct FuncDef{
     pub generic_params : Option<ParsedGenericParams>,
     pub function : ParsedFunction
 }
-
+pub struct Trait{
+    pub id : NodeId,
+    pub span : SourceLocation,
+    pub name : Symbol
+}
 pub enum StmtNode{
     Expr{
         expr : ExprNode,
@@ -217,7 +221,8 @@ pub enum StmtNode{
     Fun(FuncDef),
     Struct(StructDef),
     Enum(EnumDef),
-    Impl(Impl)
+    Impl(Impl),
+    Trait(Trait)
 }
 #[derive(Clone)]
 pub enum ParsedPatternNodeKind {

@@ -358,6 +358,10 @@ impl<'b,'a> NameFinder<'b>{
                     self.end_scope(method.id);
                 }
                 self.end_scope(impl_.id);
+            },
+            ast::StmtNode::Trait(trait_) => {
+                let trait_def_id = self.def_ids.next();
+                self.add_node_to_def(trait_.id, trait_def_id);
             }
         }
     }
