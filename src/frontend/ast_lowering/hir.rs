@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::ops::Add;
 
 use fxhash::FxHashMap;
 
@@ -18,6 +19,12 @@ impl HirId{
     }
 }
 define_id!(DefId);
+impl Add<u32> for DefId{
+    type Output = DefId;
+    fn add(self, rhs: u32) -> Self::Output {
+        Self(self.0 + rhs)
+    }
+}
 pub struct DefIdProvider{
     next : u32
 }
@@ -58,7 +65,8 @@ pub struct Param{
     pub pattern : Pattern,
     pub ty : Type
 }
-pub struct GenericParam(pub Ident,pub DefId);
+pub struct GenericConstraint(pub QualifiedPath);
+pub struct GenericParam(pub Ident,pub DefId,pub Option<GenericConstraint>);
 pub struct Generics{
     pub params : Vec<GenericParam>
 }
@@ -199,7 +207,7 @@ pub enum ExprKind {
     Return(Option<Box<Expr>>),
     Index(Box<Expr>,Box<Expr>),
     Assign(Box<Expr>,Box<Expr>),
-    MethodCall(Box<Expr>,Ident,Vec<GenericArg>,Vec<Expr>),
+    MethodCall(Box<Expr>,PathSegment,Vec<Expr>),
     StructLiteral(InferOrPath,Vec<FieldExpr>),
 }
 #[derive(Clone,Debug)]
@@ -323,7 +331,7 @@ impl QualifiedPath{
                     format!("{}::{}",formatted_ty,interner.get(segment.ident.index))
                 }
                 else{
-                    format!("{}::{}[{}]",formatted_ty,interner.get(segment.ident.index),segment.args.iter().enumerate().map(|(i,arg)|{
+                    format!("{}::{}[{}]",formatted_ty,segment.format(interner),segment.args.iter().enumerate().map(|(i,arg)|{
                         if i>0{
                             format!(",{}",arg.ty.format(interner))
                         }
@@ -335,6 +343,17 @@ impl QualifiedPath{
             },
             Self::Resolved(path) => path.format(interner)
         }
+    }
+    pub fn span(&self) -> SourceLocation{
+        match self{
+            Self::Resolved(path) => path.span,
+            Self::TypeRelative(ty,segment) => SourceLocation::new(ty.span.start_line, segment.ident.span.end_line)
+        }
+    }
+}
+impl PathSegment{
+    pub fn format<'a>(&self,interner:&'a SymbolInterner) -> &'a str{
+        interner.get(self.ident.index)
     }
 }
 #[derive(Clone,Debug)]
@@ -350,7 +369,7 @@ impl Path{
             if i>0{
                 full_path+="::";
             }
-            full_path+=interner.get(segment.ident.index);
+            full_path+=segment.format(interner);
         }
         full_path
     }

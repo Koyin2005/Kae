@@ -415,7 +415,7 @@ impl<'a> Parser<'a>{
     fn is_expr_start(&self)->bool{
         matches!(self.current_token.kind,TokenKind::Float|TokenKind::Int|TokenKind::True|TokenKind::False
                 |TokenKind::While|TokenKind::If| TokenKind::Print| TokenKind::Return|
-                TokenKind::Identifier|TokenKind::LeftParen| TokenKind::LeftBracket |
+                TokenKind::Identifier|TokenKind::LeftParen| TokenKind::LeftBracket | TokenKind::Dot | TokenKind::Wildcard | 
                 TokenKind::Bang| TokenKind::Minus | TokenKind::Fun)
     }
     fn parse_function_param(&mut self)->Result<ParsedParam,ParsingFailed>{
@@ -898,7 +898,9 @@ impl<'a> Parser<'a>{
     }
     fn parse_generic_params(&mut self)->Result<ParsedGenericParams,ParsingFailed>{
         fn parse_generic_param(this:&mut Parser)->Result<ParsedGenericParam,ParsingFailed>{
-            Ok(ParsedGenericParam(this.parse_identifer("Expect valid generic parameter name.")))
+            let name = this.parse_identifer("Expect valid generic parameter name.");
+            let constraint = (this.matches(TokenKind::Colon) && this.matches(TokenKind::Identifier)).then(|| this.parse_path()).transpose()?;
+            Ok(ParsedGenericParam(name,constraint))
         }
         let id = self.next_id();
         let params = if self.check(TokenKind::RightBracket) { Vec::new() } else {
@@ -1050,29 +1052,8 @@ impl<'a> Parser<'a>{
     }
     fn impl_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
         let start_line = self.current_token.line;
-        let name = self.parse_identifer("Exepcted a valid type name.");
         let generic_params = self.optional_generic_params()?;
-        let generic_args = if let Some(generics) = generic_params.as_ref(){
-            Some(ParsedGenericArgs{types:generics.1.iter().map(|param|{
-                ParsedType::Path(Path { segments: vec![
-                    PathSegment{
-                        name:param.0,
-                        generic_args:None,
-                        location:param.0.location
-                    }
-                ], location: param.0.location})
-            }).collect(),location:name.location})
-        }
-        else{
-            None
-        };
-        let ty = ParsedType::Path(Path { segments: vec![
-            PathSegment{
-                name,
-                generic_args,
-                location:name.location,
-            }
-        ], location: name.location });
+        let ty = self.parse_type()?;
         let trait_path = if self.matches(TokenKind::Colon){
             self.expect(TokenKind::Identifier, "Expected an identifier for a trait");
             Some(self.parse_path()?)

@@ -169,7 +169,7 @@ pub struct ExprNode{
     pub kind : ExprNodeKind
 }
 
-pub struct ParsedGenericParam(pub Symbol);
+pub struct ParsedGenericParam(pub Symbol,pub Option<Path>);
 pub struct ParsedGenericParams(pub NodeId,pub Vec<ParsedGenericParam>);
 
 pub struct ParsedEnumVariant{

@@ -1,29 +1,19 @@
-use fxhash::FxHashMap;
-
 use crate::frontend::{ast_lowering::hir::DefId, typechecking::context::FuncSig};
 
 use super::{generics::GenericArgs, Type};
-#[derive(Clone)]
+
+
+#[derive(Clone,Debug)]
 pub struct TypeSubst<'a>{
-    subst : FxHashMap<u32,&'a Type>,
+    pub subst : Vec<&'a Type>
 }
 
 impl<'a> TypeSubst<'a>{
     pub fn empty() -> Self{
-        Self { subst: FxHashMap::default() }
-    }
-    pub fn new_with_base(generic_args:&'a GenericArgs,base:u32) -> Self{
-        Self { subst: generic_args.iter().enumerate().map(|(i,ty)|{
-            (i as u32 + base,ty)
-        }).collect() }
-    }
-    pub fn new_from(subst:FxHashMap<u32,&'a Type>) -> Self{
-        Self { subst }
+        Self { subst:Vec::new()}
     }
     pub fn new(generic_args:&'a GenericArgs) -> Self{
-        Self { subst :generic_args.iter().enumerate().map(|(i,ty)|{
-            (i as u32,ty)
-        }).collect()}
+        Self { subst : generic_args.iter().collect() }
     }
 }
 
@@ -31,8 +21,8 @@ impl<'a> Subst for TypeSubst<'a>{
     
     fn instantiate_type(&self,ty:&Type) -> Type{
         match ty{
-            &Type::Param(index,_) => {
-                if let Some(&&ty) = self.subst.get(&index).as_ref(){
+            &Type::Param(index,_)  => {
+                if let Some(&ty) = self.subst.get(index as usize){
                     ty.clone()
                 }   
                 else{
@@ -73,7 +63,7 @@ pub trait Subst : Sized{
         ChainedSubst { first: self, second: next }
     } 
 }
-
+#[derive(Debug)]
 pub struct SelfTypeSubst<'a>{
     pub ty : &'a Type,
     pub id : DefId
@@ -91,6 +81,7 @@ impl<'a> Subst for SelfTypeSubst<'a>{
         }
     }
 }
+#[derive(Debug)]
 pub struct ChainedSubst<Subst1,Subst2>{
     pub first : Subst1,
     pub second : Subst2

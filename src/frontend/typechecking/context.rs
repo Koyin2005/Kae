@@ -1,6 +1,8 @@
+use fxhash::FxHashMap;
+
 use crate::{frontend::{ast_lowering::hir::{self, DefId, DefIdMap, Ident, QualifiedPath}, tokenizing::SourceLocation}, identifiers::SymbolIndex};
 
-use super::types::{generics::GenericArgs, subst::TypeSubst, Type};
+use super::types::{generics::GenericArgs,Type};
 
 pub struct FieldDef{
     pub name : Ident,
@@ -34,8 +36,14 @@ impl FuncSig{
 
 pub struct Generics{
     pub owner_id : DefId,
-    pub base : u32,
+    pub parent_count : usize,
     pub param_names : Vec<Ident>,
+    pub constraints : FxHashMap<u32,QualifiedPath>,
+}
+impl Generics{
+    pub fn param_at(&self,index:usize) -> Ident{
+        self.param_names[index - self.parent_count]
+    }
 }
 pub struct FunctionDef{
     pub name : Ident,
@@ -64,8 +72,10 @@ pub struct Trait{
 pub enum TypeMember<'a>{
     Variant(DefId,GenericArgs,&'a VariantDef),
     Method{
+        receiver_generic_args: GenericArgs,
         receiver_generic_params:Option<&'a Generics>,
-        sig : FuncSig
+        sig : FuncSig,
+        id : Option<DefId>
     }
 }
 pub struct TypeContext{
@@ -112,35 +122,49 @@ impl TypeContext{
         (trait_,span)
 
     }
-    pub fn get_default_trait_methods<'a>(&'a self,ty:&'a Type,method_name:SymbolIndex) -> Vec<(DefId,&'a MethodDef,TypeSubst<'a>)>{
+    pub fn get_default_trait_methods<'a>(&'a self,ty:&'a Type,method_name:SymbolIndex) -> Vec<(DefId,DefId,&'a MethodDef,GenericArgs)>{
         let mut valid_methods = Vec::new();
         for &id in self.impl_ids.iter(){
             let impl_ = &self.impls[id];
             let ty_with_impl = &impl_.ty;
             if let Some((Some(trait_),_)) = impl_.trait_.as_ref().map(|trait_| self.as_trait_with_span(&trait_)){
                 let trait_ = &self.traits[trait_];
-                if let Some(subst) = ty_with_impl.get_substitution(ty){
+                if let Some(generic_args) = self.get_generic_args_for(ty,ty_with_impl, self.expect_generics_for(id), GenericArgs::new_empty()){
                     valid_methods.extend(trait_.methods.iter().filter_map(|&method|{
                         let method_def = &self.methods[method.id];
-                        (method_def.name.index == method_name && method.has_default_impl).then_some((method.id,method_def,TypeSubst::new_from(subst.clone())))
+                        (method_def.name.index == method_name && method.has_default_impl).then_some((id,method.id,method_def,generic_args.clone()))
                     }));
                 }
             }
         }
+        valid_methods.reverse();
         valid_methods
     }
-    pub fn get_methods<'a>(&'a self,ty:&'a Type,method_name:SymbolIndex) -> Vec<(DefId,&'a MethodDef,TypeSubst<'a>)>{
+    pub fn get_generic_args_for(&self,ty:&Type,impl_type:&Type,generics:&Generics,parent_args:GenericArgs)->Option<GenericArgs>{
+        let substitution = impl_type.get_substitution(ty)?;
+        let parent_count = parent_args.len();
+        Some(GenericArgs::new(generics.param_names.iter().enumerate().map(|(i,param_name)|{
+            if let Some(&ty) = substitution.get(&(i as u32)){
+                ty.clone()
+            }
+            else{
+                Type::Param((i + parent_count) as u32,param_name.index)
+            }
+        }).collect()).rebase(&parent_args))
+    }
+    pub fn get_methods<'a>(&'a self,ty:&'a Type,method_name:SymbolIndex) -> Vec<(DefId,&'a MethodDef,GenericArgs)>{
         let mut valid_methods = Vec::new();
         for &id in self.impl_ids.iter(){
             let impl_ = &self.impls[id];
             let ty_with_impl = &impl_.ty;
-            if let Some(subst) = ty_with_impl.get_substitution(ty){
+            if let Some(generic_args) = self.get_generic_args_for(ty, ty_with_impl, self.expect_generics_for(id), GenericArgs::new_empty()){
                 valid_methods.extend(impl_.methods.iter().filter_map(|&method|{
                     let method_def = &self.methods[method];
-                    (method_def.name.index == method_name).then_some((method,method_def,TypeSubst::new_from(subst.clone())))
+                    (method_def.name.index == method_name).then_some((method,method_def,generic_args.clone()))
                 }));
             }
         }
+        valid_methods.reverse();
         valid_methods
     }
     pub fn ident(&self,id:DefId) -> Ident{
@@ -148,6 +172,9 @@ impl TypeContext{
     }
     pub fn expect_index_for(&self,param_def_id:DefId) -> u32{
         self.params_to_indexes[param_def_id]
+    }
+    pub fn get_owner_of(&self,child:DefId) -> Option<DefId>{
+        self.child_to_owner_map.get(child).copied()
     }
     pub fn expect_owner_of(&self,child:DefId) -> DefId{
         self.child_to_owner_map.get(child).copied().expect("There should be an owner for this child")
@@ -163,5 +190,42 @@ impl TypeContext{
     }
     pub fn get_variant_of(&self,enum_id:DefId,name:SymbolIndex) -> Option<&VariantDef>{
         self.enums[enum_id].variants.iter().find(|variant| variant.name.index == name)
+    }
+    pub fn get_generic_count(&self,res:&hir::Resolution) -> usize{
+        match res{
+            &hir::Resolution::Definition(hir::DefKind::Struct|hir::DefKind::Enum|hir::DefKind::Function|hir::DefKind::Trait,id) => self.expect_generics_for(id).param_names.len(),
+            hir::Resolution::Variable(_) | 
+            hir::Resolution::Definition(hir::DefKind::Variant|hir::DefKind::Param, _) | 
+            hir::Resolution::Primitive(_) | 
+            hir::Resolution::Builtin(hir::BuiltinKind::Panic)|
+            hir::Resolution::SelfType | hir::Resolution::None | hir::Resolution::SelfAlias(_) => 0
+        }
+    }
+    pub fn expect_generic_constraints(&self,id: DefId) -> Vec<Option<&QualifiedPath>>{
+            let generics = self.expect_generics_for(id);
+            (0..generics.param_names.len()).map(|i|{
+                generics.constraints.get(&(i as u32))
+            }).collect()
+    }
+    pub fn get_generic_constraints(&self,res:&hir::Resolution) -> Vec<Option<&QualifiedPath>>{
+        match res{
+            &hir::Resolution::Definition(hir::DefKind::Struct|hir::DefKind::Enum|hir::DefKind::Function|hir::DefKind::Trait,id) => {
+                self.expect_generic_constraints(id)
+            },
+            hir::Resolution::Variable(_) | 
+            hir::Resolution::Definition(hir::DefKind::Variant|hir::DefKind::Param, _) | 
+            hir::Resolution::Primitive(_) | 
+            hir::Resolution::Builtin(hir::BuiltinKind::Panic)|
+            hir::Resolution::SelfType | hir::Resolution::None | hir::Resolution::SelfAlias(_) => Vec::new()
+        }
+    }
+    pub fn ty_impls_trait(&self,ty:&Type,trait_:DefId) -> bool {
+        self.impls.iter().any(|(_,impl_)|{
+            impl_.ty.get_substitution(ty).is_some() && impl_.trait_.as_ref().is_some_and(|trait_path|{
+                self.as_trait_with_span(trait_path).0.is_some_and(|trait_impl|{
+                    trait_impl == trait_
+                })
+            })
+        })
     }
 }

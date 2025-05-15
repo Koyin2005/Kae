@@ -1,3 +1,5 @@
+use fxhash::FxHashMap;
+
 use crate::{data_structures::IndexVec, frontend::{ast_lowering::hir::{self, DefId, Ident, Item}, typechecking::context::{EnumDef, FieldDef, FuncSig, FunctionDef, Generics, Impl, MethodDef, StructDef, Trait, TraitMethod, TypeContext, VariantDef}}, identifiers::ItemIndex, GlobalSymbols, SymbolInterner};
 
 use super::{lowering::TypeLower, Type};
@@ -6,7 +8,7 @@ pub struct ItemCollector<'a>{
     context : TypeContext,
     interner : &'a SymbolInterner,
     symbols : &'a GlobalSymbols,
-    next_index_for_param : u32
+    next_param_index : u32
 }
 
 impl<'a> ItemCollector<'a>{
@@ -15,7 +17,7 @@ impl<'a> ItemCollector<'a>{
             context: TypeContext::new(), 
             interner,
             symbols,
-            next_index_for_param : 0
+            next_param_index : 0
         }
     }
     fn lower_type_with(&self,ty:&hir::Type,lowered_ty:&Type) -> Type{
@@ -31,27 +33,32 @@ impl<'a> ItemCollector<'a>{
         self.context.child_to_owner_map.insert(child, owner_id);
     }
     fn collect_generic_defs(&mut self,owner_id:DefId,generics:&hir::Generics){
-        let base = self.next_index_for_param;
-        let param_names = generics.params.iter().map(|&hir::GenericParam(name,id)|{
+        let parent_count = self.next_param_index as usize;
+        let mut constraints = FxHashMap::default();
+        let param_names = generics.params.iter().map(|&hir::GenericParam(name,id,ref generic_constraint)|{
+            let index = self.next_param_index;
+            self.next_param_index += 1;
             self.add_name(id, name);
             self.add_child(owner_id, id);
-            self.context.params_to_indexes.insert(id, self.next_index_for_param);
-            self.next_index_for_param += 1;
+            self.context.params_to_indexes.insert(id, index);
+            if let Some(constraint) = generic_constraint{
+                constraints.insert(index, constraint.0.clone());
+            }
             name
         }).collect();
         self.context.generics_map.insert(owner_id, Generics{
-            base,
+            parent_count,
             owner_id,
             param_names,
+            constraints
         });
     }
     fn collect_defs(&mut self,item:&Item) -> bool{
-        let prev_generic_param_index = self.next_index_for_param;
-        match item{
+        let old_generic_param_count = self.next_param_index;
+        let collect_more_info = match item{
             Item::Struct(struct_def) => {
                 self.add_name(struct_def.id, struct_def.name);
                 self.collect_generic_defs(struct_def.id,&struct_def.generics);
-                self.next_index_for_param = prev_generic_param_index;
                 self.context.structs.insert(struct_def.id, StructDef{
                     name:struct_def.name,
                     fields : Vec::new()
@@ -61,7 +68,6 @@ impl<'a> ItemCollector<'a>{
             Item::Function(function_def) => {
                 self.add_name(function_def.id, function_def.name);
                 self.collect_generic_defs(function_def.id, &function_def.generics);
-                self.next_index_for_param = prev_generic_param_index;
                 true
             },
             Item::Enum(enum_def) => {
@@ -76,7 +82,6 @@ impl<'a> ItemCollector<'a>{
                         fields:vec![]
                     }
                 }).collect();
-                self.next_index_for_param = prev_generic_param_index;
                 self.context.enums.insert(enum_def.id, EnumDef{
                     name:enum_def.name,
                     variants
@@ -85,27 +90,27 @@ impl<'a> ItemCollector<'a>{
             },
             &Item::Impl(id,_,ref generics,ref methods,_) => {
                 self.collect_generic_defs(id, generics);
+                let old_count = self.next_param_index;
                 for method in methods{
-                    let prev_generic_index = self.next_index_for_param;
                     self.add_child(id, method.id);
                     self.collect_generic_defs(method.id, &method.generics);
-                    self.next_index_for_param = prev_generic_index;
+                    self.next_param_index = old_count;
                 }
-                self.next_index_for_param = prev_generic_param_index;
                 true
             },
             Item::Trait(trait_) => {
                 self.collect_generic_defs(trait_.id, &trait_.generics);
+                let old_count = self.next_param_index;
                 for method in &trait_.methods{
-                    let prev_generic_index = self.next_index_for_param;
                     self.add_child(trait_.id, method.id);
                     self.collect_generic_defs(method.id, &method.generics);
-                    self.next_index_for_param = prev_generic_index;
+                    self.next_param_index = old_count;
                 }
-                self.next_index_for_param = prev_generic_param_index;
                 true
             }
-        }
+        };
+        self.next_param_index = old_generic_param_count;
+        collect_more_info
     }
     fn collect_info(&mut self,item:&Item){
         match item{

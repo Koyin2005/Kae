@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use fxhash::FxHashSet;
 
@@ -22,10 +22,10 @@ pub struct AstLowerer<'a>{
     items : IndexVec<ItemIndex,Item>,
     name_info : name_finding::NamesFound,
     def_id_map : DefIdMap<ItemIndex>,
-    next_id : HirId,
+    next_id : Cell<HirId>,
     had_error : Cell<bool>,
-    prev_scopes : Vec<ScopeId>,
-    resolver : Resolver
+    prev_scopes : RefCell<Vec<ScopeId>>,
+    resolver : RefCell<Resolver>
 }
 
 impl<'a> AstLowerer<'a>{
@@ -34,16 +34,16 @@ impl<'a> AstLowerer<'a>{
             symbol_interner:interner,
             items:IndexVec::new(),
             name_info,
-            next_id : HirId::default(),
+            next_id : Cell::new(HirId::default()),
             def_id_map : DefIdMap::new(),
             had_error : false.into(),
-            resolver :  Resolver::new(name_scopes.namespaces,name_scopes.scope_tree),
-            prev_scopes : Vec::new()
+            resolver :  RefCell::new(Resolver::new(name_scopes.namespaces,name_scopes.scope_tree)),
+            prev_scopes : RefCell::new(Vec::new())
         }
     }
-    fn next_id(&mut self) -> HirId{
-        let prev_id = self.next_id;
-        self.next_id = self.next_id.next();
+    fn next_id(&self) -> HirId{
+        let prev_id = self.next_id.get();
+        self.next_id.set(prev_id.next());
         prev_id
     }
     fn expect_def_id(&self,id:NodeId,msg:&str) -> DefId{
@@ -54,13 +54,13 @@ impl<'a> AstLowerer<'a>{
         self.had_error.set(true);
     }
     fn begin_scope(&mut self,id:NodeId){
-        self.prev_scopes.push(self.resolver.current_scope_id());
+        self.prev_scopes.borrow_mut().push(self.resolver.borrow().current_scope_id());
         let scopes = self.name_info.scope_map.get_mut(&id).expect("There should be a scope for this id");
-        self.resolver.set_current_scope(scopes.pop().expect("There should be a scope here"));
+        self.resolver.borrow_mut().set_current_scope(scopes.pop().expect("There should be a scope here"));
     }
-    fn end_scope(&mut self){
-        let prev_scope = self.prev_scopes.pop().expect("There should be a scope here.");
-        self.resolver.set_current_scope(prev_scope);
+    fn end_scope(&self){
+        let prev_scope = self.prev_scopes.borrow_mut().pop().expect("There should be a scope here.");
+        self.resolver.borrow_mut().set_current_scope(prev_scope);
     }
     fn add_item_with_optional_def(&mut self,item:Item,def:Option<DefId>) -> ItemIndex{
         let item = self.items.push(item);
@@ -75,7 +75,7 @@ impl<'a> AstLowerer<'a>{
     fn intern_symbol(&self,symbol:ast::Symbol) -> hir::Ident{
         symbol.into()
     }
-    fn lower_generic_args(&mut self,args:Option<&ast::ParsedGenericArgs>) -> Result<Vec<GenericArg>,LoweringErr>{
+    fn lower_generic_args(&self,args:Option<&ast::ParsedGenericArgs>) -> Result<Vec<GenericArg>,LoweringErr>{
         if let Some(args)=  args{
             Ok(args.types.iter().map(|arg|{
                 Ok(GenericArg{ ty: self.lower_type(arg)?})
@@ -85,29 +85,42 @@ impl<'a> AstLowerer<'a>{
             Ok(Vec::new())
         }
     }
-    fn lower_generic_params(&mut self,owner:DefId,generics:Option<ast::ParsedGenericParams>) -> Generics{
+    fn lower_generic_params(&mut self,owner:DefId,generics:Option<ast::ParsedGenericParams>) -> Result<Generics,LoweringErr>{
+        let mut had_error = false;
         let generics = if let Some(ast::ParsedGenericParams(_,params)) = generics {
             let mut generics = Generics::new(); 
             let mut seen_names = FxHashSet::default();
-            for (ast::ParsedGenericParam(_),&(id,name)) in params.into_iter().zip(&self.name_info.generics[owner]){
+            for (ast::ParsedGenericParam(_,constraint),&(id,name)) in params.into_iter().zip(&self.name_info.generics[owner]){
                 if !seen_names.insert(name.index){
                     self.error(format!("Repeated generic param '{}'.",self.symbol_interner.get(name.index)), name.span);
                     continue;
                 }
-                generics.params.push(hir::GenericParam(name,id));
+                let constraint = if let Some(constraint) = constraint{
+                    Some(self.lower_path(&constraint)).transpose()
+                }
+                else{
+                    Ok(None)
+                };
+                if let Ok(constraint) = constraint{
+                    generics.params.push(hir::GenericParam(name,id,constraint.map(|constraint| hir::GenericConstraint(constraint))));
+                }
+                else {
+                    had_error = true;
+                }
             }
             generics
         }
         else{
             Generics::new()
         };
-        generics
+        (!had_error).then_some(generics).ok_or(LoweringErr)
     }
-    fn validate_path(&mut self,resolution:Resolution,segments:&[ast::PathSegment]){
+    fn validate_path(&self,resolution:Resolution,segments:&[ast::PathSegment]){
         match resolution {
             Resolution::Definition(DefKind::Param,_) => {
-                let mut scope = self.resolver.current_scope_id();
-                let scopes = self.resolver.scopes();
+                let mut scope = self.resolver.borrow().current_scope_id();
+                let resolver = self.resolver.borrow();
+                let scopes = resolver.scopes();
                 let mut found_item = false;
                 while let Some(parent) = scopes.get_parent(scope) {
                     match scopes.get_scope(scope).kind(){
@@ -129,8 +142,8 @@ impl<'a> AstLowerer<'a>{
             _ => ()
         }
     }
-    fn lower_path(&mut self,path:&ast::Path) -> Result<hir::QualifiedPath,LoweringErr>{
-        let resolutions = self.resolver.resolve_path(path.segments.iter().map(|segment| segment.name.content));
+    fn lower_path(&self,path:&ast::Path) -> Result<hir::QualifiedPath,LoweringErr>{
+        let resolutions = self.resolver.borrow().resolve_path(path.segments.iter().map(|segment| segment.name.content));
         if resolutions.len() != path.segments.len(){
             let head = path.segments.first().expect("There must always be at least 1 segment");
             if resolutions.is_empty(){
@@ -209,7 +222,7 @@ impl<'a> AstLowerer<'a>{
         }).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>()?;
         Ok(hir::QualifiedPath::Resolved(hir::Path{span:path.location,final_res,segments}))
     }
-    fn lower_type(&mut self,ty:&ast::ParsedType) -> Result<hir::Type,LoweringErr>{
+    fn lower_type(&self,ty:&ast::ParsedType) -> Result<hir::Type,LoweringErr>{
         let (kind,span) = match ty{
             &ast::ParsedType::Array(span,ref element) => { 
                 let element_ty = self.lower_type(element);
@@ -272,7 +285,7 @@ impl<'a> AstLowerer<'a>{
         let variables = self.name_info.variable_def_map[&pattern.id].clone();
         for variable in variables{
             let (_,Ident { index:name, span:_ }) = self.name_info.variables[variable];
-            self.resolver.current_scope_mut().add_binding(name, hir::Resolution::Variable(variable));
+            self.resolver.borrow_mut().current_scope_mut().add_binding(name, hir::Resolution::Variable(variable));
         }
         self.lower_pattern(pattern)
     }
@@ -521,7 +534,7 @@ impl<'a> AstLowerer<'a>{
                 let receiver = self.lower_expr(*receiver).map(Box::new);
                 let generic_args = self.lower_generic_args(method.generic_args.as_ref());
                 let args = args.into_iter().map(|arg| self.lower_expr(arg)).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>()?;
-                hir::ExprKind::MethodCall(receiver?, self.intern_symbol(method.name), generic_args?,args)
+                hir::ExprKind::MethodCall(receiver?, hir::PathSegment { res: Resolution::None, ident: self.intern_symbol(method.name),args: generic_args? },args)
             },
             ast::ExprNodeKind::Instantiate { lhs, args } => {
                 let _ = self.lower_expr(*lhs);
@@ -569,15 +582,15 @@ impl<'a> AstLowerer<'a>{
             },
             ast::StmtNode::Struct(struct_def) => {
                 let struct_id = self.expect_def_id(struct_def.id, "Should be a struct");
+                self.begin_scope(struct_def.id);
                 let generics = self.lower_generic_params(struct_id,struct_def.generic_params);
                 let name = self.name_info.structs[struct_id].name;
-                self.begin_scope(struct_def.id);
                 let fields = self.lower_fields(struct_def.fields, self.name_info.structs[struct_id].fields.clone());
                 self.end_scope();
                 let item_id = self.add_item_with_def(Item::Struct(hir::StructDef{
                     id:struct_id,
                     name,
-                    generics,
+                    generics:generics?,
                     fields:fields?
                 }),struct_id);
                 (hir::StmtKind::Item(item_id),name.span)
@@ -602,7 +615,7 @@ impl<'a> AstLowerer<'a>{
                 self.end_scope();
                 (hir::StmtKind::Item(self.add_item_with_def(Item::Enum(hir::EnumDef{
                     id:enum_id,
-                    generics,
+                    generics:generics?,
                     name,
                     variants : variants.into_iter().collect::<Result<_,_>>()?
                 }),enum_id)),name.span)
@@ -619,12 +632,12 @@ impl<'a> AstLowerer<'a>{
                 self.end_scope();
                 let function = function?;
                 let span = SourceLocation::new(name.span.start_line, function.body.span.end_line);
-                (hir::StmtKind::Item(self.add_item_with_def(Item::Function(FunctionDef { id : func_id, generics, name, function }),func_id)),span)
+                (hir::StmtKind::Item(self.add_item_with_def(Item::Function(FunctionDef { id : func_id, generics:generics?, name, function }),func_id)),span)
             },
             ast::StmtNode::Impl(impl_) => {
                 let impl_id =  self.expect_def_id(impl_.id,"There should be an impl");
-                let generics = self.lower_generic_params(impl_id, impl_.generic_params);
                 self.begin_scope(impl_.id);
+                let generics = self.lower_generic_params(impl_id, impl_.generic_params);
                 let trait_path = impl_.trait_.map(|trait_| self.lower_path(&trait_)).transpose();
                 let ty = self.lower_type(&impl_.ty);
                 let methods = (||{
@@ -638,7 +651,7 @@ impl<'a> AstLowerer<'a>{
                             let generics = self.lower_generic_params(method_id,method.function.proto.generic_params.take());
                             let function = self.lower_function(method.id,method.function.proto.sig, method.function.body);
                             self.end_scope();
-                            Ok(FunctionDef { id:method_id, generics, name, function:function? })
+                            Ok(FunctionDef { id:method_id, generics:generics?, name, function:function? })
                         })();
                         match method {
                             Ok(method) => {
@@ -655,7 +668,7 @@ impl<'a> AstLowerer<'a>{
                     Ok(methods)
                 })();
                 self.end_scope();
-                (hir::StmtKind::Item(self.add_item_with_def(Item::Impl(impl_id,ty?,generics, methods?,trait_path?), impl_id)),impl_.span)
+                (hir::StmtKind::Item(self.add_item_with_def(Item::Impl(impl_id,ty?,generics?, methods?,trait_path?), impl_id)),impl_.span)
             },
             ast::StmtNode::Trait(trait_) => {
                 let trait_def_id = self.expect_def_id(trait_.id, "There should be a trait");
@@ -684,7 +697,7 @@ impl<'a> AstLowerer<'a>{
                             methods.push(hir::TraitMethod{
                                 id:method_id,
                                 name,
-                                generics,
+                                generics:generics?,
                                 has_receiver:trait_method.has_receiver,
                                 params,
                                 return_type,
@@ -698,7 +711,7 @@ impl<'a> AstLowerer<'a>{
                     id:trait_def_id,
                     name,
                     span:trait_.span,
-                    generics,
+                    generics:generics?,
                     methods:methods?,
                 }), trait_def_id)),trait_.span)
             }

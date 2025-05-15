@@ -73,9 +73,10 @@ impl<'a> TypeLower<'a>{
                             hir::Resolution::Definition(hir::DefKind::Enum,id) => Type::Adt(self.get_generic_args(path).expect("Should defo have generic args"), id,AdtKind::Enum),
                             hir::Resolution::Definition(hir::DefKind::Struct,id) => Type::Adt(self.get_generic_args(path).expect("Should defo have generic args"), id,AdtKind::Struct),
                             hir::Resolution::Definition(hir::DefKind::Param, id) => {
-                                let generics = self.context.expect_generics_for(self.context.expect_owner_of(id));
+                                let owner = self.context.expect_owner_of(id);
+                                let generics = self.context.expect_generics_for(owner);
                                 let index = self.context.expect_index_for(id);
-                                let symbol = generics.param_names[(index - generics.base) as usize].index;
+                                let symbol = generics.param_at(index as usize).index;
                                 Type::Param(index, symbol)
                             },
                             Resolution::SelfType => {

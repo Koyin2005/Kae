@@ -26,6 +26,9 @@ impl GenericArgs{
     pub fn len(&self) -> usize{
         self.0.len()
     }
+    pub fn rebase(&self,parent:&Self) -> Self{
+        Self(parent.iter().chain(self.iter()).cloned().collect())
+    }
 }
 
 

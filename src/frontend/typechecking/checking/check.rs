@@ -4,45 +4,51 @@ use indexmap::{IndexMap, IndexSet};
 use crate::{
     data_structures::IndexVec, 
     frontend::{
-        ast_lowering::hir::{self, DefId, DefIdMap, HirId}, 
+        ast_lowering::hir::{self, DefId, DefIdMap, HirId, Ident}, 
         tokenizing::SourceLocation, 
         typechecking::{context::{FuncSig, Generics, TypeContext, TypeMember}, error::TypeError, types::{format::TypeFormatter, generics::GenericArgs, lowering::TypeLower, subst::{SelfTypeSubst, Subst, TypeSubst}, AdtKind, Type}}
     }, 
     identifiers::{GlobalSymbols, ItemIndex, SymbolIndex, SymbolInterner}
 };
-use super::{env::TypeEnv, Expectation};
+use super::{env::{SelfType, TraitConstraint, TypeEnv}, Expectation};
 struct FuncContext{
     return_type : Type
 }
+
+struct MethodLookup<'a>{
+    generic_params : Option<&'a Generics>,
+    base_generic_args : GenericArgs,
+    sig : FuncSig,
+    has_receiver : bool,
+    id : Option<DefId>
+}
 pub struct TypeChecker<'a>{
     node_types : RefCell<FxHashMap<HirId,Type>>,
-    env : RefCell<TypeEnv>,
+    env : TypeEnv,
     had_error : Cell<bool>,
     prev_functions : RefCell<Vec<FuncContext>>,
     context : &'a TypeContext,
     ident_interner : &'a SymbolInterner,
     items : &'a IndexVec<ItemIndex,hir::Item>,
     symbols:&'a GlobalSymbols,
-    self_type : RefCell<Option<Type>>,
-    _item_map:&'a DefIdMap<ItemIndex>
+    _item_map:&'a DefIdMap<ItemIndex>,
 }
 impl<'a> TypeChecker<'a>{
     pub fn new(context:&'a TypeContext,items:&'a IndexVec<ItemIndex,hir::Item>,symbols:&'a GlobalSymbols,_item_map:&'a DefIdMap<ItemIndex>,interner:&'a SymbolInterner) -> Self{
         Self { 
             node_types : RefCell::new(FxHashMap::default()),
-            env : RefCell::new(TypeEnv::new()),
+            env : TypeEnv::new(),
             had_error : Cell::new(false),
             prev_functions : RefCell::new(Vec::new()),
             context,
             _item_map,
             items,
-            self_type:RefCell::new(None),
             ident_interner: interner,
-            symbols
+            symbols,
         }
     }
     pub(super) fn lowerer(&self) -> TypeLower{
-        TypeLower::new(&self.ident_interner,self.context,self.self_type.borrow().as_ref().cloned())
+        TypeLower::new(&self.ident_interner,self.context,self.env.get_self_type().and_then(|self_ty| self_ty.as_ty()).cloned())
     }
     pub(super) fn lower_type(&self,ty: &hir::Type) -> Type{
         self.lowerer().lower_type(ty)
@@ -75,7 +81,7 @@ impl<'a> TypeChecker<'a>{
             }
         }
     }
-    pub fn check(self,stmts : &[hir::Stmt]) -> Result<(),TypeError>{
+    pub fn check(mut self,stmts : &[hir::Stmt]) -> Result<(),TypeError>{
         self.check_impls();
         self.check_stmts(stmts);
         if !self.had_error.get(){
@@ -85,12 +91,12 @@ impl<'a> TypeChecker<'a>{
             Err(TypeError)
         }
     }
-    fn check_stmts(&self,stmts : &[hir::Stmt]){
+    fn check_stmts(&mut self,stmts : &[hir::Stmt]){
         for stmt in stmts{
             self.check_stmt(stmt);
         }
     }
-    fn check_type(&self,ty:&hir::Type){
+    fn check_type(&mut self,ty:&hir::Type){
         match &ty.kind{
             hir::TypeKind::Array(ty) => self.check_type(ty),
             hir::TypeKind::Tuple(elements) => elements.iter().for_each(|element| self.check_type(element)),
@@ -105,7 +111,7 @@ impl<'a> TypeChecker<'a>{
             }
         }
     }
-    fn check_function<'b>(&self,sig:&FuncSig,param_patterns:impl Iterator<Item = (&'b hir::Pattern,&'b hir::Type)>,body:Option<&hir::Expr>){
+    fn check_function<'b>(&mut self,sig:&FuncSig,param_patterns:impl Iterator<Item = (&'b hir::Pattern,&'b hir::Type)>,body:Option<&hir::Expr>){
         let FuncSig { params:param_types, return_type } = sig;
         for ((param_pattern,ty),param_ty) in param_patterns.zip(param_types){
             self.check_pattern(param_pattern, param_ty.clone());
@@ -144,9 +150,31 @@ impl<'a> TypeChecker<'a>{
             }
         }
     }
-    fn check_item(&self,item:ItemIndex){
+    fn check_generic_constraints(&mut self,id: DefId){
+        let constraints = self.context.expect_generic_constraints(id);
+        for constraint in constraints{
+            if let Some(constraint) = constraint{
+                match self.context.as_trait_with_span(constraint){
+                    (Some(trait_),_) => {
+                        let generic_args = self.lowerer().get_generic_args(constraint);
+                        self.env.add_generic_constraint(Some(TraitConstraint { id: trait_, generic_args: generic_args.unwrap_or(GenericArgs::new_empty()) }));
+                    },
+                    (None,span) => {
+                        self.error(format!("Cannot use non trait '{}' as generic constraint.",constraint.format(self.ident_interner)), span);
+                        self.env.add_generic_constraint(None);
+                    }
+                }
+            }
+            else{
+                self.env.add_generic_constraint(None);
+            }
+        }
+    }
+    fn check_item(&mut self,item:ItemIndex){
+        let count = self.env.generic_constraint_count();
         match &self.items[item]{
             hir::Item::Struct(struct_def) => {
+                self.check_generic_constraints(struct_def.id);
                 let mut repeated_fields = Vec::new();
                 let mut seen_fields = FxHashSet::default();
                 let mut is_recursive = false;
@@ -167,10 +195,12 @@ impl<'a> TypeChecker<'a>{
                 }
             },
             hir::Item::Function(function) => {
+                self.check_generic_constraints(function.id);
                 let sig = (&self.context.functions[function.id].sig).clone();
                 self.check_function(&sig,  function.function.params.iter().map(|param| (&param.pattern,&param.ty)),Some(&function.function.body));
             },
             hir::Item::Enum(enum_def) => {
+                self.check_generic_constraints(enum_def.id);
                 for (i,variant) in enum_def.variants.iter().enumerate(){
                     let mut repeated_fields = Vec::new();
                     let mut seen_fields = FxHashSet::default();
@@ -193,9 +223,11 @@ impl<'a> TypeChecker<'a>{
                 }
             },
             &hir::Item::Impl(id,ref ty,ref _generics,ref methods,ref trait_path) => {
+                self.check_generic_constraints(id);
                 self.check_type(ty);
                 let impl_ = &self.context.impls[id];
-                let old_self_type = self.self_type.replace(Some(self.lower_type(ty)));
+                let self_ty = self.lower_type(ty);
+                let old_self_type = self.env.set_self_type(Some(SelfType::Ty(self_ty)));
                 if let Some(path) = trait_path{
                     self.check_path(path);
                     let (trait_,span) = self.context.as_trait_with_span(path);
@@ -215,23 +247,39 @@ impl<'a> TypeChecker<'a>{
                         }
                     }
                     else{
-                        self.error(format!("Cannot implement '{}' for '{}'.",path.format(self.ident_interner), self.format_type(&self.lower_type(ty))),span);
+                        let self_ty = self.lower_type(ty);
+                        self.error(format!("Cannot implement '{}' for '{}'.",path.format(self.ident_interner), self.format_type(&self_ty)),span);
                     }
                 }
                 for (method_def,method) in methods.iter().zip(impl_.methods.iter().map(|&id| &self.context.methods[id])){
+                    let old_count = count;
+                    self.check_generic_constraints(method_def.id);
                     self.check_function(&method.sig,  method_def.function.params.iter().map(|param| (&param.pattern,&param.ty)),Some(&method_def.function.body));
+                    self.env.truncate_generic_constraints(old_count);
                 }
-                *self.self_type.borrow_mut() =  old_self_type;
+                self.env.set_self_type(old_self_type);
             },
             hir::Item::Trait(trait_) => {
+
+                let old_self_type = self.env.set_self_type(Some(SelfType::Trait(TraitConstraint{
+                    id:trait_.id,
+                    generic_args : GenericArgs::new(trait_.generics.params.iter().enumerate().map(|(i,param)|{
+                        Type::Param(i as u32, param.0.index)
+                    }).collect())
+                })));
                 for (method_def,method) in trait_.methods.iter().zip(self.context.traits[trait_.id].methods.iter().map(|&method| &self.context.methods[method.id])){
+                    let old_count = count;
+                    self.check_generic_constraints(method_def.id);
                     self.check_function(&method.sig,  method_def.params.iter().map(|param| (&param.pattern,&param.ty)),method_def.body.as_ref());
+                    self.env.truncate_generic_constraints(old_count);
                 }
+                self.env.set_self_type(old_self_type);
                 
             }
         }
+        self.env.truncate_generic_constraints(count);
     }
-    fn check_stmt(&self,stmt : &hir::Stmt) {
+    fn check_stmt(&mut self,stmt : &hir::Stmt) {
         match &stmt.kind{
             hir::StmtKind::Expr(expr) => {
                 self.check_expr(expr, Expectation::CoercesTo(Type::new_unit()));
@@ -241,7 +289,11 @@ impl<'a> TypeChecker<'a>{
                 self.check_expr(expr, Expectation::None);
             },
             hir::StmtKind::Let(pattern,ty,expr) => {
-                let ty = ty.as_ref().map(|ty| self.lower_type(&ty));
+                let ty = ty.as_ref().map(|ty| {
+                    
+                    self.check_type(ty);
+                    self.lower_type(&ty)
+                });
                 let expr_ty = self.check_expr(expr, ty.as_ref().map_or(
                     Expectation::None,
                     |ty|{
@@ -262,10 +314,10 @@ impl<'a> TypeChecker<'a>{
             },
         }
     }
-    fn check_pattern(&self,pattern : &hir::Pattern, expected_type : Type){
+    fn check_pattern(&mut self,pattern : &hir::Pattern, expected_type : Type){
         let ty = match &pattern.kind{
             &hir::PatternKind::Binding(variable, _,ref binding_pattern) => {
-                self.env.borrow_mut().define_variable_type(variable, expected_type.clone());
+                self.env.define_variable_type(variable, expected_type.clone());
                 if let Some(pattern) = binding_pattern.as_ref(){
                     self.check_pattern(pattern, expected_type.clone());
                 }
@@ -305,6 +357,10 @@ impl<'a> TypeChecker<'a>{
                     self.error(if let hir::InferOrPath::Path(path) = path { format!("Cannot use '{}' as constructor.",path.format(self.ident_interner))} else { format!("Cannot infer type of constructor.")},pattern.span);
                     return;
                 };
+                let type_id = match constructor_kind{
+                    AdtKind::Enum => self.context.expect_owner_of(id),
+                    AdtKind::Struct => id
+                };
                 let field_tys = match constructor_kind{
                     AdtKind::Struct => self.context.structs[id].fields.iter().map(|field|{
                         (field.name.index,field.ty.clone())
@@ -336,8 +392,8 @@ impl<'a> TypeChecker<'a>{
                     self.error(format!("Missing field pattern for field '{}'.",self.ident_interner.get(field)), last_field_span);
                 }
                 match constructor_kind{
-                    AdtKind::Enum => Type::new_enum(generic_args, self.context.expect_owner_of(id)),
-                    AdtKind::Struct => Type::new_struct(generic_args, id)
+                    AdtKind::Enum => Type::new_enum(generic_args,type_id),
+                    AdtKind::Struct => Type::new_struct(generic_args, type_id)
                 }
 
             }
@@ -378,7 +434,7 @@ impl<'a> TypeChecker<'a>{
             Type::new_error()
         }
     }
-    fn check_array_expr(&self,span:SourceLocation,elements:&[hir::Expr],expected:Expectation) -> Type{
+    fn check_array_expr(&mut self,span:SourceLocation,elements:&[hir::Expr],expected:Expectation) -> Type{
         let mut element_type = match &expected{
             Expectation::HasType(Type::Array(element_type)) | Expectation::CoercesTo(Type::Array(element_type)) => 
                 Some(*element_type.clone()),
@@ -411,7 +467,7 @@ impl<'a> TypeChecker<'a>{
         };
         lit_ty
     }
-    fn check_tuple_expr(&self,elements:&[hir::Expr],expected : Expectation) -> Type{
+    fn check_tuple_expr(&mut self,elements:&[hir::Expr],expected : Expectation) -> Type{
         let element_types = if let Expectation::HasType(Type::Tuple(element_types)) | Expectation::CoercesTo(Type::Tuple(element_types)) = expected{
             element_types
         } 
@@ -427,7 +483,7 @@ impl<'a> TypeChecker<'a>{
         }).collect();
         Type::new_tuple(element_types)
     }
-    fn check_match_expr(&self,matchee:&hir::Expr,arms:&[hir::MatchArm],expected:Expectation) -> Type{
+    fn check_match_expr(&mut self,matchee:&hir::Expr,arms:&[hir::MatchArm],expected:Expectation) -> Type{
         let matchee_ty = self.check_expr(matchee, Expectation::None);
         let mut result_ty = Type::Never;
         for arm in arms{
@@ -442,7 +498,7 @@ impl<'a> TypeChecker<'a>{
         }
         result_ty
     }
-    fn check_if_expr(&self,condition:&hir::Expr,then_branch:&hir::Expr,else_branch:Option<&hir::Expr>,expected:Expectation) -> Type{
+    fn check_if_expr(&mut self,condition:&hir::Expr,then_branch:&hir::Expr,else_branch:Option<&hir::Expr>,expected:Expectation) -> Type{
         self.check_expr(condition, Expectation::CoercesTo(Type::Bool));
         let then_ty = self.check_expr(then_branch, expected.clone());
         if let Some(else_branch) = else_branch.as_ref(){
@@ -466,7 +522,7 @@ impl<'a> TypeChecker<'a>{
             self.check_type_coerces_to_with_message(then_ty, Type::new_unit(),then_branch.span,format!("'if' of type '{}' must have else.",then))
         }
     }
-    fn check_block_expr(&self,stmts:&[hir::Stmt],result_expr:Option<&hir::Expr>,expected : Expectation) -> Type{
+    fn check_block_expr(&mut self,stmts:&[hir::Stmt],result_expr:Option<&hir::Expr>,expected : Expectation) -> Type{
         self.check_stmts(stmts);
         let ty = if let Some(result_expr) = result_expr.as_ref(){
             self.check_expr(result_expr, expected)
@@ -476,7 +532,7 @@ impl<'a> TypeChecker<'a>{
         };
         ty
     }
-    fn check_callee(&self,callee:&hir::Expr,expected_ty:Option<&Type>) -> Type{
+    fn check_callee(&mut self,callee:&hir::Expr,expected_ty:Option<&Type>) -> Type{
         match &callee.kind{
             hir::ExprKind::Path(path) => {
                 match path{
@@ -509,7 +565,7 @@ impl<'a> TypeChecker<'a>{
             _ => self.check_expr(callee, Expectation::None)
         }
     }
-    fn check_call_expr(&self,callee:&hir::Expr,args:&[hir::Expr],expected_ty:Option<&Type>) -> Type{
+    fn check_call_expr(&mut self,callee:&hir::Expr,args:&[hir::Expr],expected_ty:Option<&Type>) -> Type{
         let callee_ty = self.check_callee(callee,expected_ty);
         if let Type::Function(params,return_type) = callee_ty{
             if params.len() == args.len(){
@@ -531,23 +587,30 @@ impl<'a> TypeChecker<'a>{
             self.new_error(format!("Cannot call '{}'.",callee_string), callee.span)
         }
     }
-    fn get_member(&self,ty:&Type,member:SymbolIndex) -> Option<TypeMember>{
+    fn get_member(&self,ty:&Type,member:Ident) -> Option<TypeMember>{
         if let Some((generic_args,id,AdtKind::Enum)) = ty.as_adt(){
-            if let Some(variant) = self.context.get_variant_of(id, member){
+            if let Some(variant) = self.context.get_variant_of(id, member.index){
                 return Some(TypeMember::Variant(id,generic_args.clone(), variant));
             }
         }
-        self.get_method(ty, member,true).map(|(params,method_sig)|{
-            TypeMember::Method { receiver_generic_params: params, sig: method_sig }
+        self.get_method(ty, member,true).map(|MethodLookup { generic_params,base_generic_args, sig,id,has_receiver:_ }|{
+            TypeMember::Method { receiver_generic_args:base_generic_args,receiver_generic_params: generic_params, sig,id}
         })
     }
-    fn get_method(&self,ty:&Type,method:SymbolIndex,keep_receiver:bool) -> Option<(Option<&Generics>,FuncSig,)>{
+    fn get_method(&self,ty:&Type,method_ident:Ident,keep_receiver:bool) -> Option<MethodLookup>{
+        let method_index = method_ident.index;
         if let Type::Array(_) | Type::String = ty{
-            if method == self.symbols.len_symbol(){
-                return Some((None,FuncSig { params: vec![], return_type: Type::Int }));
+            if method_ident.index == self.symbols.len_symbol(){
+                return Some(MethodLookup{
+                    generic_params : None,
+                    sig : FuncSig { params: vec![], return_type: Type::Int },
+                    base_generic_args : GenericArgs::new_empty(),
+                    id : None,
+                    has_receiver : true
+                });
             }
-        }
-        self.context.get_methods(ty, method).first().map(|&(id,method,ref subst)|{
+        }   
+        self.context.get_methods(ty, method_index).pop().map(|(id,method,generic_args)|{
             let generics = self.context.expect_generics_for(id);
             let sig = {
                 let mut sig = method.sig.clone();
@@ -556,13 +619,48 @@ impl<'a> TypeChecker<'a>{
                 }
                 sig
             };
-            let sig = subst.instantiate_signature(&sig);
-            (Some(generics),sig)
-        }).or_else(|| self.context.get_default_trait_methods(ty, method).first().map(|&(id,method,ref subst)|{
-
+            MethodLookup{generic_params:Some(generics),base_generic_args:generic_args,sig,id:Some(id),has_receiver:method.has_receiver}
+        }).or_else(|| self.context.get_default_trait_methods(ty, method_index).pop().map(|(impl_id,id,method,generic_args)|{
             let trait_id = self.context.expect_owner_of(id);
-            let subst = SelfTypeSubst{ty,id:trait_id}.chain(subst);
             let generics = self.context.expect_generics_for(id);
+            let trait_generics = self.lowerer().get_generic_args(self.context.impls[impl_id].trait_.as_ref().expect("It should have a trait path")).expect("There should be generics here");
+            let sig = {
+                let mut sig = method.sig.clone();
+                if method.has_receiver && !keep_receiver{
+                    sig.params.remove(0);
+                }
+                sig
+            };
+            /*The generic args inferred are based on the impl rather than the trait
+              so substitute into the trait's generic arguments rather than the impls
+             */
+            let true_generics = GenericArgs::new(trait_generics.iter().map(|ty| TypeSubst::new(&generic_args).instantiate_type(ty)).collect());
+            let sig = SelfTypeSubst{ty,id:trait_id}.instantiate_signature(&sig);
+            MethodLookup{generic_params:Some(generics),base_generic_args:true_generics,sig,id:Some(id),has_receiver:method.has_receiver}
+        })).or_else(||{
+            let (trait_,method_id) = (||{
+                let trait_= match ty {
+                    &Type::Param(index,_) => {
+                        self.env.get_generic_constraint_at(index).map(|trait_|{
+                            trait_
+                        })
+                    },
+                    &Type::SelfAlias(id) => self.env.get_self_type().and_then(|ty| ty.as_trait()).filter(|trait_|{
+                        trait_.id == id
+                    }),
+                    _ => return None
+                }?;
+                
+                let method_id = self.context.traits[trait_.id].methods.iter().find(|trait_method|{
+                    self.context.ident(trait_method.id).index == method_index
+                }).map(|method|{
+                    method.id
+                })?;
+                Some((trait_,method_id))
+            })()?;
+            let method = &self.context.methods[method_id];
+            let method_generics = self.context.expect_generics_for(method_id);
+            let subst = SelfTypeSubst{ty,id:trait_.id}.chain(TypeSubst::new(&trait_.generic_args));
             let sig = {
                 let mut sig = method.sig.clone();
                 if method.has_receiver && !keep_receiver{
@@ -571,20 +669,20 @@ impl<'a> TypeChecker<'a>{
                 sig
             };
             let sig = subst.instantiate_signature(&sig);
-            (Some(generics),sig)
+            Some(MethodLookup{generic_params:Some(method_generics),base_generic_args:trait_.generic_args.clone(),sig,id:Some(method_id),has_receiver:method.has_receiver})
         })
-        )
     }
     ///Checks a method call
     /// or a call of a field
-    fn check_method_call(&self,receiver:&hir::Expr,name:hir::Ident,generic_args:&[hir::GenericArg],args:&[hir::Expr]) -> Type{
+    fn check_method_call(&mut self,receiver:&hir::Expr,segment: &hir::PathSegment,args:&[hir::Expr]) -> Type{
         let receiver_ty = self.check_expr(receiver, Expectation::None);
-        let generic_args = self.lowerer().lower_generic_args(generic_args);
-        let (generic_params,method_sig) = match self.get_method(&receiver_ty, name.index,false) {
-            Some((generic_params,method_sig)) => (generic_params,method_sig),
+        let generic_args = self.lowerer().lower_generic_args(&segment.args);
+        let name = segment.ident;
+        let (generic_params,base_generic_args,method_sig,has_receiver,method_id) = match self.get_method(&receiver_ty, name,false) {
+            Some(MethodLookup { generic_params, sig,base_generic_args ,id,has_receiver}) => (generic_params,base_generic_args,sig,has_receiver,id),
             None => {
-                let field_ty = if let &Type::Adt(ref generic_args,index,AdtKind::Struct) = &receiver_ty{
-                    self.context.structs[index].fields.iter().find(|field_def|{
+                let field_ty = if let &Type::Adt(ref generic_args,id,AdtKind::Struct) = &receiver_ty{
+                    self.context.structs[id].fields.iter().find(|field_def|{
                         field_def.name.index == name.index
                     }).map(|field_def| TypeSubst::new(generic_args).instantiate_type(&field_def.ty))
                 }
@@ -603,15 +701,22 @@ impl<'a> TypeChecker<'a>{
                     return self.new_error(format!("{} has no method '{}'.",self.format_type(&receiver_ty),self.ident_interner.get(name.index)), name.span)
                 };
                 let sig = FuncSig{params,return_type:*return_type};
-                (None,sig)
+                //We're treating a field access as a method call so just allow it
+                (None,GenericArgs::new_empty(),sig,true,None)
             }
         };
+
+        if !has_receiver{
+            self.error(format!("Cannot call '{}' using method call syntax.",self.ident_interner.get(name.index)), name.span);
+        }
         let generic_param_len = generic_params.map_or(0, |generics| generics.param_names.len());
-        if !self.check_generic_count(generic_param_len, generic_args.len(), name.span){
+
+        if !self.check_path_segment(segment, 
+            &if let Some(method_id) = method_id { self.context.expect_generic_constraints(method_id)} else { std::iter::repeat_n(None, generic_param_len).collect::<Vec<_>>()}
+        ){
             return Type::new_error()
         }
-        let base = generic_params.map_or(0, |generics| generics.base );
-        let method_sig = TypeSubst::new_with_base(&generic_args,base).instantiate_signature(&method_sig);
+        let method_sig =  TypeSubst::new(&generic_args.rebase(&base_generic_args)).instantiate_signature(&method_sig);
         if method_sig.params.len() != args.len(){
             self.error(format!("Expected {} arg{} got {}.",method_sig.params.len(),if method_sig.params.len() == 1 { ""} else {"s"},args.len()), name.span);
             return method_sig.return_type;
@@ -621,7 +726,7 @@ impl<'a> TypeChecker<'a>{
         }
         method_sig.return_type
     }
-    fn get_constructor_with_generic_args(&self, path: &hir::InferOrPath, expected_type: Option<&Type>) -> (GenericArgs,Option<(AdtKind,DefId)>){
+    fn get_constructor_with_generic_args(&mut self, path: &hir::InferOrPath, expected_type: Option<&Type>) -> (GenericArgs,Option<(AdtKind,DefId)>){
         match path{
             &hir::InferOrPath::Infer(_,name) => {
                 let generic_args_and_adt = expected_type.and_then(|ty|{
@@ -649,7 +754,7 @@ impl<'a> TypeChecker<'a>{
                 match path{
                     hir::QualifiedPath::TypeRelative(ty,segment) => {
                         let ty = self.lower_type(ty);
-                        self.get_member(&ty,segment.ident.index).and_then(|member|{
+                        self.get_member(&ty,segment.ident).and_then(|member|{
                             let TypeMember::Variant(_,generic_args,variant) = member else {
                                 return None;
                             };
@@ -661,8 +766,8 @@ impl<'a> TypeChecker<'a>{
                             hir::Resolution::Definition(hir::DefKind::Struct,id) => (generic_args,Some((AdtKind::Struct,id))),
                             hir::Resolution::Definition(hir::DefKind::Variant,id) => (generic_args,Some((AdtKind::Enum,id))),
                             hir::Resolution::SelfType => {
-                                self.self_type.borrow().as_ref().and_then(|ty|{
-                                    ty.as_adt()
+                                self.env.get_self_type().and_then(|ty|{
+                                    ty.as_ty()?.as_adt()
                                 }).map(|(generic_args,id,kind)|{
                                     match kind{
                                         AdtKind::Struct => (generic_args.clone(),Some((kind,id))),
@@ -680,7 +785,7 @@ impl<'a> TypeChecker<'a>{
             }
         }
     }
-    fn check_struct_literal(&self,expr:&hir::Expr,path:&hir::InferOrPath,fields:&[hir::FieldExpr],expected_type:Option<&Type>) -> Type{
+    fn check_struct_literal(&mut self,expr:&hir::Expr,path:&hir::InferOrPath,fields:&[hir::FieldExpr],expected_type:Option<&Type>) -> Type{
         if let hir::InferOrPath::Path(path) = path{
             self.check_path(path);
         }
@@ -690,6 +795,10 @@ impl<'a> TypeChecker<'a>{
                 self.check_expr(&field.expr, Expectation::None);
             }
             return err;
+        };
+        let type_id = match constructor_kind{
+            AdtKind::Enum => self.context.expect_owner_of(id),
+            AdtKind::Struct => id
         };
         let field_tys = match constructor_kind{
             AdtKind::Struct => self.context.structs[id].fields.iter().map(|field|{
@@ -722,11 +831,11 @@ impl<'a> TypeChecker<'a>{
             self.error(format!("Missing field initializer for field '{}'.",self.ident_interner.get(field)), last_field_span);
         }
         match constructor_kind{
-            AdtKind::Enum => Type::new_enum(generic_args, self.context.expect_owner_of(id)),
-            AdtKind::Struct => Type::new_struct(generic_args, id)
+            AdtKind::Enum => Type::new_enum(generic_args, type_id),
+            AdtKind::Struct => Type::new_struct(generic_args, type_id)
         }
     }
-    pub(super) fn check_expr(&self,expr:&hir::Expr,expected:Expectation) -> Type{
+    pub(super) fn check_expr(&mut self,expr:&hir::Expr,expected:Expectation) -> Type{
         let ty = match &expr.kind{
             hir::ExprKind::Literal(literal) => {
                 self.check_literal_expr(literal)
@@ -836,8 +945,8 @@ impl<'a> TypeChecker<'a>{
             },
             hir::ExprKind::Field(base, field) => {
                 let base_ty = self.check_expr(base, Expectation::None);
-                let field_ty = if let &Type::Adt(ref generic_args,index,AdtKind::Struct) = &base_ty{
-                    self.context.structs[index].fields.iter().find(|field_def|{
+                let field_ty = if let &Type::Adt(ref generic_args,id,AdtKind::Struct) = &base_ty{
+                    self.context.structs[id].fields.iter().find(|field_def|{
                         field_def.name.index == field.index
                     }).map(|field_def| TypeSubst::new(generic_args).instantiate_type(&field_def.ty))
                     
@@ -866,8 +975,8 @@ impl<'a> TypeChecker<'a>{
             hir::ExprKind::StructLiteral(path,fields) => {
                 self.check_struct_literal(expr,path,fields,expected.as_type())
             },
-            &hir::ExprKind::MethodCall(ref receiver,method_name,ref generic_args,ref args) => {
-                self.check_method_call(receiver,method_name,generic_args,args)
+            hir::ExprKind::MethodCall(ref receiver,segment,ref args) => {
+                self.check_method_call(receiver,segment,args)
             }
         };
         
@@ -885,16 +994,6 @@ impl<'a> TypeChecker<'a>{
         self.store_type(expr.id, ty.clone());
         ty
     }
-    fn get_generic_count(&self,res:&hir::Resolution) -> usize{
-        match res{
-            &hir::Resolution::Definition(hir::DefKind::Struct|hir::DefKind::Enum|hir::DefKind::Function|hir::DefKind::Trait,id) => self.context.expect_generics_for(id).param_names.len(),
-            hir::Resolution::Variable(_) | 
-            hir::Resolution::Definition(hir::DefKind::Variant|hir::DefKind::Param, _) | 
-            hir::Resolution::Primitive(_) | 
-            hir::Resolution::Builtin(hir::BuiltinKind::Panic)|
-            hir::Resolution::SelfType | hir::Resolution::None | hir::Resolution::SelfAlias(_) => 0
-        }
-    }
     fn check_generic_count(&self,expected:usize,got:usize,span:SourceLocation) -> bool{
         if got == expected{
             true
@@ -904,45 +1003,78 @@ impl<'a> TypeChecker<'a>{
             false
         }
     }
-
-    fn check_path(&self, path: &hir::QualifiedPath) -> bool{
+    fn check_path_segment(&mut self, segment: &hir::PathSegment, generic_param_constraints:&[Option<&hir::QualifiedPath>]) -> bool{
+        let mut ok = true;
+        if self.check_generic_count(generic_param_constraints.len(), segment.args.len(), segment.ident.span){
+            for (arg,constraint) in segment.args.iter().zip(generic_param_constraints){
+                if let Some(constraint) = constraint{
+                    let (Some(trait_id),span) = self.context.as_trait_with_span(&constraint)else {
+                        ok = false;
+                        self.error(format!("Cannot use '{}' as generic cosntraint.",constraint.format(self.ident_interner)), constraint.span());
+                        continue;
+                    };
+                    let ty = self.lower_type(&arg.ty);
+                    let satisfied = match ty{
+                        Type::Param(index,_) => {
+                            self.env.get_generic_constraint_at(index).is_some_and(|constraint| constraint.id == trait_id)
+                        },
+                        _ => {
+                            
+                            self.context.ty_impls_trait(&ty,trait_id)
+                        }
+                    };
+                    if !satisfied{
+                        self.error(format!("Type '{}' does not satisfy generic constraint '{}'.",self.format_type(&ty),constraint.format(self.ident_interner)), span);
+                        ok = false;
+                        
+                    }
+                }
+            }
+        }
+        else{
+            ok = false;
+        }
+        ok
+    }
+    fn check_path(&mut self, path: &hir::QualifiedPath) -> bool{
         match path{
             hir::QualifiedPath::TypeRelative(ty,segment) => {
                 self.check_type(ty);
                 let ty = self.lower_type(ty);
-                let Some(member) = self.get_member(&ty, segment.ident.index) else {
+                let Some(member) = self.get_member(&ty, segment.ident) else {
                     self.error(format!("{} has no member '{}'.",self.format_type(&ty),self.ident_interner.get(segment.ident.index)), segment.ident.span);
                     return false;
                 };
-                let generic_param_len = match member {
-                    TypeMember::Method { receiver_generic_params, sig:_ } => {
-                        receiver_generic_params.map_or(0, |params| params.param_names.len())
+                let generic_constraints = match member {
+                    TypeMember::Method { receiver_generic_args:_,receiver_generic_params:_, sig:_ ,id} => {
+                        id.map(|method|{
+                            self.context.expect_generic_constraints(method)
+                        }).unwrap_or(Vec::new())
                     },
                     TypeMember::Variant(_,_,_) => {
-                        0
+                        Vec::new()
                     }
                 };
-                if !self.check_generic_count(generic_param_len, segment.args.len(), segment.ident.span){
-                    return false;
-                }
-                true
+                self.check_path_segment(segment,&generic_constraints)
             },
             hir::QualifiedPath::Resolved(path) => {
                 let mut ok = true;
                 for segment in path.segments.iter(){
-                    ok &= self.check_generic_count(self.get_generic_count(&segment.res), segment.args.len(), segment.ident.span);
+                    
+                    let generic_constraints = self.context.get_generic_constraints(&segment.res);
+                    ok &= self.check_path_segment(segment,generic_constraints.as_slice());
                 }
                 ok
             }
         }
     }
-    fn check_expr_path(&self, path: &hir::QualifiedPath, as_callable: bool) -> Type{
+    fn check_expr_path(&mut self, path: &hir::QualifiedPath, as_callable: bool) -> Type{
         let ok = self.check_path(path);
         let ty = match path{
             hir::QualifiedPath::Resolved(resolved_path) => {
                 match resolved_path.final_res{
                     hir::Resolution::Variable(variable) => {
-                        self.env.borrow().get_variable_type(variable)
+                        self.env.get_variable_type(variable)
                     },
                     hir::Resolution::Definition(hir::DefKind::Function,function) => {
                         let def = &self.context.functions[function];
@@ -996,7 +1128,7 @@ impl<'a> TypeChecker<'a>{
                         Type::new_function(vec![Type::String], Type::Never)
                     },
                     hir::Resolution::SelfType => {
-                        if let Some(&Type::Adt(ref generic_args,id,AdtKind::Struct))  = self.self_type.borrow().as_ref() {
+                        if let Some((generic_args,id,AdtKind::Struct))  = self.env.get_self_type().and_then(|ty| ty.as_ty()?.as_adt()){
                             let struct_def = &self.context.structs[id];
                             if as_callable{
                                 let mut all_anon_fields = true;
@@ -1029,7 +1161,7 @@ impl<'a> TypeChecker<'a>{
             },
             hir::QualifiedPath::TypeRelative(ty,segment) => {
                 let ty = self.lower_type(&ty);
-                let member = self.get_member(&ty, segment.ident.index);
+                let member = self.get_member(&ty, segment.ident);
                 let Some(member) = member else {
                     return Type::new_error();
                 };
@@ -1054,11 +1186,9 @@ impl<'a> TypeChecker<'a>{
                         }
 
                     },
-                    TypeMember::Method { receiver_generic_params:generic_params, sig:method_sig } => {
+                    TypeMember::Method { receiver_generic_args,receiver_generic_params:_, sig:method_sig,id:_ } => {
                         let generic_args = self.lowerer().lower_generic_args(&segment.args);
-                        let method_sig = TypeSubst::new_with_base(&generic_args,generic_params.map_or(0, |generics| generics.base)).instantiate_signature(&method_sig);
-                        method_sig.as_type()
-
+                        TypeSubst::new(&generic_args.rebase(&receiver_generic_args)).instantiate_signature(&method_sig).as_type()
                     }
                 }
             }
