@@ -102,6 +102,9 @@ impl Type{
                 }
                 Some(subst)
             },
+            (Self::Array(elements),Self::Array(other_elements)) => {
+                elements.get_substitution(other_elements)
+            }
             (ty,other_ty) => if ty == other_ty {
                 Some(IndexMap::default())
             } else {
