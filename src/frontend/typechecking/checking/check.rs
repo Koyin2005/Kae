@@ -631,6 +631,7 @@ impl<'a> TypeChecker<'a>{
                 }
                 sig
             };
+
             /*The generic args inferred are based on the impl rather than the trait
               so substitute into the trait's generic arguments rather than the impls
              */
@@ -1019,7 +1020,6 @@ impl<'a> TypeChecker<'a>{
                             self.env.get_generic_constraint_at(index).is_some_and(|constraint| constraint.id == trait_id)
                         },
                         _ => {
-                            
                             self.context.ty_impls_trait(&ty,trait_id)
                         }
                     };

@@ -2,7 +2,7 @@ use fxhash::FxHashMap;
 
 use crate::{frontend::{ast_lowering::hir::{self, DefId, DefIdMap, Ident, QualifiedPath}, tokenizing::SourceLocation}, identifiers::SymbolIndex};
 
-use super::types::{generics::GenericArgs,Type};
+use super::{types::{generics::GenericArgs, Type}};
 
 pub struct FieldDef{
     pub name : Ident,
@@ -127,13 +127,15 @@ impl TypeContext{
         for &id in self.impl_ids.iter(){
             let impl_ = &self.impls[id];
             let ty_with_impl = &impl_.ty;
-            if let Some((Some(trait_),_)) = impl_.trait_.as_ref().map(|trait_| self.as_trait_with_span(&trait_)){
-                let trait_ = &self.traits[trait_];
+            if let Some((Some(trait_id),_)) = impl_.trait_.as_ref().map(|trait_| self.as_trait_with_span(&trait_)){
+                let trait_ = &self.traits[trait_id];
                 if let Some(generic_args) = self.get_generic_args_for(ty,ty_with_impl, self.expect_generics_for(id), GenericArgs::new_empty()){
-                    valid_methods.extend(trait_.methods.iter().filter_map(|&method|{
-                        let method_def = &self.methods[method.id];
-                        (method_def.name.index == method_name && method.has_default_impl).then_some((id,method.id,method_def,generic_args.clone()))
-                    }));
+                    if self.ty_impls_trait(ty, trait_id){
+                        valid_methods.extend(trait_.methods.iter().filter_map(|&method|{
+                            let method_def = &self.methods[method.id];
+                            (method_def.name.index == method_name && method.has_default_impl).then_some((id,method.id,method_def,generic_args.clone()))
+                        }));
+                    }
                 }
             }
         }
@@ -158,10 +160,12 @@ impl TypeContext{
             let impl_ = &self.impls[id];
             let ty_with_impl = &impl_.ty;
             if let Some(generic_args) = self.get_generic_args_for(ty, ty_with_impl, self.expect_generics_for(id), GenericArgs::new_empty()){
-                valid_methods.extend(impl_.methods.iter().filter_map(|&method|{
-                    let method_def = &self.methods[method];
-                    (method_def.name.index == method_name).then_some((method,method_def,generic_args.clone()))
-                }));
+                if impl_.trait_.as_ref().is_some_and(|trait_path| self.as_trait_with_span(trait_path).0.is_some_and(|trait_|self.ty_impls_trait(ty, trait_,))){
+                    valid_methods.extend(impl_.methods.iter().filter_map(|&method|{
+                        let method_def = &self.methods[method];
+                        (method_def.name.index == method_name).then_some((method,method_def,generic_args.clone()))
+                    }));
+                }
             }
         }
         valid_methods.reverse();
@@ -220,12 +224,25 @@ impl TypeContext{
         }
     }
     pub fn ty_impls_trait(&self,ty:&Type,trait_:DefId) -> bool {
-        self.impls.iter().any(|(_,impl_)|{
-            impl_.ty.get_substitution(ty).is_some() && impl_.trait_.as_ref().is_some_and(|trait_path|{
-                self.as_trait_with_span(trait_path).0.is_some_and(|trait_impl|{
-                    trait_impl == trait_
-                })
-            })
+        self.impls.iter().any(|(id,impl_)|{
+            if !impl_.trait_.as_ref().is_some_and(|path| self.as_trait_with_span(path).0.is_some_and(|id| id == trait_)){
+                return false;
+            }
+            let Some(impl_generic_args) = self.get_generic_args_for(ty, &impl_.ty, self.expect_generics_for(id), GenericArgs::new_empty()) else {
+                return false;
+            };
+            let constraints = self.expect_generic_constraints(id);
+            let all_constraints_valid = impl_generic_args.iter().zip(constraints.iter()).all(|(arg,constraint)|{
+                if let Some(trait_) = constraint.as_ref().and_then(|constraint|{
+                    self.as_trait_with_span(constraint).0
+                }){
+                    self.ty_impls_trait(arg, trait_)
+                }
+                else{
+                    true
+                }
+            });
+            all_constraints_valid
         })
     }
 }

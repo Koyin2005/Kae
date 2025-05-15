@@ -1,4 +1,4 @@
-use crate::{frontend::{ast_lowering::hir::{self, DefKind, GenericArg, QualifiedPath, Resolution}, typechecking::{context::TypeContext, error::TypeError}}, SymbolInterner};
+use crate::{frontend::{ast_lowering::hir::{self, DefKind, GenericArg, QualifiedPath, Resolution}, typechecking::{ context::TypeContext, error::TypeError}}, SymbolInterner};
 
 use super::{format::TypeFormatter, generics::GenericArgs, AdtKind, Type};
 
