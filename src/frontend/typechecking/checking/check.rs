@@ -2,17 +2,16 @@ use std::cell::RefCell;
 use fxhash::{FxHashMap, FxHashSet};
 use crate::{
      errors::ErrorReporter, frontend::{
-        ast_lowering::hir::{self, DefId, DefIdMap, HirId}, 
+        ast_lowering::hir::{self, DefId, DefIdMap, HirId, Resolution}, 
         tokenizing::SourceLocation, 
         typechecking::{context::{FuncSig, MethodLookup, TypeContext}, error::TypeError, items::item_check::ItemCheck, types::{format::TypeFormatter, generics::GenericArgs, lowering::TypeLower, subst::{Subst, TypeSubst}, AdtKind, Type}}
     }, identifiers::{GlobalSymbols, ItemIndex, SymbolIndex, SymbolInterner}
 };
-use super::{env::TypeEnv, Expectation};
+use super::{env::TypeEnv, Expectation, TypeCheckResults};
 struct FuncContext{
     return_type : Type
 }
 pub struct TypeChecker<'a>{
-    node_types : RefCell<FxHashMap<HirId,Type>>,
     env : TypeEnv,
     error_reporter: ErrorReporter,
     prev_functions : RefCell<Vec<FuncContext>>,
@@ -20,11 +19,11 @@ pub struct TypeChecker<'a>{
     ident_interner : &'a SymbolInterner,
     symbols:&'a GlobalSymbols,
     _item_map:&'a DefIdMap<ItemIndex>,
+    results : RefCell<TypeCheckResults>
 }
 impl<'a> TypeChecker<'a>{
     pub fn new(context:&'a TypeContext,symbols:&'a GlobalSymbols,_item_map:&'a DefIdMap<ItemIndex>,interner:&'a SymbolInterner) -> Self{
         Self { 
-            node_types : RefCell::new(FxHashMap::default()),
             env : TypeEnv::new(),
             error_reporter: ErrorReporter::new(false),
             prev_functions : RefCell::new(Vec::new()),
@@ -32,6 +31,7 @@ impl<'a> TypeChecker<'a>{
             _item_map,
             ident_interner: interner,
             symbols,
+            results: RefCell::new(TypeCheckResults::new())
         }
     }
     pub(super) fn lowerer(&self) -> TypeLower{
@@ -43,8 +43,14 @@ impl<'a> TypeChecker<'a>{
     pub(super) fn format_type(&self,ty: &Type) -> String{
         TypeFormatter::new(&*self.ident_interner, &*self.context).format_type(ty)
     }
-    fn store_type(&self,id: HirId,ty: Type){
-        self.node_types.borrow_mut().insert(id, ty);
+    fn store_type(&self, id: HirId, ty: Type){
+        self.results.borrow_mut().expr_types.insert(id, ty);
+    }
+    fn store_generic_args(&self, id: HirId, args: GenericArgs){
+        self.results.borrow_mut().generic_args.insert(id,args);
+    }
+    fn store_resolution(&self, id: HirId, res: Resolution){
+        self.results.borrow_mut().resolutions.insert(id, res);
     }
     fn error(&self,msg:String,span : SourceLocation){
         self.error_reporter.emit(msg, span);
@@ -54,7 +60,7 @@ impl<'a> TypeChecker<'a>{
         self.error(msg, span);
         Type::new_error()
     }
-    pub fn check<'b>(mut self,items:impl Iterator<Item = &'b hir::Item>) -> Result<(),TypeError>{
+    pub fn check<'b>(mut self,items:impl Iterator<Item = &'b hir::Item>) -> Result<TypeCheckResults,TypeError>{
         for item in items{
             match item{
                 hir::Item::Function(function_def) => {
@@ -70,7 +76,7 @@ impl<'a> TypeChecker<'a>{
             }
         }
         if !self.error_reporter.error_occurred(){
-            Ok(())
+            Ok(self.results.into_inner())
         }
         else{
             Err(TypeError)
@@ -342,14 +348,14 @@ impl<'a> TypeChecker<'a>{
         ty
     }
     fn check_callee(&mut self,callee:&hir::Expr,expected_ty:Option<&Type>) -> Type{
-        match &callee.kind{
+        let ty = match &callee.kind{
             hir::ExprKind::Path(path) => {
                 match path{
                     hir::PathExpr::Path(path) => {
-                        self.check_expr_path(path, true)
+                        self.check_expr_path(callee.id,path, true)
                     },
                     hir::PathExpr::Infer(name) => {
-                        expected_ty.and_then(|ty| ty.as_adt().map(|info| (ty,info))).and_then(|(ty,(generic_args,id,kind))|{
+                         expected_ty.and_then(|ty| ty.as_adt().map(|info| (ty,info))).and_then(|(ty,(generic_args,id,kind))|{
                             match kind{
                                 AdtKind::Enum => {
                                     self.context.get_variant_of(id, name.index).map(|variant|{
@@ -372,7 +378,9 @@ impl<'a> TypeChecker<'a>{
                 }
             },
             _ => self.check_expr(callee, Expectation::None)
-        }
+        };
+        self.store_type(callee.id, ty.clone());
+        ty
     }
     fn check_call_expr(&mut self,callee:&hir::Expr,args:&[hir::Expr],expected_ty:Option<&Type>) -> Type{
         let callee_ty = self.check_callee(callee,expected_ty);
@@ -398,12 +406,17 @@ impl<'a> TypeChecker<'a>{
     }
     ///Checks a method call
     /// or a call of a field
-    fn check_method_call(&mut self,receiver:&hir::Expr,segment: &hir::PathSegment,args:&[hir::Expr]) -> Type{
+    fn check_method_call(&mut self, expr_id: HirId, receiver: &hir::Expr, segment: &hir::PathSegment, args: &[hir::Expr]) -> Type{
         let receiver_ty = self.check_expr(receiver, Expectation::None);
         let generic_args = self.lowerer().lower_generic_args(&segment.args);
         let name = segment.ident;
         let (generic_params,base_generic_args,method_sig,has_receiver) = match self.context.get_method(self.symbols,&receiver_ty, name,false) {
-            Some(MethodLookup { generic_params, sig,base_generic_args ,id:_,has_receiver}) => (generic_params,base_generic_args,sig,has_receiver),
+            Some(MethodLookup { generic_params, sig,base_generic_args ,id,has_receiver}) => {
+                if let Some(id) = id{
+                    self.store_resolution(expr_id, Resolution::Definition(hir::DefKind::Function, id));
+                }
+                (generic_params,base_generic_args,sig,has_receiver)
+            },
             None => {
                 let field_ty = if let &Type::Adt(ref generic_args,id,AdtKind::Struct) = &receiver_ty{
                     self.context.structs[id].fields.iter().find(|field_def|{
@@ -446,6 +459,7 @@ impl<'a> TypeChecker<'a>{
         for (param,arg) in method_sig.params.into_iter().zip(args){
             self.check_expr(arg, Expectation::CoercesTo(param));
         }
+        self.store_generic_args(expr_id, generic_args);
         method_sig.return_type
     }
     fn get_constructor_with_generic_args(&mut self, path: &hir::InferOrPath, expected_type: Option<&Type>) -> (GenericArgs,Option<(AdtKind,DefId)>){
@@ -504,6 +518,8 @@ impl<'a> TypeChecker<'a>{
             }
             return err;
         };
+        self.store_generic_args(expr.id, generic_args.clone());
+        self.store_resolution(expr.id, Resolution::Definition(match constructor_kind { AdtKind::Enum => hir::DefKind::Variant, AdtKind::Struct => hir::DefKind::Struct},id));
         let type_id = match constructor_kind{
             AdtKind::Enum => self.context.expect_owner_of(id),
             AdtKind::Struct => id
@@ -563,7 +579,7 @@ impl<'a> TypeChecker<'a>{
             hir::ExprKind::Path(path) => {
                 match path{
                     hir::PathExpr::Path(path) => {
-                        self.check_expr_path(path, matches!(expected,Expectation::CoercesTo(Type::Function(_,_))|Expectation::HasType(Type::Function(_,_))))
+                        self.check_expr_path(expr.id,path, matches!(expected,Expectation::CoercesTo(Type::Function(_,_))|Expectation::HasType(Type::Function(_,_))))
                     },
                     &hir::PathExpr::Infer(name) => {
                          expected.as_type().and_then(|ty|{
@@ -684,7 +700,7 @@ impl<'a> TypeChecker<'a>{
                 self.check_struct_literal(expr,path,fields,expected.as_type())
             },
             hir::ExprKind::MethodCall(ref receiver,segment,ref args) => {
-                self.check_method_call(receiver,segment,args)
+                self.check_method_call(expr.id,receiver,segment,args)
             }
         };
         
@@ -726,20 +742,26 @@ impl<'a> TypeChecker<'a>{
         }
         ok
     }
-    fn check_expr_path(&mut self, path: &hir::Path, as_callable: bool) -> Type{
+    fn check_expr_path(&mut self, expr_id: HirId, path: &hir::Path, as_callable: bool) -> Type{
         let ok = self.check_path(path);
         let ty = match path.final_res{
             hir::Resolution::Variable(variable) => {
+                self.store_resolution(expr_id, Resolution::Variable(variable));
                 self.env.get_variable_type(variable)
             },
             hir::Resolution::Definition(hir::DefKind::Function,function) => {
                 let sig = &self.context.signatures[function];
-                TypeSubst::new(&self.lowerer().lower_generic_args_of_path(path)).instantiate_signature(sig).as_type()
+                let generic_args = self.lowerer().lower_generic_args_of_path(path);
+                self.store_generic_args(expr_id, generic_args.clone());
+                self.store_resolution(expr_id, Resolution::Definition(hir::DefKind::Function, function));
+                TypeSubst::new(&generic_args).instantiate_signature(sig).as_type()
             },
             hir::Resolution::Definition(hir::DefKind::Variant,id) => {
                 let enum_id = self.context.expect_owner_of(id);
                 let variant = self.context.get_variant(id).expect("There should be a variant here");
                 let generic_args = self.lowerer().lower_generic_args_of_path(path);
+                self.store_generic_args(expr_id, generic_args.clone());
+                self.store_resolution(expr_id, Resolution::Definition(hir::DefKind::Variant, id));
                 if as_callable{
                     let mut all_anon_fields = true;
                     let params = TypeSubst::new(&generic_args).instantiate_types(variant.fields.iter().map(|field|{
@@ -761,6 +783,8 @@ impl<'a> TypeChecker<'a>{
             hir::Resolution::Definition(hir::DefKind::Struct,id) => {
                 let struct_def = &self.context.structs[id];
                 let generic_args = self.lowerer().lower_generic_args_of_path(path);
+                self.store_generic_args(expr_id, generic_args.clone());
+                self.store_resolution(expr_id, Resolution::Definition(hir::DefKind::Struct, id));
                 if as_callable{
                     let mut all_anon_fields = true;
                     let params = TypeSubst::new(&generic_args).instantiate_types(struct_def.fields.iter().map(|field|{
@@ -785,6 +809,8 @@ impl<'a> TypeChecker<'a>{
             },
             hir::Resolution::SelfType => {
                 if let Some((generic_args,id,AdtKind::Struct))  = self.env.get_self_type().and_then(|ty| ty.0.as_adt()){
+                    self.store_generic_args(expr_id, generic_args.clone());
+                    self.store_resolution(expr_id, Resolution::Definition(hir::DefKind::Struct, id));
                     let struct_def = &self.context.structs[id];
                     if as_callable{
                         let mut all_anon_fields = true;
