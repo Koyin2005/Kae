@@ -1,7 +1,7 @@
 use crate::{frontend::{parsing::ast::{FunctionSig, ParsedGenericParam, ParsedMethod, ParsedParam, Symbol}, tokenizing::{tokens::{Token, TokenKind}, SourceLocation}}, identifiers::SymbolInterner};
 
 use super::ast::{
-    EnumDef, ExprNode, ExprNodeKind, FuncDef, FunctionProto, Impl, InferPath, InferPathKind, LiteralKind, NodeId, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, Path, PathSegment, PatternMatchArmNode, StmtNode, StructDef, Trait, TraitMethod
+    EnumDef, ExprNode, ExprNodeKind, FuncDef, FunctionProto, Impl, InferPath, InferPathKind, Item, LiteralKind, NodeId, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, Path, PathSegment, PatternMatchArmNode, StmtNode, StructDef
 };
 
 #[repr(u8)]
@@ -645,17 +645,6 @@ impl<'a> Parser<'a>{
     fn expression(&mut self)->Result<ExprNode,ParsingFailed>{
         self.parse_precedence(Precedence::Assignment)
     }
-    fn expression_statement(&mut self)->Result<StmtNode,ParsingFailed>{
-        let expression = self.expression()?;
-        let has_semi = if Self::needs_semi_for_stmt(&expression){
-            self.expect(TokenKind::Semicolon, "Expect ';' after expression.");
-            true
-        }
-        else {
-            self.matches(TokenKind::Semicolon)
-        };
-        Ok(StmtNode::Expr { expr:expression, has_semi })
-    }
     fn parse_type(&mut self)->Result<ParsedType,ParsingFailed>{
         Ok(if self.matches(TokenKind::Identifier)||self.matches(TokenKind::UpperSelf){
             let path = self.parse_path()?;
@@ -899,8 +888,7 @@ impl<'a> Parser<'a>{
     fn parse_generic_params(&mut self)->Result<ParsedGenericParams,ParsingFailed>{
         fn parse_generic_param(this:&mut Parser)->Result<ParsedGenericParam,ParsingFailed>{
             let name = this.parse_identifer("Expect valid generic parameter name.");
-            let constraint = (this.matches(TokenKind::Colon) && this.matches(TokenKind::Identifier)).then(|| this.parse_path()).transpose()?;
-            Ok(ParsedGenericParam(name,constraint))
+            Ok(ParsedGenericParam(name))
         }
         let id = self.next_id();
         let params = if self.check(TokenKind::RightBracket) { Vec::new() } else {
@@ -945,7 +933,7 @@ impl<'a> Parser<'a>{
         }
         
     }
-    fn enum_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
+    fn enum_stmt(&mut self)->Result<EnumDef,ParsingFailed>{
         let name = self.parse_identifer("Expect valid enum name.");
         let generic_params = self.optional_generic_params()?;
         self.expect(TokenKind::LeftBrace, "Expect '{'.");
@@ -958,7 +946,7 @@ impl<'a> Parser<'a>{
             }
         }
         self.expect(TokenKind::RightBrace, "Expect '}'.");
-        Ok(StmtNode::Enum(EnumDef{ id : self.next_id(), name,generic_params, variants }))
+        Ok(EnumDef{ id : self.next_id(), name,generic_params, variants })
     }
     fn parse_struct_field(&mut self)->Result<(Symbol,ParsedType),ParsingFailed>{
         self.expect(TokenKind::Identifier, "Expect valid field name.");
@@ -967,7 +955,7 @@ impl<'a> Parser<'a>{
         let field_type = self.parse_type()?;
         Ok((self.intern_symbol(field_name.lexeme.to_string(),SourceLocation::one_line(field_name.line)),field_type))
     }
-    fn struct_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
+    fn struct_stmt(&mut self)->Result<StructDef,ParsingFailed>{
         self.expect(TokenKind::Identifier, "Expect valid structure name.");
         let name = self.intern_symbol(self.prev_token.lexeme.to_string(),SourceLocation::one_line(self.prev_token.line));
 
@@ -981,12 +969,12 @@ impl<'a> Parser<'a>{
             }
         }
         self.expect(TokenKind::RightBrace, "Expect '}'.");
-        Ok(StmtNode::Struct(StructDef{ id : self.next_id(), name, generic_params, fields }))
+        Ok(StructDef{ id : self.next_id(), name, generic_params, fields })
     }
-    fn fun_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
+    fn fun_stmt(&mut self)->Result<FuncDef,ParsingFailed>{
         let proto = self.parse_function_prototype()?;
         let body = self.parse_function_body()?;
-        Ok(StmtNode::Fun(FuncDef{ id : self.next_id(), function : ParsedFunction { proto, body } }))
+        Ok(FuncDef{ id : self.next_id(), function : ParsedFunction { proto, body } })
     }
     fn parse_method_prototype(&mut self) -> Result<(FunctionProto,bool),ParsingFailed>{
         
@@ -1050,14 +1038,10 @@ impl<'a> Parser<'a>{
         let body = self.parse_function_body()?;
         Ok((ParsedFunction{proto,body},has_receiver))
     }
-    fn impl_stmt(&mut self)->Result<StmtNode,ParsingFailed>{
+    fn impl_stmt(&mut self)->Result<Impl,ParsingFailed>{
         let start_line = self.current_token.line;
         let generic_params = self.optional_generic_params()?;
         let ty = self.parse_type()?;
-        let trait_path = if self.matches(TokenKind::Colon){
-            self.expect(TokenKind::Identifier, "Expected an identifier for a trait");
-            Some(self.parse_path()?)
-        } else { None };
         self.expect(TokenKind::LeftBrace, "Expect '{' after impl type.");
         let mut methods = Vec::new();
         while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
@@ -1068,91 +1052,59 @@ impl<'a> Parser<'a>{
         }
         self.expect(TokenKind::RightBrace, "Expect '}'.");
         let end_line = self.current_token.line;
-        Ok(StmtNode::Impl(Impl{ id : self.next_id(), span : SourceLocation { start_line, end_line }, ty,generic_params, methods,trait_:trait_path}))
+        Ok(Impl{ id : self.next_id(), span : SourceLocation { start_line, end_line }, ty,generic_params, methods})
     }
-    fn trait_stmt(&mut self) -> Result<StmtNode,ParsingFailed>{
-        let name = self.parse_identifer("Expected a valid name for 'trait'.");
-        let start  = name.location.start_line;
-        let generic_params = self.optional_generic_params()?;
-        self.expect(TokenKind::LeftBrace, "Expect '{' after trait name.");
-        let mut methods = Vec::new();
-        while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
-            self.expect(TokenKind::Fun, "Expected 'fun' for trait method.");
-            let method_id = self.next_id();
-            let (method_proto,has_receiver) = self.parse_method_prototype()?;
-            let body = (!self.matches(TokenKind::Semicolon)).then(|| self.parse_function_body()).transpose()?;
-            methods.push(TraitMethod{
-                id:method_id,
-                has_receiver,
-                proto:method_proto,
-                body
-            });
-        }
-        self.expect(TokenKind::RightBrace, "Expect '}' at the end of trait declaratino.");
-        let end_line = self.current_token.line;
-        Ok(StmtNode::Trait(Trait{
-            id:self.next_id(),
-            generics:generic_params,
-            name,
-            methods,
-            span:SourceLocation::new(start, end_line)
-        }))
-    }
-    fn try_non_expr_stmt(&mut self)->Option<Result<StmtNode,ParsingFailed>>{
-        Some(if self.matches(TokenKind::Let){
-            self.let_stmt()
-        }
-        else if self.matches(TokenKind::Fun) && self.check(TokenKind::Identifier){
-            self.fun_stmt()
+    fn try_item(&mut self) -> Option<Result<Item,ParsingFailed>>{
+        Some(if self.matches(TokenKind::Fun) && self.check(TokenKind::Identifier){
+            self.fun_stmt().map(Item::Fun)
         }
         else if self.matches(TokenKind::Struct){
-            self.struct_stmt()
+            self.struct_stmt().map(Item::Struct) 
         }
         else if self.matches(TokenKind::Enum){
-            self.enum_stmt()
+            self.enum_stmt().map(Item::Enum)
         }
         else if self.matches(TokenKind::Impl){
-            self.impl_stmt()
-        }
-        else if self.matches(TokenKind::Trait){
-            self.trait_stmt()
+            self.impl_stmt().map(Item::Impl)
         }
         else{
             return None
         })
     }
-    fn statement(&mut self)->Result<StmtNode,ParsingFailed>{
-        if let Some(stmt) = self.try_non_expr_stmt(){
-            stmt
+    fn try_non_expr_stmt(&mut self)->Option<Result<StmtNode,ParsingFailed>>{
+        Some(if self.matches(TokenKind::Let){
+            self.let_stmt()
+        }
+        else if let Some(item) = self.try_item() {
+            item.map(|item| StmtNode::Item(item))
         }
         else{
-            self.expression_statement()
-        }
+            return None
+        })
     }
     fn synchronize(&mut self){
         loop {
-            if self.check(TokenKind::Fun) || 
-                self.check(TokenKind::If) || 
-                self.check(TokenKind::While) || 
-                self.check(TokenKind::Let)  || 
-                self.check(TokenKind::LeftBrace)||
-                self.is_at_end(){
+            if self.matches(TokenKind::Semicolon)  || self.matches(TokenKind::RightBrace) || self.is_at_end(){
                 break;
             }
             self.advance();
         }
     }
-    pub fn parse(mut self)->Result<Vec<StmtNode>,ParsingFailed>{
-        let mut stmts = Vec::new();
+    pub fn parse(mut self)->Result<Vec<Item>,ParsingFailed>{
+        let mut items = Vec::new();
         while !self.is_at_end() {
-            if let Ok(stmt) = self.statement(){
-                stmts.push(stmt);
-            }
-            else{
+            let Some(item) = self.try_item() else {
+                self.error("Expected an item.");
+                self.synchronize();
+                continue;
+            };
+            let Ok(item) = item else {
                 self.had_error = true;
                 self.synchronize();
-            }
+                continue;
+            };
+            items.push(item);
         }
-        if !self.had_error { Ok(stmts) } else { Err(ParsingFailed) }
+        if !self.had_error { Ok(items) } else { Err(ParsingFailed) }
     }
 }

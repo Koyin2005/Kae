@@ -1,4 +1,4 @@
-use crate::frontend::{ast_lowering::hir::DefId, typechecking::context::FuncSig};
+use crate::frontend::typechecking::context::FuncSig;
 
 use super::{generics::GenericArgs, Type};
 
@@ -55,31 +55,12 @@ pub trait Subst : Sized{
             Type::String => Type::String,
             Type::Float => Type::Float,
             Type::Error => Type::Error,
-            &Type::SelfAlias(id) => Type::SelfAlias(id)
 
         }
     }
     fn chain<U:Subst>(self,next:U) -> ChainedSubst<Self,U>{
         ChainedSubst { first: self, second: next }
     } 
-}
-#[derive(Debug)]
-pub struct SelfTypeSubst<'a>{
-    pub ty : &'a Type,
-    pub id : DefId
-}
-impl<'a,T:Subst> Subst for &'a T{
-    fn instantiate_type(&self,ty:&Type) -> Type {
-        (*self).instantiate_type(ty)
-    }
-}
-impl<'a> Subst for SelfTypeSubst<'a>{
-    fn instantiate_type(&self,ty:&Type) -> Type {
-        match ty{
-            &Type::SelfAlias(id) if id == self.id => self.ty.clone(),
-            _ => self.super_instantiate_type(ty)
-        }
-    }
 }
 #[derive(Debug)]
 pub struct ChainedSubst<Subst1,Subst2>{

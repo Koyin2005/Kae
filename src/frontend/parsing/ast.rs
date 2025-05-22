@@ -169,7 +169,7 @@ pub struct ExprNode{
     pub kind : ExprNodeKind
 }
 
-pub struct ParsedGenericParam(pub Symbol,pub Option<Path>);
+pub struct ParsedGenericParam(pub Symbol);
 pub struct ParsedGenericParams(pub NodeId,pub Vec<ParsedGenericParam>);
 
 pub struct ParsedEnumVariant{
@@ -192,7 +192,6 @@ pub struct EnumDef{
 pub struct Impl{
     pub span : SourceLocation,
     pub id : NodeId,
-    pub trait_: Option<Path>,
     pub generic_params : Option<ParsedGenericParams>,
     pub ty : ParsedType,
     pub methods : Vec<ParsedMethod>
@@ -201,18 +200,11 @@ pub struct FuncDef{
     pub id : NodeId,
     pub function : ParsedFunction
 }
-pub struct Trait{
-    pub id : NodeId,
-    pub generics : Option<ParsedGenericParams>,
-    pub span : SourceLocation,
-    pub name : Symbol,
-    pub methods : Vec<TraitMethod>
-}
-pub struct TraitMethod{
-    pub id : NodeId,
-    pub has_receiver: bool,
-    pub proto : FunctionProto,
-    pub body : Option<ExprNode>
+pub enum Item {
+    Fun(FuncDef),
+    Struct(StructDef),
+    Enum(EnumDef),
+    Impl(Impl)
 }
 pub enum StmtNode{
     Expr{
@@ -225,11 +217,7 @@ pub enum StmtNode{
         expr : ExprNode,
         ty : Option<ParsedType>
     },
-    Fun(FuncDef),
-    Struct(StructDef),
-    Enum(EnumDef),
-    Impl(Impl),
-    Trait(Trait)
+    Item(Item)
 }
 #[derive(Clone)]
 pub enum ParsedPatternNodeKind {

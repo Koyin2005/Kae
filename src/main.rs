@@ -2,7 +2,8 @@ use std::io::Write;
 
 use pl4::{
     backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{ast_lowering::{ast_lower::AstLowerer, hir::DefIdProvider, name_finding::NameFinder}, 
-    parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::{checking::check::TypeChecker, types::collect::ItemCollector}}, GlobalSymbols, SymbolInterner
+    parsing::parser::Parser, tokenizing::scanner::Scanner, 
+    typechecking::{checking::check::TypeChecker, items::item_check::ItemCheck, types::collect::ItemCollector}}, GlobalSymbols, SymbolInterner
 };
 
 fn compile(source:&str)->Option<Program>{
@@ -23,13 +24,14 @@ fn compile(source:&str)->Option<Program>{
     let Ok(hir) = ast_lower.lower(stmts) else {
         return None;
     };
-
-    let item_collector = ItemCollector::new(&interner,&symbols);
-    let context = item_collector.collect(&hir.items);
-    let type_checker = TypeChecker::new(&context,&hir.items,&symbols,&hir.defs_to_items,&interner);
-    let Ok(()) = type_checker.check(&hir.stmts) else {
+    
+    let item_collector = ItemCollector::new(&interner,&symbols,&hir.items);
+    let (context,error_reporter) = item_collector.collect();
+    let Ok(()) = ItemCheck::new(&context,&interner,&error_reporter).check_items(hir.items.iter()) else {
         return None;
     };
+    let type_checker = TypeChecker::new(&context,&symbols,&hir.defs_to_items,&interner);
+    type_checker.check(hir.items.iter()).ok()?;
     let Ok(code) = Compiler::new().compile() else {
         return None;
     };

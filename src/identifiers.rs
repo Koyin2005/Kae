@@ -13,13 +13,15 @@ pub struct GlobalSymbols{
     len_symbol : SymbolIndex,
     upper_self_symbol : SymbolIndex,
     lower_self_symbol : SymbolIndex,
+    main_symbol : SymbolIndex
 }
 impl GlobalSymbols{
     pub fn new(interner:&mut SymbolInterner) -> Self{
         Self{ 
             len_symbol: interner.intern("len".to_string()),
             upper_self_symbol : interner.intern("Self".to_string()),
-            lower_self_symbol : interner.intern("self".to_string())
+            lower_self_symbol : interner.intern("self".to_string()),
+            main_symbol : interner.intern("main".to_string())
         }
     }
     pub fn upper_self_symbol(&self) -> SymbolIndex{
@@ -30,6 +32,9 @@ impl GlobalSymbols{
     }
     pub fn len_symbol(&self) -> SymbolIndex{
         self.len_symbol
+    }
+    pub fn main_symbol(&self) -> SymbolIndex{
+        self.main_symbol
     }
 }
 pub struct SymbolInterner{

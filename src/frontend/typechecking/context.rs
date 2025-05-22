@@ -1,8 +1,6 @@
-use fxhash::FxHashMap;
+use crate::{frontend::{ast_lowering::hir::{self, DefId, DefIdMap, Ident}, tokenizing::SourceLocation}, identifiers::SymbolIndex, GlobalSymbols};
 
-use crate::{frontend::{ast_lowering::hir::{self, DefId, DefIdMap, Ident, QualifiedPath}, tokenizing::SourceLocation}, identifiers::SymbolIndex};
-
-use super::{types::{generics::GenericArgs, Type}};
+use super::{ types::{generics::GenericArgs, subst::{Subst, TypeSubst}, AdtKind, Type}};
 
 pub struct FieldDef{
     pub name : Ident,
@@ -33,12 +31,14 @@ impl FuncSig{
     }
 }
 
+pub struct GenericConstraint{
+    pub span : SourceLocation
+}
 
 pub struct Generics{
     pub owner_id : DefId,
     pub parent_count : usize,
     pub param_names : Vec<Ident>,
-    pub constraints : FxHashMap<u32,QualifiedPath>,
 }
 impl Generics{
     pub fn param_at(&self,index:usize) -> Ident{
@@ -49,15 +49,9 @@ pub struct FunctionDef{
     pub name : Ident,
     pub sig : FuncSig
 }
-pub struct MethodDef{
-    pub name : Ident,
-    pub has_receiver : bool,
-    pub sig : FuncSig
-}
 pub struct Impl{
     pub span : SourceLocation,
     pub ty : Type,
-    pub trait_ : Option<QualifiedPath>,
     pub methods : Vec<DefId>
 }
 #[derive(Clone,Copy)]
@@ -78,71 +72,53 @@ pub enum TypeMember<'a>{
         id : Option<DefId>
     }
 }
+
+pub struct MethodPick{
+    pub owner : DefId,
+    pub owner_generic_args : GenericArgs,
+    pub method_id : DefId,
+    pub has_receiver : bool,
+    ///May contain self parameter if has_receiver is true
+    pub sig : FuncSig
+}
+
+
+pub struct MethodLookup<'a>{
+    pub generic_params : Option<&'a Generics>,
+    pub base_generic_args : GenericArgs,
+    pub sig : FuncSig,
+    pub has_receiver : bool,
+    pub id : Option<DefId>
+}
 pub struct TypeContext{
     pub(super) structs : DefIdMap<StructDef>,
     pub(super) enums : DefIdMap<EnumDef>,
-    pub(super) functions : DefIdMap<FunctionDef>,
     pub(super) generics_map : DefIdMap<Generics>,
     pub(super) params_to_indexes : DefIdMap<u32>,
-    pub(super) methods : DefIdMap<MethodDef>,
+    pub(super) method_has_receiver : DefIdMap<bool>,
     pub(super) child_to_owner_map : DefIdMap<DefId>,
     pub(super) impls : DefIdMap<Impl>,
     pub(super) impl_ids : Vec<DefId>,
-    pub(super) traits : DefIdMap<Trait>,
     pub(super) name_map : DefIdMap<Ident>,
+    pub(super) signatures : DefIdMap<FuncSig>
 }
 impl TypeContext{
     pub fn new() -> Self{
         Self { 
             structs: DefIdMap::new(), 
-            functions : DefIdMap::new(), 
             name_map : DefIdMap::new(),
             generics_map:DefIdMap::new(),
-            methods: DefIdMap::new(),
+            method_has_receiver: DefIdMap::new(),
             enums: DefIdMap::new(),
             params_to_indexes : DefIdMap::new(),
             child_to_owner_map : DefIdMap::new(),
             impls : DefIdMap::new(),
-            traits: DefIdMap::new(),
-            impl_ids : Vec::new()
+            impl_ids : Vec::new(),
+            signatures : DefIdMap::new()
         }
     }
-    pub fn as_trait_with_span(&self,path:&hir::QualifiedPath) -> (Option<DefId>,SourceLocation){
-        let (trait_,span) = match path{
-            hir::QualifiedPath::Resolved(path) => {
-                if let hir::Resolution::Definition(hir::DefKind::Trait,id) = path.final_res{
-                    (Some(id),path.span)
-                }
-                else{
-                    (None,path.span)
-                }
-            },
-            hir::QualifiedPath::TypeRelative(ty,_) => (None,ty.span)
-        };
-        (trait_,span)
-
-    }
-    pub fn get_default_trait_methods<'a>(&'a self,ty:&'a Type,method_name:SymbolIndex) -> Vec<(DefId,DefId,&'a MethodDef,GenericArgs)>{
-        let mut valid_methods = Vec::new();
-        for &id in self.impl_ids.iter(){
-            let impl_ = &self.impls[id];
-            let ty_with_impl = &impl_.ty;
-            if let Some((Some(trait_id),_)) = impl_.trait_.as_ref().map(|trait_| self.as_trait_with_span(&trait_)){
-                let trait_ = &self.traits[trait_id];
-                if let Some(generic_args) = self.get_generic_args_for(ty,ty_with_impl, self.expect_generics_for(id), GenericArgs::new_empty()){
-                    if self.ty_impls_trait(ty, trait_id){
-                        valid_methods.extend(trait_.methods.iter().filter_map(|&method|{
-                            let method_def = &self.methods[method.id];
-                            (method_def.name.index == method_name && method.has_default_impl).then_some((id,method.id,method_def,generic_args.clone()))
-                        }));
-                    }
-                }
-            }
-        }
-        valid_methods.reverse();
-        valid_methods
-    }
-    pub fn get_generic_args_for(&self,ty:&Type,impl_type:&Type,generics:&Generics,parent_args:GenericArgs)->Option<GenericArgs>{
+    /*Maps ty's generic args to impl_type's generic args (If the type's are supposed to be the same)*/
+    pub fn map_generic_args(&self,ty:&Type,impl_type:&Type,generics:&Generics,parent_args:GenericArgs)->Option<GenericArgs>{
         let substitution = impl_type.get_substitution(ty)?;
         let parent_count = parent_args.len();
         Some(GenericArgs::new(generics.param_names.iter().enumerate().map(|(i,param_name)|{
@@ -154,20 +130,36 @@ impl TypeContext{
             }
         }).collect()).rebase(&parent_args))
     }
-    pub fn get_methods<'a>(&'a self,ty:&'a Type,method_name:SymbolIndex) -> Vec<(DefId,&'a MethodDef,GenericArgs)>{
+    pub fn get_methods<'a>(&'a self,ty:&'a Type,method_name:SymbolIndex) -> Vec<MethodPick>{
         let mut valid_methods = Vec::new();
-        for &id in self.impl_ids.iter(){
-            let impl_ = &self.impls[id];
+        for &impl_id in self.impl_ids.iter(){
+            let impl_ = &self.impls[impl_id];
             let ty_with_impl = &impl_.ty;
-            if let Some(generic_args) = self.get_generic_args_for(ty, ty_with_impl, self.expect_generics_for(id), GenericArgs::new_empty()){
-                if impl_.trait_.as_ref().is_some_and(|trait_path| self.as_trait_with_span(trait_path).0.is_some_and(|trait_|self.ty_impls_trait(ty, trait_,))){
-                    valid_methods.extend(impl_.methods.iter().filter_map(|&method|{
-                        let method_def = &self.methods[method];
-                        (method_def.name.index == method_name).then_some((method,method_def,generic_args.clone()))
-                    }));
-                }
+            //Try an inherent method
+            let generics = self.expect_generics_for(impl_id);
+            if let Some(generic_args) = self.map_generic_args(ty, ty_with_impl, generics, GenericArgs::new_empty()){
+                //Find all methods on this impl that share this name
+                valid_methods.extend(impl_.methods.iter().copied().filter_map(|method_id|{
+                    if self.ident(method_id).index == method_name{
+                        let has_receiver = self.method_has_receiver[method_id];
+                        Some(MethodPick{
+                            owner:impl_id,
+                            owner_generic_args : generic_args.clone(),
+                            method_id,
+                            has_receiver : has_receiver,
+                            sig : self.signatures[method_id].clone(),
+
+                        })
+                    }
+                    else{
+                        None
+                    }
+                }));
+                
             }
+
         }
+        
         valid_methods.reverse();
         valid_methods
     }
@@ -197,52 +189,76 @@ impl TypeContext{
     }
     pub fn get_generic_count(&self,res:&hir::Resolution) -> usize{
         match res{
-            &hir::Resolution::Definition(hir::DefKind::Struct|hir::DefKind::Enum|hir::DefKind::Function|hir::DefKind::Trait,id) => self.expect_generics_for(id).param_names.len(),
+            &hir::Resolution::Definition(hir::DefKind::Struct|hir::DefKind::Enum|hir::DefKind::Function,id) => self.expect_generics_for(id).param_names.len(),
             hir::Resolution::Variable(_) | 
             hir::Resolution::Definition(hir::DefKind::Variant|hir::DefKind::Param, _) | 
             hir::Resolution::Primitive(_) | 
             hir::Resolution::Builtin(hir::BuiltinKind::Panic)|
-            hir::Resolution::SelfType | hir::Resolution::None | hir::Resolution::SelfAlias(_) => 0
+            hir::Resolution::SelfType | hir::Resolution::None => 0
         }
     }
-    pub fn expect_generic_constraints(&self,id: DefId) -> Vec<Option<&QualifiedPath>>{
-            let generics = self.expect_generics_for(id);
-            (0..generics.param_names.len()).map(|i|{
-                generics.constraints.get(&(i as u32))
-            }).collect()
-    }
-    pub fn get_generic_constraints(&self,res:&hir::Resolution) -> Vec<Option<&QualifiedPath>>{
-        match res{
-            &hir::Resolution::Definition(hir::DefKind::Struct|hir::DefKind::Enum|hir::DefKind::Function|hir::DefKind::Trait,id) => {
-                self.expect_generic_constraints(id)
+    pub fn is_type_recursive(&self,ty:&Type,id:DefId)->bool{
+        match ty{
+            Type::Int | Type::Float | Type::Bool | Type::String | Type::Error | Type::Never | Type::Param(_,_) => false,
+            Type::Function(_,_) | Type::Array(_) => false,
+            Type::Tuple(elements) => {
+                elements.iter().any(|element| self.is_type_recursive(element, id))
             },
-            hir::Resolution::Variable(_) | 
-            hir::Resolution::Definition(hir::DefKind::Variant|hir::DefKind::Param, _) | 
-            hir::Resolution::Primitive(_) | 
-            hir::Resolution::Builtin(hir::BuiltinKind::Panic)|
-            hir::Resolution::SelfType | hir::Resolution::None | hir::Resolution::SelfAlias(_) => Vec::new()
+            &Type::Adt(ref generic_args,type_id, kind) => {
+                match kind{
+                    _ if type_id == id => true,
+                    AdtKind::Struct => {
+                        self.structs[type_id].fields.iter().any(|field|{
+                            self.is_type_recursive(&TypeSubst::new(generic_args).instantiate_type(&field.ty), id)
+                        })
+                    },
+                    AdtKind::Enum => {
+                        self.enums[type_id].variants.iter().any(|variant|{
+                            variant.fields.iter().any(|field|{
+                                self.is_type_recursive(&TypeSubst::new(generic_args).instantiate_type(&field.ty), id)
+                            })
+                        })
+                    }
+                }
+            }
         }
     }
-    pub fn ty_impls_trait(&self,ty:&Type,trait_:DefId) -> bool {
-        self.impls.iter().any(|(id,impl_)|{
-            if !impl_.trait_.as_ref().is_some_and(|path| self.as_trait_with_span(path).0.is_some_and(|id| id == trait_)){
-                return false;
+
+
+    pub fn get_member(&self,symbols:&GlobalSymbols,ty:&Type,member:Ident) -> Option<TypeMember>{
+        if let Some((generic_args,id,AdtKind::Enum)) = ty.as_adt(){
+            if let Some(variant) = self.get_variant_of(id, member.index){
+                return Some(TypeMember::Variant(id,generic_args.clone(), variant));
             }
-            let Some(impl_generic_args) = self.get_generic_args_for(ty, &impl_.ty, self.expect_generics_for(id), GenericArgs::new_empty()) else {
-                return false;
+        }
+        self.get_method(symbols,ty, member,true).map(|MethodLookup { generic_params,base_generic_args, sig,id,has_receiver:_ }|{
+            TypeMember::Method { receiver_generic_args:base_generic_args,receiver_generic_params: generic_params, sig,id}
+        })
+    }
+    
+    pub fn get_method(&self,symbols:&GlobalSymbols,ty:&Type,method_ident:Ident,keep_receiver:bool) -> Option<MethodLookup>{
+        let method_index = method_ident.index;
+        if let Type::Array(_) | Type::String = ty{
+            if method_ident.index == symbols.len_symbol(){
+                return Some(MethodLookup{
+                    generic_params : None,
+                    sig : FuncSig { params: vec![], return_type: Type::Int },
+                    base_generic_args : GenericArgs::new_empty(),
+                    id : None,
+                    has_receiver : true
+                });
+            }
+        }   
+        self.get_methods(ty, method_index).pop().map(|method|{
+            let generics = self.expect_generics_for(method.method_id);
+            let sig = {
+                let mut sig = method.sig;
+                if method.has_receiver && !keep_receiver{
+                    sig.params.remove(0);
+                }
+                sig
             };
-            let constraints = self.expect_generic_constraints(id);
-            let all_constraints_valid = impl_generic_args.iter().zip(constraints.iter()).all(|(arg,constraint)|{
-                if let Some(trait_) = constraint.as_ref().and_then(|constraint|{
-                    self.as_trait_with_span(constraint).0
-                }){
-                    self.ty_impls_trait(arg, trait_)
-                }
-                else{
-                    true
-                }
-            });
-            all_constraints_valid
+            MethodLookup{generic_params:Some(generics),base_generic_args:method.owner_generic_args,sig,id:Some(method.method_id),has_receiver:method.has_receiver}
         })
     }
 }

@@ -1,212 +1,152 @@
-use fxhash::FxHashMap;
+use crate::{data_structures::IndexVec, errors::ErrorReporter, frontend::{
+        ast_lowering::hir::{self, DefId, Ident, Item}, 
+        typechecking::{context::{EnumDef, FieldDef, Generics, Impl, StructDef, TypeContext, VariantDef}}}, identifiers::ItemIndex, GlobalSymbols, SymbolInterner};
 
-use crate::{data_structures::IndexVec, frontend::{ast_lowering::hir::{self, DefId, Ident, Item}, typechecking::context::{EnumDef, FieldDef, FuncSig, FunctionDef, Generics, Impl, MethodDef, StructDef, Trait, TraitMethod, TypeContext, VariantDef}}, identifiers::ItemIndex, GlobalSymbols, SymbolInterner};
-
-use super::{lowering::TypeLower, Type};
+use super::{ lowering::TypeLower, Type};
 
 pub struct ItemCollector<'a>{
     context : TypeContext,
     interner : &'a SymbolInterner,
     symbols : &'a GlobalSymbols,
-    next_param_index : u32
+    next_param_index : u32,
+    error_reporter : ErrorReporter,
+    items : &'a IndexVec<ItemIndex,Item>
 }
 
 impl<'a> ItemCollector<'a>{
-    pub fn new(interner:&'a SymbolInterner,symbols:&'a GlobalSymbols)->Self{
+    pub fn new(symbol_interner: &'a SymbolInterner, symbols: &'a GlobalSymbols,items: &'a IndexVec<ItemIndex,Item>) -> Self{
         Self { 
             context: TypeContext::new(), 
-            interner,
-            symbols,
-            next_param_index : 0
+            interner: symbol_interner, 
+            symbols, 
+            next_param_index: 0, 
+            error_reporter: ErrorReporter::new(true),
+            items
         }
     }
-    fn lower_type_with(&self,ty:&hir::Type,lowered_ty:&Type) -> Type{
-        TypeLower::new(self.interner, &self.context,Some(lowered_ty.clone())).lower_type(ty)
+    fn lowerer(&self) -> TypeLower{
+        TypeLower::new(self.interner, &self.context, None, &self.error_reporter)
     }
-    fn lower_type(&self,ty:&hir::Type) -> Type{
-        TypeLower::new(self.interner, &self.context,None).lower_type(ty)
+    fn lowerer_with_self(&self, ty: Type) -> TypeLower{
+        TypeLower::new(self.interner, &self.context, Some(ty), &self.error_reporter)
     }
-    fn add_name(&mut self,id:DefId,name:Ident){
+    fn add_name(&mut self, id: DefId, name: Ident){
         self.context.name_map.insert(id, name);
     }
-    fn add_child(&mut self,owner_id:DefId,child:DefId){
-        self.context.child_to_owner_map.insert(child, owner_id);
+    fn add_child_for(&mut self, parent: DefId, child: DefId){
+        self.context.child_to_owner_map.insert(child, parent);
     }
-    fn collect_generic_defs(&mut self,owner_id:DefId,generics:&hir::Generics){
-        let parent_count = self.next_param_index as usize;
-        let mut constraints = FxHashMap::default();
-        let param_names = generics.params.iter().map(|&hir::GenericParam(name,id,ref generic_constraint)|{
-            let index = self.next_param_index;
-            self.next_param_index += 1;
-            self.add_name(id, name);
-            self.add_child(owner_id, id);
-            self.context.params_to_indexes.insert(id, index);
-            if let Some(constraint) = generic_constraint{
-                constraints.insert(index, constraint.0.clone());
-            }
-            name
-        }).collect();
-        self.context.generics_map.insert(owner_id, Generics{
-            parent_count,
-            owner_id,
-            param_names,
-            constraints
-        });
+    fn collect_names_for_generics(&mut self, owner : DefId, generics: &'a hir::Generics){
+        let parent_count = self.next_param_index;
+        let mut param_names = Vec::new();
+        for param in generics.params.iter(){
+            self.add_name(param.1, param.0);
+            self.add_child_for(owner, param.1);
+            self.context.params_to_indexes.insert(param.1, self.next_param_index);
+            self.next_param_index+=1;
+            param_names.push(param.0);
+        }
+        self.context.generics_map.insert(owner,Generics { owner_id: owner, parent_count:parent_count as usize, param_names });
     }
-    fn collect_defs(&mut self,item:&Item) -> bool{
-        let old_generic_param_count = self.next_param_index;
-        let collect_more_info = match item{
+    fn collect_declarations_for_item(&mut self, item: &'a Item){
+        let old_count = self.next_param_index;
+        self.next_param_index = 0;
+        match item{
             Item::Struct(struct_def) => {
                 self.add_name(struct_def.id, struct_def.name);
-                self.collect_generic_defs(struct_def.id,&struct_def.generics);
-                self.context.structs.insert(struct_def.id, StructDef{
-                    name:struct_def.name,
-                    fields : Vec::new()
-                });
-                true
-            },
-            Item::Function(function_def) => {
-                self.add_name(function_def.id, function_def.name);
-                self.collect_generic_defs(function_def.id, &function_def.generics);
-                true
+                self.collect_names_for_generics(struct_def.id, &struct_def.generics);
             },
             Item::Enum(enum_def) => {
                 self.add_name(enum_def.id, enum_def.name);
-                self.collect_generic_defs(enum_def.id, &enum_def.generics);
-                let variants = enum_def.variants.iter().map(|variant|{
-                    self.add_child(enum_def.id, variant.id);
-                    self.add_name(variant.id, variant.name);
-                    VariantDef{
-                        id:variant.id,
-                        name:variant.name,
-                        fields:vec![]
-                    }
-                }).collect();
-                self.context.enums.insert(enum_def.id, EnumDef{
-                    name:enum_def.name,
-                    variants
-                });
-                true
-            },
-            &Item::Impl(id,_,ref generics,ref methods,_) => {
-                self.collect_generic_defs(id, generics);
-                let old_count = self.next_param_index;
-                for method in methods{
-                    self.add_child(id, method.id);
-                    self.collect_generic_defs(method.id, &method.generics);
-                    self.next_param_index = old_count;
+                self.collect_names_for_generics(enum_def.id, &enum_def.generics);
+                for variant in &enum_def.variants{
+                    self.add_name(variant.id,variant.name);
+                    self.add_child_for(enum_def.id,variant.id);
                 }
-                true
-            },
-            Item::Trait(trait_) => {
-                self.collect_generic_defs(trait_.id, &trait_.generics);
-                let old_count = self.next_param_index;
-                for method in &trait_.methods{
-                    self.add_child(trait_.id, method.id);
-                    self.collect_generic_defs(method.id, &method.generics);
-                    self.next_param_index = old_count;
-                }
-                true
-            }
-        };
-        self.next_param_index = old_generic_param_count;
-        collect_more_info
-    }
-    fn collect_info(&mut self,item:&Item){
-        match item{
-            Item::Struct(struct_def) => {
-                let fields =  struct_def.fields.iter().map(|field|{
-                    FieldDef{
-                        name:field.name,
-                        ty : self.lower_type(&field.ty)
-                    }
-                }).collect::<Vec<_>>();
-                self.context.structs[struct_def.id].fields.extend(fields);
-
             },
             Item::Function(function_def) => {
-                self.context.functions.insert(function_def.id, FunctionDef { 
-                    name: function_def.name, 
-                    sig: FuncSig { 
-                        params: function_def.function.params.iter().map(|param| self.lower_type(&param.ty)).collect(), 
-                        return_type: function_def.function.return_type.as_ref().map_or(Type::new_unit(), |ty| self.lower_type(&ty))
-                    } 
-                });
+                self.add_name(function_def.id, function_def.name);
+                self.collect_names_for_generics(function_def.id, &function_def.generics);
+            },
+            Item::Impl(impl_) => {
+                self.collect_names_for_generics(impl_.id,&impl_.generics);
+                let parent_count = self.next_param_index;
+                for method in &impl_.methods{
+                    self.add_name(method.id, method.name);
+                    self.add_child_for(impl_.id, method.id);
+                    self.collect_names_for_generics(method.id, &method.generics);
+                    self.next_param_index = parent_count;
+                }
+            }
+        }
+        self.next_param_index = old_count;
+
+    }
+    fn collect_definitions_for_items(&mut self, item: &'a Item){
+        match item{
+            Item::Struct(struct_def) => {
+                let id = struct_def.id;
+                let struct_def = StructDef { 
+                    name: struct_def.name, 
+                    fields: struct_def.fields.iter().map(|field|{
+                        FieldDef { name: field.name, ty: self.lowerer().lower_type(&field.ty) }
+                    }).collect()
+                };
+                self.context.structs.insert(id, struct_def);
             },
             Item::Enum(enum_def) => {
-                for (i,variant) in enum_def.variants.iter().enumerate(){
-                    let fields =  variant.fields.iter().map(|field|{
-                        FieldDef{
-                            name:field.name,
-                            ty : self.lower_type(&field.ty)
+                let id = enum_def.id;
+                let enum_def = EnumDef{
+                    name: enum_def.name,
+                    variants: enum_def.variants.iter().map(|variant|{
+                        VariantDef { 
+                            id: variant.id, 
+                            name: variant.name, 
+                            fields: variant.fields.iter().map(|field|{
+                                FieldDef{name:field.name, ty: self.lowerer().lower_type(&field.ty)}
+                            }).collect()
                         }
-                    }).collect::<Vec<_>>();
-                    self.context.enums[enum_def.id].variants[i].fields.extend(fields);
-                }
+                    }).collect()
+                };
+                self.context.enums.insert(id, enum_def);
             },
-            &Item::Impl(id,ref ty,_,ref methods,ref trait_path) => {
-                let self_type = self.lower_type(ty);
-                let mut method_ids = Vec::new();
-                for method in methods{
-                    let has_receiver = method.function.params.first().is_some_and(|param| matches!(param.pattern.kind,hir::PatternKind::Binding(_,name,_) if name.index == self.symbols.lower_self_symbol()));
-                    method_ids.push(method.id);
-                    self.add_name(method.id, method.name);
-                    self.context.methods.insert(method.id, MethodDef{
-                        name:method.name,
-                        has_receiver,
-                        sig:FuncSig { 
-                            params: method.function.params.iter().map(|param| self.lower_type_with(&param.ty,&self_type)).collect(), 
-                            return_type: method.function.return_type.as_ref().map_or(Type::new_unit(), |ty| self.lower_type_with(&ty,&self_type))
-                        } 
-                    });
-                }
+            Item::Function(function_def) => {
+                let id = function_def.id;
+                let sig = self.lowerer().lower_sig(function_def.function.params.iter().map(|param|{
+                      &param.ty  
+                    }), function_def.function.return_type.as_ref()
+                );
+                self.context.signatures.insert(id, sig);
+            },
+            Item::Impl(impl_) => {
+                let id = impl_.id;
+                let self_ty = self.lowerer().lower_type(&impl_.ty);
+                let impl_ = Impl { 
+                    span: impl_.span,
+                    methods: impl_.methods.iter().map(|method|{
+                        let sig = self.lowerer_with_self(self_ty.clone()).lower_sig(method.function.params.iter().map(|param| &param.ty), method.function.return_type.as_ref());
+                        self.context.signatures.insert(method.id, sig);
+                        self.context.method_has_receiver.insert(method.id, method.function.params.first().is_some_and(|param|{
+                            matches!(param.pattern.kind,hir::PatternKind::Binding(_,name,None) if name.index == self.symbols.lower_self_symbol())
+                        }));
+                        method.id
+                    }).collect(),
+                    ty : self_ty
+                };
                 self.context.impl_ids.push(id);
-                self.context.impls.insert(id, Impl{
-                    span:ty.span,
-                    ty:self_type,
-                    methods:method_ids,
-                    trait_:trait_path.clone()
-                });
-            },
-            Item::Trait(trait_) => {
-                let self_type = Type::Error;
-                let mut methods = Vec::new();
-                for method in &trait_.methods{
-                    let has_receiver = method.params.first().is_some_and(|param| matches!(param.pattern.kind,hir::PatternKind::Binding(_,name,_) if name.index == self.symbols.lower_self_symbol()));
-                    methods.push(TraitMethod{id:method.id,has_default_impl:method.body.is_some()});
-                    self.add_name(method.id, method.name);
-                    self.context.methods.insert(method.id, MethodDef{
-                        name:method.name,
-                        has_receiver,
-                        sig:FuncSig { 
-                            params: method.params.iter().map(|param| self.lower_type_with(&param.ty,&self_type)).collect(), 
-                            return_type: method.return_type.as_ref().map_or(Type::new_unit(), |ty| self.lower_type_with(&ty,&self_type))
-                        } 
-                    });
-                }
-                self.context.name_map.insert(trait_.id, trait_.name);
-                self.context.traits.insert(trait_.id, Trait{
-                    span:trait_.span,
-                    methods
-                });
-
-                
+                self.context.impls.insert(id, impl_);
             }
         }
     }
-    pub fn collect(mut self,items:&IndexVec<ItemIndex,Item>) -> TypeContext{
-        let mut items_with_info = vec![];
-        for item in items.iter(){
-            if self.collect_defs(item){
-                items_with_info.push(item);
-            }
+    pub fn collect(mut self) -> (TypeContext,ErrorReporter){
+        /*Declare all names in items*/
+        for item in self.items.iter(){
+            self.collect_declarations_for_item(item);
         }
-        for item in items_with_info{
-            self.collect_info(item);
+        /*Define all items*/
+        for item in self.items.iter(){
+            self.collect_definitions_for_items(item);
         }
-        self.context
+        (self.context,self.error_reporter)
     }
-
 }
-
-

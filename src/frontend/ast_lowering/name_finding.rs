@@ -279,9 +279,9 @@ impl<'b,'a> NameFinder<'b>{
         self.find_names_in_function(method_id,&sig,method_body);
         self.end_scope(method_id);
     }
-    fn find_names_in_stmt(&mut self,stmt:&'a ast::StmtNode){
-        match stmt {
-            ast::StmtNode::Enum(enum_def) => {
+    fn find_names_in_item(&mut self,item:&'a ast::Item){
+        match item{
+            ast::Item::Enum(enum_def) => {
                 let enum_def_id = self.def_ids.next();
                 let name = enum_def.name.into();
                 self.info.node_to_def_map.insert(enum_def.id, enum_def_id);
@@ -311,7 +311,7 @@ impl<'b,'a> NameFinder<'b>{
                     self.error(format!("Repeated item '{}'.",self.interner.get(enum_def.name.content)), enum_def.name.location);
                 }
             },
-            ast::StmtNode::Struct(struct_def) => {
+            ast::Item::Struct(struct_def) => {
                 let struct_def_id = self.def_ids.next();
                 let name = struct_def.name.into();
                 self.begin_scope(ScopeKind::Type(struct_def.id));
@@ -325,19 +325,8 @@ impl<'b,'a> NameFinder<'b>{
                 if !self.get_current_scope_mut().add_binding(index,Resolution::Definition(DefKind::Struct, struct_def_id)).is_none(){
                     self.error(format!("Repeated item '{}'.",self.interner.get(struct_def.name.content)), struct_def.name.location);
                 }
-
             },
-            ast::StmtNode::Expr { expr, has_semi:_ } => {
-                self.find_names_in_expr(&expr);
-            },
-            ast::StmtNode::Let { id:_, pattern, expr, ty:_ } => {
-                let mut bindings = BTreeMap::new();
-                let mut seen_symbols = BTreeMap::new();
-                self.find_names_in_pattern(pattern, &mut bindings,&mut seen_symbols);
-                self.define_bindings(pattern.id,&bindings, &seen_symbols);
-                self.find_names_in_expr(expr);
-            },
-            ast::StmtNode::Fun(function_def) => {
+            ast::Item::Fun(function_def) => {
                 let func_def_id = self.def_ids.next();
                 self.add_node_to_def(function_def.id, func_def_id);
                 let proto = &function_def.function.proto;
@@ -352,7 +341,7 @@ impl<'b,'a> NameFinder<'b>{
                     self.error(format!("Repeated item '{}'.",self.interner.get(proto.name.content)), proto.name.location);
                 }
             },
-            ast::StmtNode::Impl(impl_) => {
+            ast::Item::Impl(impl_) => {
                 let impl_def_id = self.def_ids.next();
                 self.add_node_to_def(impl_.id,impl_def_id);
                 self.begin_scope(ScopeKind::Item(impl_def_id));
@@ -364,26 +353,30 @@ impl<'b,'a> NameFinder<'b>{
                 }
                 self.end_scope(impl_.id);
             },
-            ast::StmtNode::Trait(trait_) => {
-                let trait_def_id = self.def_ids.next();
-                self.add_node_to_def(trait_.id, trait_def_id);
-                self.begin_scope(ScopeKind::Item(trait_def_id));
-                self.find_generic_params(trait_def_id,trait_.generics.as_ref());
-                self.info.name_map.insert(trait_def_id, trait_.name.into());
-                let self_symbol = self.global_symbols.upper_self_symbol();
-                self.get_current_scope_mut().add_binding(self_symbol,Resolution::SelfAlias(trait_def_id));
-                for trait_method in &trait_.methods{
-                    self.find_names_in_method(trait_method.id, trait_method.proto.name, trait_method.proto.generic_params.as_ref(),&trait_method.proto.sig, trait_method.body.as_ref());
-                }
-                self.end_scope(trait_.id);
-                if !self.get_current_scope_mut().add_binding(trait_.name.content,Resolution::Definition(DefKind::Trait,trait_def_id)).is_none(){
-                    self.error(format!("Repeated item '{}'.",self.interner.get(trait_.name.content)), trait_.name.location);
-                }
-            }
         }
     }
-    pub fn find_names(mut self,stmts:&'a [ast::StmtNode]) -> Result<(NamesFound,NameScopes),()>{
-        self.find_names_in_stmts(stmts);
+    fn find_names_in_stmt(&mut self,stmt:&'a ast::StmtNode){
+        match stmt{
+            ast::StmtNode::Let { id:_, pattern, expr, ty:_ } => {
+                let mut bindings = BTreeMap::new();
+                let mut seen_symbols = BTreeMap::new();
+                self.find_names_in_pattern(pattern, &mut bindings,&mut seen_symbols);
+                self.define_bindings(pattern.id,&bindings, &seen_symbols);
+                self.find_names_in_expr(expr);
+
+            },
+            ast::StmtNode::Expr { expr, has_semi:_ } => {
+                self.find_names_in_expr(&expr);
+            },
+            ast::StmtNode::Item(item) => {
+                self.find_names_in_item(item);
+            },
+        }
+    }
+    pub fn find_names(mut self,items:&'a [ast::Item]) -> Result<(NamesFound,NameScopes),()>{
+        for item in items{
+            self.find_names_in_item(item);
+        }
         if self.had_error.get(){
             return Err(());
         }

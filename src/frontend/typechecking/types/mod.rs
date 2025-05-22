@@ -25,7 +25,6 @@ pub enum Type {
     String,
     Never,
     Error,
-    SelfAlias(DefId),
     Param(u32,SymbolIndex),
     Function(Vec<Type>,Box<Type>),
     Array(Box<Type>),
@@ -52,7 +51,6 @@ impl PartialEq for Type{
                 generic_args == other_generic_args
             },
             (Self::Array(element),Self::Array(other_element)) => element == other_element,
-            (Self::SelfAlias(id),Self::SelfAlias(other)) => id == other,
             _ => false
         }
     }
@@ -141,9 +139,6 @@ impl Type{
     }
     pub fn new_array(element : Self) -> Self{
         Self::Array(Box::new(element))
-    }
-    pub fn new_self_alias(trait_ : DefId) -> Self{
-        Self::SelfAlias(trait_)
     }
     pub fn new_error() -> Self{
         Type::Error

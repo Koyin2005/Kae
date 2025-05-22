@@ -1,3 +1,4 @@
+use std::collections::hash_map::Drain;
 use std::fmt::Display;
 use std::ops::Add;
 
@@ -65,8 +66,7 @@ pub struct Param{
     pub pattern : Pattern,
     pub ty : Type
 }
-pub struct GenericConstraint(pub QualifiedPath);
-pub struct GenericParam(pub Ident,pub DefId,pub Option<GenericConstraint>);
+pub struct GenericParam(pub Ident,pub DefId);
 pub struct Generics{
     pub params : Vec<GenericParam>
 }
@@ -89,28 +89,29 @@ pub struct EnumDef{
     pub generics:Generics,
     pub variants:Vec<VariantDef>
 }
-pub struct Trait{
-    pub id: DefId,
-    pub name: Ident,
-    pub span : SourceLocation,
-    pub generics: Generics,
-    pub methods : Vec<TraitMethod>
-}
-pub struct TraitMethod{
+pub struct Impl{
     pub id : DefId,
-    pub name : Ident,
-    pub generics: Generics,
-    pub has_receiver: bool,
-    pub params : Vec<Param>,
-    pub return_type : Option<Type>,
-    pub body : Option<Expr>
+    pub ty : Type,
+    pub span : SourceLocation,
+    pub generics : Generics,
+    pub methods : Vec<FunctionDef>,
+
 }
 pub enum Item {
     Struct(StructDef),
     Enum(EnumDef),
     Function(FunctionDef),
-    Impl(DefId,Type,Generics,Vec<FunctionDef>,Option<QualifiedPath>),
-    Trait(Trait)
+    Impl(Impl),
+}
+impl Item{
+    pub fn def_id(&self) -> DefId{
+        match self{
+            Self::Enum(enum_def) => enum_def.id,
+            Self::Impl(impl_def) => impl_def.id,
+            Self::Function(function_def) => function_def.id,
+            Self::Struct(struct_def) => struct_def.id
+        }
+    }
 }
 #[derive(Clone,Debug)]
 pub struct Expr{
@@ -213,7 +214,7 @@ pub enum ExprKind {
 #[derive(Clone,Debug)]
 pub enum PathExpr {
     Infer(Ident),
-    Path(QualifiedPath)
+    Path(Path)
 }
 #[derive(Clone,Debug)]
 pub struct MatchArm{
@@ -251,7 +252,7 @@ pub struct FieldPattern{
 
 #[derive(Clone,Debug)]
 pub enum InferOrPath {
-    Path(QualifiedPath),
+    Path(Path),
     Infer(SourceLocation,Option<Ident>)
 }
 #[derive(Clone,Debug)]
@@ -304,7 +305,7 @@ pub enum TypeKind {
     Array(Box<Type>),
     Tuple(Vec<Type>),
     Function(Vec<Type>,Option<Box<Type>>),
-    Path(QualifiedPath)
+    Path(Path)
 }
 #[derive(Clone,Debug)]
 pub struct PathSegment{
@@ -316,40 +317,6 @@ pub struct PathSegment{
 #[derive(Debug,Clone)]
 pub struct GenericArg{
     pub ty : Type
-}
-#[derive(Clone,Debug)]
-pub enum QualifiedPath {
-    Resolved(Path),
-    TypeRelative(Box<Type>,PathSegment)
-}
-impl QualifiedPath{
-    pub fn format(&self,interner:&SymbolInterner) -> String{
-        match self{
-            Self::TypeRelative(ty,segment) => {
-                let formatted_ty = ty.format(interner);
-                if segment.args.is_empty(){
-                    format!("{}::{}",formatted_ty,interner.get(segment.ident.index))
-                }
-                else{
-                    format!("{}::{}[{}]",formatted_ty,segment.format(interner),segment.args.iter().enumerate().map(|(i,arg)|{
-                        if i>0{
-                            format!(",{}",arg.ty.format(interner))
-                        }
-                        else{
-                            format!("{}",arg.ty.format(interner))
-                        }
-                    }).collect::<String>())
-                }
-            },
-            Self::Resolved(path) => path.format(interner)
-        }
-    }
-    pub fn span(&self) -> SourceLocation{
-        match self{
-            Self::Resolved(path) => path.span,
-            Self::TypeRelative(ty,segment) => SourceLocation::new(ty.span.start_line, segment.ident.span.end_line)
-        }
-    }
 }
 impl PathSegment{
     pub fn format<'a>(&self,interner:&'a SymbolInterner) -> &'a str{
@@ -393,7 +360,6 @@ pub enum Resolution {
     Variable(VariableIndex),
     Builtin(BuiltinKind),
     SelfType,
-    SelfAlias(DefId),
     None
 }
 
@@ -406,7 +372,6 @@ pub enum DefKind {
     Enum,
     Param,
     Variant,
-    Trait,
 }
 #[derive(Clone,Debug)]
 pub struct FieldExpr{
@@ -420,6 +385,9 @@ pub struct DefIdMap<T>(FxHashMap<DefId,T>);
 impl<T> DefIdMap<T>{
     pub fn new() -> Self{
         Self(FxHashMap::default())
+    }
+    pub fn drain(&mut self) -> Drain<'_,DefId,T>{
+        self.0.drain()
     }
     pub fn insert(&mut self,id:DefId,value:T)->Option<T>{
         self.0.insert(id, value)
@@ -460,5 +428,4 @@ impl<'a,T> Iterator for DefIdMapIter<'a,T> {
 pub struct Hir{
     pub items : IndexVec<ItemIndex,Item>,
     pub defs_to_items : DefIdMap<ItemIndex>,
-    pub stmts : Vec<Stmt>
 }
