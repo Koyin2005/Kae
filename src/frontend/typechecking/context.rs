@@ -1,4 +1,4 @@
-use crate::{frontend::{ast_lowering::hir::{self, DefId, DefIdMap, Ident}, tokenizing::SourceLocation}, identifiers::SymbolIndex, GlobalSymbols};
+use crate::{data_structures::IntoIndex, frontend::{ast_lowering::hir::{self, DefId, DefIdMap, Ident}, tokenizing::SourceLocation}, identifiers::{SymbolIndex, VariantIndex}, GlobalSymbols};
 
 use super::{ types::{generics::GenericArgs, subst::{Subst, TypeSubst}, AdtKind, Type}};
 
@@ -180,6 +180,11 @@ impl TypeContext{
     }
     pub fn expect_generics_for(&self,owner_id:DefId) -> &Generics{
         self.generics_map.get(owner_id).expect("There should be some generics here")
+    }
+    pub fn get_variant_index(&self,variant_id:DefId) -> Option<VariantIndex>{
+        self.child_to_owner_map.get(variant_id).copied().and_then(|owner| 
+            self.enums.get(owner)).and_then(|enum_| enum_.variants.iter().position(|variant| variant.id == variant_id).map(|variant_index| VariantIndex::new(variant_index as u32))
+        )
     }
     pub fn get_variant(&self,variant_id:DefId) -> Option<&VariantDef>{
         self.child_to_owner_map.get(variant_id).copied().and_then(|owner| self.enums.get(owner)).and_then(|enum_| enum_.variants.iter().find(|variant| variant.id == variant_id))

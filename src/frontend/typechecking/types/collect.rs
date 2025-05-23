@@ -1,6 +1,6 @@
 use crate::{data_structures::IndexVec, errors::ErrorReporter, frontend::{
         ast_lowering::hir::{self, DefId, Ident, Item}, 
-        typechecking::{context::{EnumDef, FieldDef, Generics, Impl, StructDef, TypeContext, VariantDef}}}, identifiers::ItemIndex, GlobalSymbols, SymbolInterner};
+        typechecking::context::{EnumDef, FieldDef, Generics, Impl, StructDef, TypeContext, VariantDef}}, identifiers::ItemIndex, GlobalSymbols, SymbolInterner};
 
 use super::{ lowering::TypeLower, Type};
 
@@ -10,7 +10,7 @@ pub struct ItemCollector<'a>{
     symbols : &'a GlobalSymbols,
     next_param_index : u32,
     error_reporter : ErrorReporter,
-    items : &'a IndexVec<ItemIndex,Item>
+    items : &'a IndexVec<ItemIndex,Item>,
 }
 
 impl<'a> ItemCollector<'a>{
@@ -21,7 +21,7 @@ impl<'a> ItemCollector<'a>{
             symbols, 
             next_param_index: 0, 
             error_reporter: ErrorReporter::new(true),
-            items
+            items,
         }
     }
     fn lowerer(&self) -> TypeLower{

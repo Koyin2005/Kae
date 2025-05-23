@@ -1,9 +1,7 @@
 use std::io::Write;
 
 use pl4::{
-    backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{ast_lowering::{ast_lower::AstLowerer, hir::DefIdProvider, name_finding::NameFinder}, 
-    parsing::parser::Parser, tokenizing::scanner::Scanner, 
-    typechecking::{checking::check::TypeChecker, items::item_check::ItemCheck, types::collect::ItemCollector}}, GlobalSymbols, SymbolInterner
+    backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{ast_lowering::{ast_lower::AstLowerer, hir::DefIdProvider, name_finding::NameFinder}, hir_lowering::ThirLower, parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::{checking::check::TypeChecker, items::item_check::ItemCheck, types::collect::ItemCollector}}, GlobalSymbols, SymbolInterner
 };
 
 fn compile(source:&str)->Option<Program>{
@@ -17,21 +15,15 @@ fn compile(source:&str)->Option<Program>{
         return None;
     };
     let mut def_id_provider = DefIdProvider::new();
-    let Ok((names_found,name_scopes)) = NameFinder::new(&mut interner,&mut def_id_provider,&symbols).find_names(&stmts) else {
-        return None;
-    };
+    let (names_found,name_scopes) = NameFinder::new(&mut interner,&mut def_id_provider,&symbols).find_names(&stmts).ok()?;
     let ast_lower = AstLowerer::new(&mut interner,names_found,name_scopes);
-    let Ok(hir) = ast_lower.lower(stmts) else {
-        return None;
-    };
-    
+    let hir = ast_lower.lower(stmts).ok()?;
     let item_collector = ItemCollector::new(&interner,&symbols,&hir.items);
     let (context,error_reporter) = item_collector.collect();
-    let Ok(()) = ItemCheck::new(&context,&interner,&error_reporter).check_items(hir.items.iter()) else {
-        return None;
-    };
-    let type_checker = TypeChecker::new(&context,&symbols,&hir.defs_to_items,&interner);
-    type_checker.check(hir.items.iter()).ok()?;
+    ItemCheck::new(&context,&interner,&error_reporter).check_items(hir.items.iter()).ok()?;
+    let type_checker = TypeChecker::new(&context,&symbols,&hir.bodies,&interner);
+    let type_check_results = type_checker.check(hir.items.iter()).ok()?;
+    let _thir = ThirLower::new(type_check_results,&context).lower_bodies(hir.bodies).ok()?;
     let Ok(code) = Compiler::new().compile() else {
         return None;
     };

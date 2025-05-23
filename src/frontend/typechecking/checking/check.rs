@@ -1,11 +1,11 @@
 use std::cell::RefCell;
 use fxhash::{FxHashMap, FxHashSet};
 use crate::{
-     errors::ErrorReporter, frontend::{
-        ast_lowering::hir::{self, DefId, DefIdMap, HirId, Resolution}, 
+     data_structures::{IndexVec, IntoIndex}, errors::ErrorReporter, frontend::{
+        ast_lowering::hir::{self, DefId, Expr, HirId, Resolution}, 
         tokenizing::SourceLocation, 
         typechecking::{context::{FuncSig, MethodLookup, TypeContext}, error::TypeError, items::item_check::ItemCheck, types::{format::TypeFormatter, generics::GenericArgs, lowering::TypeLower, subst::{Subst, TypeSubst}, AdtKind, Type}}
-    }, identifiers::{GlobalSymbols, ItemIndex, SymbolIndex, SymbolInterner}
+    }, identifiers::{BodyIndex, FieldIndex, GlobalSymbols, SymbolIndex, SymbolInterner}
 };
 use super::{env::TypeEnv, Expectation, TypeCheckResults};
 struct FuncContext{
@@ -18,17 +18,17 @@ pub struct TypeChecker<'a>{
     context : &'a TypeContext,
     ident_interner : &'a SymbolInterner,
     symbols:&'a GlobalSymbols,
-    _item_map:&'a DefIdMap<ItemIndex>,
+    bodies:&'a IndexVec<BodyIndex,Expr>,
     results : RefCell<TypeCheckResults>
 }
 impl<'a> TypeChecker<'a>{
-    pub fn new(context:&'a TypeContext,symbols:&'a GlobalSymbols,_item_map:&'a DefIdMap<ItemIndex>,interner:&'a SymbolInterner) -> Self{
+    pub fn new(context:&'a TypeContext,symbols:&'a GlobalSymbols,bodies:&'a IndexVec<BodyIndex,Expr>,interner:&'a SymbolInterner) -> Self{
         Self { 
             env : TypeEnv::new(),
             error_reporter: ErrorReporter::new(false),
             prev_functions : RefCell::new(Vec::new()),
             context,
-            _item_map,
+            bodies,
             ident_interner: interner,
             symbols,
             results: RefCell::new(TypeCheckResults::new())
@@ -93,7 +93,7 @@ impl<'a> TypeChecker<'a>{
             self.check_pattern(param_pattern, param_ty.clone());
         }
         self.prev_functions.borrow_mut().push(FuncContext { return_type: return_type.clone() });
-        self.check_expr(&function.body, Expectation::CoercesTo(return_type.clone()));
+        self.check_expr(&self.bodies[function.body], Expectation::CoercesTo(return_type.clone()));
         self.prev_functions.borrow_mut().pop();
 
     }
@@ -418,26 +418,27 @@ impl<'a> TypeChecker<'a>{
                 (generic_params,base_generic_args,sig,has_receiver)
             },
             None => {
-                let field_ty = if let &Type::Adt(ref generic_args,id,AdtKind::Struct) = &receiver_ty{
-                    self.context.structs[id].fields.iter().find(|field_def|{
-                        field_def.name.index == name.index
-                    }).map(|field_def| TypeSubst::new(generic_args).instantiate_type(&field_def.ty))
+                let field_ty_and_index = if let &Type::Adt(ref generic_args,id,AdtKind::Struct) = &receiver_ty{
+                    self.context.structs[id].fields.iter().enumerate().find_map(|(i,field_def)|{
+                        (field_def.name.index == name.index).then_some((field_def,FieldIndex::new(i as u32)))
+                    }).map(|(field_def,index)| (TypeSubst::new(generic_args).instantiate_type(&field_def.ty),index))
                 }
                 else if let Type::Tuple(elements) = &receiver_ty{
                     self.ident_interner.get(name.index).parse::<usize>().ok().and_then(|index|{
-                        elements.get(index)
-                    }).cloned()
+                        elements.get(index).map(|ty| (ty.clone(),FieldIndex::new(index as u32)))
+                    })
                 }
                 else{
                     None
                 };
-                let Some(Type::Function(params,return_type)) = field_ty else {
+                let Some((Type::Function(params,return_type),field_index)) = field_ty_and_index else {
                     if receiver_ty.has_error(){
                         return Type::new_error();
                     }
                     return self.new_error(format!("{} has no method '{}'.",self.format_type(&receiver_ty),self.ident_interner.get(name.index)), name.span)
                 };
                 let sig = FuncSig{params,return_type:*return_type};
+                self.results.borrow_mut().fields.insert(expr_id,field_index);
                 //We're treating a field access as a method call so just allow it
                 (None,GenericArgs::new_empty(),sig,true)
             }
@@ -456,10 +457,11 @@ impl<'a> TypeChecker<'a>{
             self.error(format!("Expected {} arg{} got {}.",method_sig.params.len(),if method_sig.params.len() == 1 { ""} else {"s"},args.len()), name.span);
             return method_sig.return_type;
         }
+        self.store_generic_args(expr_id, generic_args);
+        self.results.borrow_mut().signatures.insert(expr_id, method_sig.clone());
         for (param,arg) in method_sig.params.into_iter().zip(args){
             self.check_expr(arg, Expectation::CoercesTo(param));
         }
-        self.store_generic_args(expr_id, generic_args);
         method_sig.return_type
     }
     fn get_constructor_with_generic_args(&mut self, path: &hir::InferOrPath, expected_type: Option<&Type>) -> (GenericArgs,Option<(AdtKind,DefId)>){
@@ -525,28 +527,31 @@ impl<'a> TypeChecker<'a>{
             AdtKind::Struct => id
         };
         let field_tys = match constructor_kind{
-            AdtKind::Struct => self.context.structs[id].fields.iter().map(|field|{
-                (field.name.index,field.ty.clone())
-            }).collect::<FxHashMap<SymbolIndex,Type>>(),
+            AdtKind::Struct => self.context.structs[id].fields.iter().enumerate().map(|(field_index,field_def)|{
+                (field_def.name.index,(field_def.ty.clone(),FieldIndex::new(field_index as u32)))
+            }).collect::<FxHashMap<SymbolIndex,(Type,FieldIndex)>>(),
             AdtKind::Enum => {
-                self.context.get_variant(id).expect("Should definitely be a variant with this id").fields.iter().map(|field|{
-                    (field.name.index,field.ty.clone())
-                }).collect()
+                self.context.get_variant(id).expect("Should definitely be a variant with this id").fields.iter().enumerate().map(|(field_index,field_def)|{
+                (field_def.name.index,(field_def.ty.clone(),FieldIndex::new(field_index as u32)))
+            }).collect::<FxHashMap<SymbolIndex,(Type,FieldIndex)>>()
             }
         };
         let mut seen_fields = FxHashSet::default();
         let mut last_field_span = expr.span;
         for field_expr in fields{
-            let field_ty= match field_tys.get(&field_expr.field.index).map(|ty| TypeSubst::new(&generic_args).instantiate_type(ty)){
-                Some(ty) => ty,
+            let (field_ty,field_index)= match field_tys.get(&field_expr.field.index).map(|&(ref ty,index)| (TypeSubst::new(&generic_args).instantiate_type(ty),index)){
+                Some((ty,field_index)) => (ty,Some(field_index)),
                 None => {
-                    self.new_error(format!("Unkown field '{}'.",self.ident_interner.get(field_expr.field.index)), field_expr.field.span)
+                    (self.new_error(format!("Unkown field '{}'.",self.ident_interner.get(field_expr.field.index)), field_expr.field.span),None)
                 }
             };
             if !seen_fields.insert(field_expr.field.index){
                 self.error(format!("Repeated field '{}'.",self.ident_interner.get(field_expr.field.index)), field_expr.field.span);
             }
             self.check_expr(&field_expr.expr, Expectation::CoercesTo(field_ty));
+            if let Some(field_index) = field_index{
+                self.results.borrow_mut().fields.insert(field_expr.id,field_index);
+            }
             last_field_span = field_expr.span;
         }
         let field_names = field_tys.into_keys().collect::<FxHashSet<_>>();
@@ -669,24 +674,27 @@ impl<'a> TypeChecker<'a>{
             },
             hir::ExprKind::Field(base, field) => {
                 let base_ty = self.check_expr(base, Expectation::None);
-                let field_ty = if let &Type::Adt(ref generic_args,id,AdtKind::Struct) = &base_ty{
-                    self.context.structs[id].fields.iter().find(|field_def|{
-                        field_def.name.index == field.index
-                    }).map(|field_def| TypeSubst::new(generic_args).instantiate_type(&field_def.ty))
+                let (field_ty,index) = if let &Type::Adt(ref generic_args,id,AdtKind::Struct) = &base_ty{
+                    self.context.structs[id].fields.iter().enumerate().find_map(|(i,field_def)|{
+                        (field_def.name.index == field.index).then_some((field_def,FieldIndex::new(i as u32)))
+                    }).map(|(field_def,index)| (TypeSubst::new(generic_args).instantiate_type(&field_def.ty),index)).unzip()
                     
                 }
                 else if let Type::Tuple(elements) = &base_ty{
                     self.ident_interner.get(field.index).parse::<usize>().ok().and_then(|index|{
-                        elements.get(index)
-                    }).cloned()
+                        Some((elements.get(index)?.clone(),FieldIndex::new(index as u32)))
+                    }).unzip()
                 }
                 else if base_ty.has_error(){
-                    Some(Type::new_error())
+                    (Some(Type::new_error()),None)
                 }
                 else{
                     let base_string = self.format_type(&base_ty);
-                    Some(self.new_error(format!("'{}' doesn't have fields.",base_string), field.span))
+                    (Some(self.new_error(format!("'{}' doesn't have fields.",base_string), field.span)),None)
                 };
+                if let Some(field_index) = index{
+                    self.results.borrow_mut().fields.insert(expr.id, field_index);
+                }
                 match field_ty{
                     Some(ty) => ty,
                     None => {
@@ -805,6 +813,7 @@ impl<'a> TypeChecker<'a>{
 
             },
             hir::Resolution::Builtin(hir::BuiltinKind::Panic) => {
+                self.store_resolution(expr_id, Resolution::Builtin(hir::BuiltinKind::Panic));
                 Type::new_function(vec![Type::String], Type::Never)
             },
             hir::Resolution::SelfType => {

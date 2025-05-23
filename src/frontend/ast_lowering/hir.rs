@@ -7,7 +7,7 @@ use fxhash::FxHashMap;
 use crate::define_id;
 use crate::{data_structures::IndexVec, frontend::tokenizing::SourceLocation};
 
-use crate::identifiers::{ItemIndex, SymbolIndex, SymbolInterner, VariableIndex};
+use crate::identifiers::{BodyIndex, ItemIndex, SymbolIndex, SymbolInterner, VariableIndex};
 #[derive(Debug,Clone, Copy,Hash,PartialEq,Eq,Default)]
 pub struct HirId(u32);
 impl HirId{
@@ -58,7 +58,7 @@ pub struct FunctionDef{
 pub struct Function{
     pub params : Vec<Param>,
     pub return_type : Option<Type>,
-    pub body : Expr
+    pub body : BodyIndex
 }
 
 #[derive(Clone,Debug)]
@@ -375,6 +375,7 @@ pub enum DefKind {
 }
 #[derive(Clone,Debug)]
 pub struct FieldExpr{
+    pub id : HirId,
     pub field : Ident,
     pub expr : Expr,
     pub span : SourceLocation
@@ -428,4 +429,5 @@ impl<'a,T> Iterator for DefIdMapIter<'a,T> {
 pub struct Hir{
     pub items : IndexVec<ItemIndex,Item>,
     pub defs_to_items : DefIdMap<ItemIndex>,
+    pub bodies : IndexVec<BodyIndex,Expr>
 }

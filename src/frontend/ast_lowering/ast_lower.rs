@@ -6,11 +6,11 @@ use crate::{
     data_structures::IndexVec, errors::ErrorReporter, frontend::{
         ast_lowering::hir::{Generics, VariantDef}, parsing::ast::{self, InferPathKind, NodeId, ParsedType, Symbol}, 
         tokenizing::SourceLocation
-    }
+    }, identifiers::BodyIndex
 };
 
 use super::{
-    hir::{self, DefId, DefIdMap, DefKind, FunctionDef, GenericArg, Hir, HirId, Ident, Item, LiteralKind, PatternKind, Resolution}, name_finding::{self, NameScopes, Record}, resolve::Resolver, scope::{ScopeId, ScopeKind}, SymbolInterner
+    hir::{self, DefId, DefIdMap, DefKind, Expr, FunctionDef, GenericArg, Hir, HirId, Ident, Item, LiteralKind, PatternKind, Resolution}, name_finding::{self, NameScopes, Record}, resolve::Resolver, scope::{ScopeId, ScopeKind}, SymbolInterner
 };
 use crate::identifiers::ItemIndex;
 
@@ -24,6 +24,7 @@ pub struct AstLowerer<'a>{
     next_id : Cell<HirId>,
     error_reporter: ErrorReporter,
     prev_scopes : RefCell<Vec<ScopeId>>,
+    bodies : IndexVec<BodyIndex,Expr>,
     resolver : RefCell<Resolver>
 }
 
@@ -37,7 +38,8 @@ impl<'a> AstLowerer<'a>{
             def_id_map : DefIdMap::new(),
             resolver :  RefCell::new(Resolver::new(name_scopes.namespaces,name_scopes.scope_tree)),
             prev_scopes : RefCell::new(Vec::new()),
-            error_reporter: ErrorReporter::new(false)
+            error_reporter: ErrorReporter::new(false),
+            bodies : IndexVec::new()
         }
     }
     fn next_id(&self) -> HirId{
@@ -211,7 +213,7 @@ impl<'a> AstLowerer<'a>{
         Ok(hir::Function{
             params:params,
             return_type:return_type,
-            body:body?
+            body:self.bodies.push(body?)
         })
 
     }
@@ -421,7 +423,7 @@ impl<'a> AstLowerer<'a>{
                 let fields = fields.into_iter().map(|(field_name,field_expr)|{
                     let field_name = self.intern_symbol(field_name);
                     let field_expr = self.lower_expr(field_expr);
-                    field_expr.map(|expr| hir::FieldExpr{span:SourceLocation::new(field_name.span.start_line, expr.span.end_line),field:field_name,expr})
+                    field_expr.map(|expr| hir::FieldExpr{span:SourceLocation::new(field_name.span.start_line, expr.span.end_line),field:field_name,expr,id: self.next_id()})
                 }).collect::<Vec<_>>().into_iter().collect::<Result<Vec<hir::FieldExpr>,_>>()?;
                 hir::ExprKind::StructLiteral(path, fields)
             },
@@ -549,7 +551,7 @@ impl<'a> AstLowerer<'a>{
                 //End item scope
                 self.end_scope();
                 let function = function?;
-                let span = SourceLocation::new(name.span.start_line, function.body.span.end_line);
+                let span = SourceLocation::new(name.span.start_line, self.bodies[function.body].span.end_line);
                 (func_id,Item::Function(FunctionDef { id : func_id, generics:generics?, name, function }),span)
             },
             ast::Item::Impl(impl_) => {
@@ -639,6 +641,6 @@ impl<'a> AstLowerer<'a>{
         if self.error_reporter.error_occurred(){
             return Err(LoweringErr);
         }
-        Ok(Hir{items:self.items,defs_to_items:self.def_id_map})
+        Ok(Hir{items:self.items,defs_to_items:self.def_id_map,bodies:self.bodies})
     }
 }

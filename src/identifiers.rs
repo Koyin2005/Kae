@@ -8,6 +8,9 @@ define_id!(SymbolIndex);
 define_id!(ItemIndex);
 define_id!(ScopeIndex);
 define_id!(VariableIndex);
+define_id!(FieldIndex);
+define_id!(BodyIndex);
+define_id!(VariantIndex);
 
 pub struct GlobalSymbols{
     len_symbol : SymbolIndex,
