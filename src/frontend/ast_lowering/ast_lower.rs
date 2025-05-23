@@ -272,7 +272,7 @@ impl<'a> AstLowerer<'a>{
                     let field_symbol = self.intern_symbol(symbol);
                     let pattern = self.lower_pattern(pattern);
                     Some(pattern.map(|pattern|{
-                        hir::FieldPattern { name: field_symbol, pattern }
+                        hir::FieldPattern { id:self.next_id(),name: field_symbol, pattern }
                     }))
                 }).collect();
                 (PatternKind::Struct(path?, fields.into_iter().collect::<Result<Vec<_>,_>>()?),span)

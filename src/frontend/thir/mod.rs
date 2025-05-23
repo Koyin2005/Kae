@@ -6,6 +6,10 @@ define_id!(ExprId);
 define_id!(BlockId);
 define_id!(StmtId);
 define_id!(ArmId);
+pub struct FieldPattern{
+    pub field : FieldIndex,
+    pub pattern : Pattern
+}
 pub struct Pattern{
     pub ty: Type,
     pub span: SourceLocation,
@@ -13,6 +17,9 @@ pub struct Pattern{
 }
 pub enum PatternKind {
     Binding(SymbolIndex,VariableIndex,Option<Box<Pattern>>),
+    Constant(LiteralKind),
+    Tuple(Box<[Pattern]>),
+    Variant(GenericArgs,DefId,Option<VariantIndex>,Box<[FieldPattern]>),
     Wildcard
 }
 pub struct FieldExpr{

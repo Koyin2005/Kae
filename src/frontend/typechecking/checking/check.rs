@@ -176,29 +176,34 @@ impl<'a> TypeChecker<'a>{
                     AdtKind::Enum => self.context.expect_owner_of(id),
                     AdtKind::Struct => id
                 };
+                self.store_generic_args(pattern.id, generic_args.clone());
+                self.store_resolution(pattern.id, Resolution::Definition(match constructor_kind { AdtKind::Enum => hir::DefKind::Variant, AdtKind::Struct => hir::DefKind::Struct}, id));
                 let field_tys = match constructor_kind{
-                    AdtKind::Struct => self.context.structs[id].fields.iter().map(|field|{
-                        (field.name.index,field.ty.clone())
-                    }).collect::<FxHashMap<SymbolIndex,Type>>(),
+                    AdtKind::Struct => self.context.structs[id].fields.iter().enumerate().map(|(field_index,field)|{
+                        (field.name.index,(FieldIndex::new(field_index as u32),field.ty.clone()))
+                    }).collect::<FxHashMap<SymbolIndex,(FieldIndex,Type)>>(),
                     AdtKind::Enum => {
-                        self.context.enums[self.context.expect_owner_of(id)].variants.iter().find(|variant| variant.id == id).expect("Should definitely be a variant with this id").fields.iter().map(|field|{
-                            (field.name.index,field.ty.clone())
-                        }).collect()
+                        self.context.get_variant(id).expect("Should definitely be a variant with this id").fields.iter().enumerate().map(|(field_index,field)|{
+                            (field.name.index,(FieldIndex::new(field_index as u32),field.ty.clone()))
+                        }).collect::<FxHashMap<SymbolIndex,(FieldIndex,Type)>>()
                     }
                 };
                 let mut seen_fields = FxHashSet::default();
                 let mut last_field_span = pattern.span;
                 for field_pattern in fields{
-                    let field_ty= match field_tys.get(&field_pattern.name.index).map(|ty| TypeSubst::new(&generic_args).instantiate_type(ty)){
-                        Some(ty) => ty,
+                    let (field_ty,field_index)= match field_tys.get(&field_pattern.name.index).map(|&(field_index,ref ty)| (TypeSubst::new(&generic_args).instantiate_type(ty),field_index)){
+                        Some((ty,field_index)) => (ty,Some(field_index)),
                         None => {
-                            self.new_error(format!("Unkown field '{}'.",self.ident_interner.get(field_pattern.name.index)), field_pattern.name.span)
+                            (self.new_error(format!("Unkown field '{}'.",self.ident_interner.get(field_pattern.name.index)), field_pattern.name.span),None)
                         }
                     };
                     if !seen_fields.insert(field_pattern.name.index){
                         self.error(format!("Repeated field '{}'.",self.ident_interner.get(field_pattern.name.index)), field_pattern.name.span);
                     }
                     self.check_pattern(&field_pattern.pattern, field_ty);
+                    if let Some(field_index) = field_index{
+                        self.results.borrow_mut().fields.insert(field_pattern.id, field_index);
+                    }
                     last_field_span = field_pattern.name.span;
                 }
                 let field_names = field_tys.into_keys().collect::<FxHashSet<_>>();

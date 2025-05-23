@@ -246,6 +246,7 @@ pub struct Pattern{
 }
 #[derive(Clone,Debug)]
 pub struct FieldPattern{
+    pub id : HirId,
     pub name : Ident,
     pub pattern : Pattern
 }
