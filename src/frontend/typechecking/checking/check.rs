@@ -7,7 +7,7 @@ use crate::{
         typechecking::{context::{FuncSig, MethodLookup, TypeContext}, error::TypeError, items::item_check::ItemCheck, types::{format::TypeFormatter, generics::GenericArgs, lowering::TypeLower, subst::{Subst, TypeSubst}, AdtKind, Type}}
     }, identifiers::{BodyIndex, FieldIndex, GlobalSymbols, SymbolIndex, SymbolInterner}
 };
-use super::{env::TypeEnv, Expectation, TypeCheckResults};
+use super::{env::{SelfType, TypeEnv}, Expectation, TypeCheckResults};
 struct FuncContext{
     return_type : Type
 }
@@ -69,9 +69,11 @@ impl<'a> TypeChecker<'a>{
                 hir::Item::Enum(_) => {},
                 hir::Item::Struct(_) => {},
                 hir::Item::Impl(impl_) => {
+                    self.env.set_self_type(Some(SelfType(self.context.impls[impl_.id].ty.clone())));
                     for method in &impl_.methods{
                         self.check_function(&self.context.signatures[method.id],&method.function);
                     }
+                    self.env.set_self_type(None);
                 }
             }
         }
@@ -372,6 +374,9 @@ impl<'a> TypeChecker<'a>{
                                         if !all_anon_fields{
                                             self.error(format!("Cannot use variant '{}' as callable.",self.ident_interner.get(name.index)), name.span);
                                         }
+                                        
+                                        self.store_generic_args(callee.id, generic_args.clone());
+                                        self.store_resolution(callee.id, Resolution::Definition(hir::DefKind::Variant,variant.id));
                                         Type::new_function(params, ty.clone())
                                     })
 
@@ -594,8 +599,13 @@ impl<'a> TypeChecker<'a>{
                     &hir::PathExpr::Infer(name) => {
                          expected.as_type().and_then(|ty|{
                             match ty.as_adt() {
-                                Some((_,id,AdtKind::Enum)) => {
-                                    self.context.get_variant_of(id, name.index).map(|_| ty.clone())
+                                Some((generic_args,id,AdtKind::Enum)) => {
+                                    self.context.get_variant_of(id, name.index).map(|variant| {
+                                        
+                                        self.store_generic_args(expr.id, generic_args.clone());
+                                        self.store_resolution(expr.id, Resolution::Definition(hir::DefKind::Variant,variant.id));
+                                        ty.clone()
+                                    })
                                 },
                                 _ => None
                             }

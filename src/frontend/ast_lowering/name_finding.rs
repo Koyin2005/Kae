@@ -214,7 +214,7 @@ impl<'b,'a> NameFinder<'b>{
             &ast::ParsedPatternNodeKind::Is(name, ref pattern) => {
                 let ident = name.into();
                 bindings.insert(id,ident);
-                seen_symbols.entry(ident.index).or_insert(pattern.id);
+                seen_symbols.entry(ident.index).or_insert(id);
                 self.find_names_in_pattern(pattern, bindings,seen_symbols);
             },
             ast::ParsedPatternNodeKind::Struct { path:_, fields } => {

@@ -1,17 +1,19 @@
-use crate::{data_structures::IndexVec, identifiers::BodyIndex};
+use crate::{data_structures::IndexVec, errors::ErrorReporter, identifiers::BodyIndex, SymbolInterner};
 
-use super::{ast_lowering::hir, thir::{self, Block, Expr, ExprId, Stmt, StmtId, StmtKind, Thir, ThirBody}, typechecking::{checking::TypeCheckResults, context::TypeContext, types::{generics::GenericArgs, AdtKind}}};
+use super::{ast_lowering::hir, pattern_checking::{lowering::lower_to_pattern, PatternChecker}, thir::{self, Block, Expr, ExprId, Stmt, StmtId, StmtKind, Thir, ThirBody}, typechecking::{checking::TypeCheckResults, context::TypeContext, types::{generics::GenericArgs, AdtKind}}};
 
 pub struct ThirLoweringErr;
 pub struct ThirLower<'a>{
     results : TypeCheckResults,
     bodies : IndexVec<BodyIndex,ThirBody>,
     thir : ThirBody,
+    error_reporter : ErrorReporter,
+    interner: &'a SymbolInterner,
     context: &'a TypeContext
 }
 impl<'a> ThirLower<'a>{
-    pub fn new(results: TypeCheckResults,context:&'a TypeContext) -> Self{
-        Self { results, bodies : IndexVec::new(), thir:ThirBody { exprs: IndexVec::new(), blocks: IndexVec::new(), stmts: IndexVec::new(), arms: IndexVec::new() },context}
+    pub fn new(results: TypeCheckResults,context:&'a TypeContext,interner:&'a SymbolInterner) -> Self{
+        Self { results,interner, bodies : IndexVec::new(), thir:ThirBody { exprs: IndexVec::new(), blocks: IndexVec::new(), stmts: IndexVec::new(), arms: IndexVec::new() },context,error_reporter:ErrorReporter::new(false)}
     }
     fn lower_stmts<F>(&mut self, stmts: impl Iterator<Item = hir::Stmt>) -> F where F : FromIterator<StmtId>{
         stmts.filter_map(|stmt| self.lower_stmt(stmt)).collect()
@@ -126,13 +128,31 @@ impl<'a> ThirLower<'a>{
             hir::ExprKind::Index(left, right) => thir::ExprKind::Index(self.lower_expr(*left), self.lower_expr(*right)),
             hir::ExprKind::Match(scrutinee,arms) => {
                 let scrutinee = self.lower_expr(*scrutinee);
-                let arms = arms.into_iter().map(|arm|{
+                let arms: Box<[thir::ArmId]> = arms.into_iter().map(|arm|{
                     let arm = thir::Arm{
                         pat : Box::new(self.lower_pattern(arm.pat)),
                         body: self.lower_expr(arm.body)
                     };
                     self.thir.arms.push(arm)
                 }).collect();
+                
+                let patterns = arms.iter().copied().map(|arm|  &self.thir.arms[arm].pat).map(|pattern|{
+                    lower_to_pattern(pattern)
+                });
+                let missing_patterns =  PatternChecker::new(self.context).check_exhaustive(patterns.collect(),&self.thir.exprs[scrutinee].ty).missing_patterns();
+                if !missing_patterns.is_empty(){
+                    let mut error_message = format!("Non exhaustive match \n Missing patterns:\n");
+                    for (i,pattern) in missing_patterns.into_iter().enumerate(){
+                        if i>0{
+                            error_message.push('\n');
+                        }
+                        error_message.push(' ');
+                        error_message.push(' ');
+                        error_message.push_str(&pattern.format(self.context, self.interner));
+                    }
+                    self.error_reporter.emit(error_message, expr.span);
+                }
+
                 thir::ExprKind::Match(scrutinee, arms)
             },
             hir::ExprKind::Function(function) => thir::ExprKind::Function(function.body),
@@ -183,6 +203,9 @@ impl<'a> ThirLower<'a>{
         for body in bodies.into_iter(){
             self.lower_expr(body);
             self.bodies.push(std::mem::replace(&mut self.thir, ThirBody{exprs:IndexVec::new(),blocks:IndexVec::new(),stmts:IndexVec::new(),arms:IndexVec::new()}));
+        }
+        if self.error_reporter.error_occurred(){
+            return Err(ThirLoweringErr);
         }
         Ok(Thir { bodies: self.bodies})
     }

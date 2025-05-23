@@ -48,7 +48,7 @@ impl<'a> TypeLower<'a>{
                     },
                     Resolution::Primitive(_) | Resolution::Variable(_) | Resolution::Definition(DefKind::Param, _) | Resolution::SelfType | Resolution::Builtin(_) => return None
         }))();
-        self.lower_generic_args(generic_args.expect(&format!("There should be generic arguments for '{:?}'",path.final_res)))
+        generic_args.map(|generic_args| self.lower_generic_args(generic_args)).unwrap_or_else(GenericArgs::new_empty)
 
     }
     fn lower_path(&self,path:&hir::Path) -> Type{

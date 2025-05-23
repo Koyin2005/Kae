@@ -23,7 +23,7 @@ fn compile(source:&str)->Option<Program>{
     ItemCheck::new(&context,&interner,&error_reporter).check_items(hir.items.iter()).ok()?;
     let type_checker = TypeChecker::new(&context,&symbols,&hir.bodies,&interner);
     let type_check_results = type_checker.check(hir.items.iter()).ok()?;
-    let _thir = ThirLower::new(type_check_results,&context).lower_bodies(hir.bodies).ok()?;
+    let _thir = ThirLower::new(type_check_results,&context,&interner).lower_bodies(hir.bodies).ok()?;
     let Ok(code) = Compiler::new().compile() else {
         return None;
     };

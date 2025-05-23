@@ -5,7 +5,7 @@ use super::{generics::GenericArgs, Type};
 
 #[derive(Clone,Debug)]
 pub struct TypeSubst<'a>{
-    pub subst : Vec<&'a Type>
+    subst : Vec<&'a Type>
 }
 
 impl<'a> TypeSubst<'a>{
