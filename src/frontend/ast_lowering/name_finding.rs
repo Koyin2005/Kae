@@ -1,4 +1,4 @@
-use std::{cell::Cell, collections::BTreeMap};
+use std::collections::BTreeMap;
 
 use fxhash::{FxHashMap, FxHashSet};
 use crate::{

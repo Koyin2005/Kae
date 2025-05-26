@@ -1,6 +1,6 @@
 use fxhash::FxHashSet;
 
-use crate::{ errors::ErrorReporter, frontend::{ast_lowering::hir, tokenizing::SourceLocation, typechecking::{context::TypeContext, error::TypeError, types::format::TypeFormatter}},  SymbolInterner};
+use crate::{ errors::ErrorReporter, frontend::{ast_lowering::hir, tokenizing::SourceLocation, typechecking::{context::TypeContext, error::TypeError}},  SymbolInterner};
 
 pub fn check_generic_count(error_reporter:&ErrorReporter,expected:usize,got:usize,span:SourceLocation) -> bool{
     if got == expected{

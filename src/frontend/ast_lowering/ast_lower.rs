@@ -4,13 +4,13 @@ use fxhash::FxHashSet;
 
 use crate::{
     data_structures::IndexVec, errors::ErrorReporter, frontend::{
-        ast_lowering::hir::{Generics, VariantDef}, parsing::ast::{self, InferPathKind, NodeId, ParsedType, PathSegment, Symbol}, 
+        ast_lowering::hir::{Generics, VariantDef}, parsing::ast::{self, InferPathKind, NodeId, ParsedType, Symbol}, 
         tokenizing::SourceLocation
     }, identifiers::BodyIndex
 };
 
 use super::{
-    hir::{self, DefId, DefIdMap, DefKind, Expr, FunctionDef, GenericArg, Hir, HirId, Ident, Item, LiteralKind, PatternKind, Resolution, Type}, name_finding::{self, NameScopes, NodeMap, Record}, resolve::Resolver, scope::{ScopeId, ScopeKind}, SymbolInterner
+    hir::{self, DefId, DefIdMap, DefKind, Expr, FunctionDef, GenericArg, Hir, HirId, Ident, Item, LiteralKind, PatternKind, Resolution, Type}, name_finding::{self, NameScopes, Record}, resolve::Resolver, scope::{ScopeId, ScopeKind}, SymbolInterner
 };
 use crate::identifiers::ItemIndex;
 
