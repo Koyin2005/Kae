@@ -70,7 +70,8 @@ impl<'a> ItemCollector<'a>{
             },
             Item::Impl(impl_) => {
                 let Some(type_id) = impl_.ty.id() else {
-                    unreachable!("That shouldn't be possible as only nominal types can have impls.")
+                    self.error_reporter.emit(format!("Cannot make an impl for non-nominal type '{}'.",impl_.ty.format(self.interner)), impl_.ty.span);
+                    return;
                 };
                 self.collect_names_for_generics(impl_.id,&impl_.generics);
                 let parent_count = self.next_param_index;
@@ -149,6 +150,9 @@ impl<'a> ItemCollector<'a>{
         /*Declare all names in items*/
         for item in self.items.iter(){
             self.collect_declarations_for_item(item);
+        }
+        if self.error_reporter.error_occurred() {
+            return (self.context,self.error_reporter);
         }
         /*Define all items*/
         for item in self.items.iter(){

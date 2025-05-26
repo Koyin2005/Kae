@@ -26,6 +26,10 @@ impl<'a> ItemCheck<'a>{
         self.error_reporter.emit(msg, span);
     }
     pub fn check_items<'b>(self, items:impl Iterator<Item = &'b hir::Item>) -> Result<(),TypeError>{
+        if self.error_reporter.error_occurred() {
+            self.error_reporter.emit_all();
+            return Err(TypeError);
+        }
         for item in items{
             self.check_item(item);
         }
