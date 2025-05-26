@@ -161,8 +161,7 @@ impl TypeContext{
     }
     pub fn get_generic_count(&self,res:&hir::Resolution) -> usize{
         match res{
-            &hir::Resolution::Definition(kind @ (hir::DefKind::Struct|hir::DefKind::Enum|hir::DefKind::Function | hir::DefKind::Method),id) => {
-                println!("{:?} {:?}",kind,id);
+            &hir::Resolution::Definition(hir::DefKind::Struct|hir::DefKind::Enum|hir::DefKind::Function | hir::DefKind::Method,id) => {
                 self.expect_generics_for(id).param_names.len()
             },
             hir::Resolution::Variable(_) | 
