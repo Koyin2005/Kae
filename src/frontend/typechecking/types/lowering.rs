@@ -57,8 +57,8 @@ impl<'a> TypeLower<'a>{
                         })?;
                         &segment.args
                     },
-                    Resolution::Definition(DefKind::Method, id) => todo!("METHOD GENERIC ARG LOWERING FOR {:?}",id),
-                    Resolution::Primitive(_) | Resolution::Variable(_) | Resolution::Definition(DefKind::Param, _) | Resolution::SelfType | Resolution::Builtin(_) => return None
+                    Resolution::Definition(DefKind::Method, _) => unreachable!("Cannot access methods outside of type checking"),
+                    Resolution::Primitive(_) | Resolution::Variable(_) | Resolution::Definition(DefKind::Param, _) | Resolution::SelfType(_) | Resolution::Builtin(_) => return None
         }))();
         generic_args.map(|generic_args| self.lower_generic_args(generic_args)).unwrap_or_else(GenericArgs::new_empty)
 
@@ -83,7 +83,7 @@ impl<'a> TypeLower<'a>{
                 let symbol = generics.param_at(index as usize).index;
                 Type::Param(index, symbol)
             },
-            Resolution::SelfType => self.self_type.clone().expect("Should always have a self type whenever Self appears"),
+            Resolution::SelfType(_) => self.self_type.clone().expect("Should always have a self type whenever Self appears"),
             _ => {
                 self.error_reporter.emit(format!("Cannot use '{}' as type.",path.format(self.interner)), path.span);
                 Type::new_error()
@@ -104,8 +104,7 @@ impl<'a> TypeLower<'a>{
                             return Type::new_error();
                         }
                         if !self.ignore_methods{
-                            self.error_reporter.emit(format!("Cannot use {}member '{}' of '{}' as type.",
-                                if self.context.get_member_ids(&ty, name.ident.index).is_empty() {"undefined "} else {""},
+                            self.error_reporter.emit(format!("Cannot use member '{}' of '{}' as type.",
                                 self.interner.get(name.ident.index),TypeFormatter::new(self.interner, self.context).format_type(&ty)), name.ident.span);
                             }
                         Type::new_error()
@@ -127,14 +126,14 @@ impl<'a> TypeLower<'a>{
                 });
                 segment.into_iter().collect()
             },
-            Resolution::Definition(DefKind::Method, id) => todo!("METHOD GENERIC SEGMENTS FOR {:?}",id),
+            Resolution::Definition(DefKind::Method, _) => unreachable!("Shouldn't be able to use methods in paths"),
             hir::Resolution::Definition(hir::DefKind::Struct|hir::DefKind::Function|hir::DefKind::Enum,_) => {
                 vec![last]
             },
             hir::Resolution::Builtin(_) | 
             hir::Resolution::Primitive(_) | 
             hir::Resolution::Variable(_) | 
-            hir::Resolution::None | hir::Resolution::SelfType | hir::Resolution::Definition(hir::DefKind::Param, _) => vec![]
+            hir::Resolution::None | hir::Resolution::SelfType(_) | hir::Resolution::Definition(hir::DefKind::Param, _) => vec![]
         }
 
     }

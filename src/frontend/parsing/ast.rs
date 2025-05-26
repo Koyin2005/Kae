@@ -79,7 +79,6 @@ pub enum ExprNodeKind {
         args : Vec<ExprNode>
     },
     Return(Option<Box<ExprNode>>),
-    TypenameOf(ParsedType),
     Property(Box<ExprNode>,Symbol),
     StructInit{
         path : InferPath,

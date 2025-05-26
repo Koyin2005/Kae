@@ -1,6 +1,6 @@
 use fxhash::FxHashSet;
 
-use crate::{ errors::ErrorReporter, frontend::{ast_lowering::hir, tokenizing::SourceLocation, typechecking::{context::TypeContext, error::TypeError}},  SymbolInterner};
+use crate::{ errors::ErrorReporter, frontend::{ast_lowering::hir, tokenizing::SourceLocation, typechecking::{context::TypeContext, error::TypeError, types::format::TypeFormatter}},  SymbolInterner};
 
 pub fn check_generic_count(error_reporter:&ErrorReporter,expected:usize,got:usize,span:SourceLocation) -> bool{
     if got == expected{
@@ -61,12 +61,18 @@ impl<'a> ItemCheck<'a>{
                 }
             },
             hir::TypeKind::Path(path) => {
-                let hir::QualifiedPath::FullyResolved(path) = path else {
-                    todo!("Handle type relative paths in item check")
-                };
-                for segment in &path.segments{
-                    self.check_generic_count(self.context.get_generic_count(&segment.res), segment.args.len(), segment.ident.span);
-                }
+                match path{
+                    hir::QualifiedPath::FullyResolved(path) => {
+                        for segment in &path.segments{
+                            self.check_generic_count(self.context.get_generic_count(&segment.res), segment.args.len(), segment.ident.span);
+                        }
+                    },
+                    hir::QualifiedPath::TypeRelative(ty,segment) => {
+                        self.check_type(&ty);
+                        let name = segment.ident;
+                        self.error(format!("Cannot use member '{}' of '{}' as type.", self.ident_interner.get(name.index),ty.format(self.ident_interner)), name.span);
+                    }
+                 }
             },
             hir::TypeKind::Tuple(elements) => {
                 for element in elements{

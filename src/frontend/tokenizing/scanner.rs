@@ -153,7 +153,6 @@ impl<'src> Scanner<'src>{
             "print" => TokenKind::Print,
             "match" => TokenKind::Match,
             "return" => TokenKind::Return,
-            "typename" => TokenKind::Typename,
             "struct" => TokenKind::Struct,
             "enum" => TokenKind::Enum,
             "is" => TokenKind::Is,

@@ -381,13 +381,6 @@ impl<'a> Parser<'a>{
         
         
     }
-    fn typename(&mut self) -> Result<ExprNode,ParsingFailed>{
-        let line = self.prev_token.line;
-        self.expect(TokenKind::LeftParen, "Expect '('.");
-        let ty = self.parse_type();
-        self.expect(TokenKind::RightParen, "Expect ')'.");
-        Ok(ExprNode{ id : self.next_id(), location: SourceLocation::new(line, self.prev_token.line), kind: ExprNodeKind::TypenameOf(ty?) })
-    }
     fn print(&mut self) -> Result<ExprNode,ParsingFailed>{
         let line = self.prev_token.line;
         self.expect(TokenKind::LeftParen, "Expect '('.");
@@ -587,7 +580,6 @@ impl<'a> Parser<'a>{
             TokenKind::While => self.while_expression(),
             TokenKind::Fun => self.function(self.prev_token.line),
             TokenKind::Return => self.return_expression(),
-            TokenKind::Typename => self.typename(),
             _ => return  None
         })
     }

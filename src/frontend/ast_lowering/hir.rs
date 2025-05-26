@@ -203,7 +203,6 @@ pub enum ExprKind {
     Path(PathExpr),
     Block(Vec<Stmt>,Option<Box<Expr>>),
     Function(Box<Function>),
-    Typename(HirId,Type),
     Field(Box<Expr>,Ident),
     Return(Option<Box<Expr>>),
     Index(Box<Expr>,Box<Expr>),
@@ -390,13 +389,13 @@ pub enum Resolution {
     Primitive(PrimitiveType),
     Variable(VariableIndex),
     Builtin(BuiltinKind),
-    SelfType,
+    SelfType(DefId),
     None
 }
 impl Resolution{
     pub fn is_type(&self) -> bool{
         match self{
-            Self::Definition(DefKind::Enum|DefKind::Struct|DefKind::Param,_) | Self::SelfType | Self::Primitive(_) => {
+            Self::Definition(DefKind::Enum|DefKind::Struct|DefKind::Param,_) | Self::SelfType(_) | Self::Primitive(_) => {
                 true
             },
             _ => false

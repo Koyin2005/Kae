@@ -166,7 +166,7 @@ impl<'a> AstLowerer<'a>{
         if unresolved_segments == 0{
             return Ok(full_path);
         }
-        let (Resolution::Primitive(_) | Resolution::SelfType | Resolution::Definition(hir::DefKind::Enum|hir::DefKind::Struct,_)) = final_res else {
+        let (Resolution::Primitive(_) | Resolution::SelfType(_) | Resolution::Definition(hir::DefKind::Enum|hir::DefKind::Struct,_)) = final_res else {
             let mut base_path = String::new();
             for (i,segment) in path.segments.iter().take(resolution_len).enumerate(){
                 if i>0{
@@ -439,7 +439,6 @@ impl<'a> AstLowerer<'a>{
                     Box::new(right)
                 )
             },
-            ast::ExprNodeKind::TypenameOf(ty) => hir::ExprKind::Typename(self.next_id(),self.lower_type(&ty)?),
             ast::ExprNodeKind::Property(expr, field) => hir::ExprKind::Field(Box::new(self.lower_expr(*expr)?), self.intern_symbol(field)),
             ast::ExprNodeKind::Return(expr) => hir::ExprKind::Return(expr.map(|expr| self.lower_expr(*expr).map(Box::new)).map_or(Ok(None), |result| result.map(Some))?),
             ast::ExprNodeKind::StructInit { path, fields } => {

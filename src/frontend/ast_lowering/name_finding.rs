@@ -195,8 +195,8 @@ impl<'b,'a:'b> NameFinder<'b>{
                 self.find_names_in_function(id,sig,Some(body));
             }
             ast::ExprNodeKind::StructInit { path:_, fields } => fields.iter().for_each(|(_,expr)| self.find_names_in_expr(expr)),
-            //Ignore any expressions that can't introduce new names or that make use of names
-            ast::ExprNodeKind::Literal(_) | ast::ExprNodeKind::TypenameOf(_) | ast::ExprNodeKind::GetPath(_) => ()
+            //Ignore any expressions that can't introduce new definitions or that make use of names
+            ast::ExprNodeKind::Literal(_) | ast::ExprNodeKind::GetPath(_) => ()
         }
     }
     fn find_names_in_pattern(&mut self,pattern:&'a ast::ParsedPatternNode,bindings:&mut BTreeMap<NodeId,Ident>,seen_symbols:&mut BTreeMap<SymbolIndex,NodeId>){
@@ -345,7 +345,7 @@ impl<'b,'a:'b> NameFinder<'b>{
                 self.begin_scope(ScopeKind::Item(impl_def_id));
                 self.find_generic_params(impl_def_id,impl_.generic_params.as_ref());
                 let self_symbol = self.global_symbols.upper_self_symbol();
-                self.get_current_scope_mut().add_binding(self_symbol,Resolution::SelfType);
+                self.get_current_scope_mut().add_binding(self_symbol,Resolution::SelfType(impl_def_id));
                 let mut methods = Vec::new();
                 for method in &impl_.methods{
                     let method_def_id = self.find_names_in_method(method.id,method.function.proto.name,method.function.proto.generic_params.as_ref(),&method.function.proto.sig,Some(&method.function.body));

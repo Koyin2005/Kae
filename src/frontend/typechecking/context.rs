@@ -67,29 +67,12 @@ pub enum TypeMember<'a>{
     Variant(DefId,GenericArgs,&'a VariantDef),
     Method{
         receiver_generic_args: GenericArgs,
-        receiver_generic_params:Option<&'a Generics>,
         sig : FuncSig,
-        id : Option<DefId>
+        id : DefId
     }
 }
 
-pub struct MethodPick{
-    pub owner : DefId,
-    pub owner_generic_args : GenericArgs,
-    pub method_id : DefId,
-    pub has_receiver : bool,
-    ///May contain self parameter if has_receiver is true
-    pub sig : FuncSig
-}
 
-
-pub struct MethodLookup<'a>{
-    pub generic_params : Option<&'a Generics>,
-    pub base_generic_args : GenericArgs,
-    pub sig : FuncSig,
-    pub has_receiver : bool,
-    pub id : Option<DefId>
-}
 pub struct TypeContext{
     pub(super) structs : DefIdMap<StructDef>,
     pub(super) enums : DefIdMap<EnumDef>,
@@ -101,7 +84,8 @@ pub struct TypeContext{
     pub(super) impl_ids : Vec<DefId>,
     pub(super) name_map : DefIdMap<Ident>,
     pub(super) signatures : DefIdMap<FuncSig>,
-    pub(super) type_ids_to_method_impls : DefIdMap<Vec<DefId>>
+    pub(super) type_ids_to_method_impls : DefIdMap<Vec<DefId>>,
+    pub(super) has_receiver : DefIdMap<bool>,
 }
 impl TypeContext{
     pub fn new() -> Self{
@@ -116,21 +100,9 @@ impl TypeContext{
             impls : DefIdMap::new(),
             impl_ids : Vec::new(),
             signatures : DefIdMap::new(),
-            type_ids_to_method_impls : DefIdMap::new()
+            type_ids_to_method_impls : DefIdMap::new(),
+            has_receiver : DefIdMap::new()
         }
-    }
-    /*Maps ty's generic args to impl_type's generic args (If the type's are supposed to be the same)*/
-    pub fn map_generic_args(&self,ty:&Type,impl_type:&Type,generics:&Generics,parent_args:GenericArgs)->Option<GenericArgs>{
-        let substitution = impl_type.get_substitution(ty)?;
-        let parent_count = parent_args.len();
-        Some(GenericArgs::new(generics.param_names.iter().enumerate().map(|(i,param_name)|{
-            if let Some(&ty) = substitution.get(&(i as u32)){
-                ty.clone()
-            }
-            else{
-                Type::Param((i + parent_count) as u32,param_name.index)
-            }
-        }).collect()).rebase(&parent_args))
     }
     pub fn get_member_ids(&self, ty: &Type, name : SymbolIndex) -> Vec<(hir::DefKind,DefId)>{
         let mut members = if let &Type::Adt(_,id,AdtKind::Enum) = ty {
@@ -197,7 +169,7 @@ impl TypeContext{
             hir::Resolution::Definition(hir::DefKind::Variant|hir::DefKind::Param, _) | 
             hir::Resolution::Primitive(_) | 
             hir::Resolution::Builtin(hir::BuiltinKind::Panic)|
-            hir::Resolution::SelfType | hir::Resolution::None => 0
+            hir::Resolution::SelfType(_) | hir::Resolution::None => 0
         }
     }
     pub fn is_type_recursive(&self,ty:&Type,id:DefId)->bool{
@@ -226,33 +198,20 @@ impl TypeContext{
             }
         }
     }
-
-
-    pub fn get_member(&self,symbols:&GlobalSymbols,ty:&Type,member:Ident) -> Option<TypeMember>{
-        if let Some((generic_args,id,AdtKind::Enum)) = ty.as_adt(){
-            if let Some(variant) = self.get_variant_of(id, member.index){
-                return Some(TypeMember::Variant(id,generic_args.clone(), variant));
+    pub fn get_member(&self,_:&GlobalSymbols,ty:&Type,member:Ident) -> Option<TypeMember>{
+        self.get_member_ids(ty,member.index).first().copied().map(|(kind,id)|{
+            match kind{
+                hir::DefKind::Method => {
+                    let (generic_args,_,_) = ty.as_adt().expect("Only an adt can have a method on it (for now)");
+                    TypeMember::Method { receiver_generic_args: generic_args.clone(), sig: self.signatures[id].clone(), id }
+                },
+                hir::DefKind::Variant => {
+                    let (generic_args,_,_) = ty.as_adt().expect("Only an adt can have variants");
+                    TypeMember::Variant(id,generic_args.clone(),self.get_variant(id).expect("This should be a variant"))
+                },
+                _ => unreachable!("Can only have a method or variant here")
             }
-        }
-        self.get_method(symbols,ty, member,true).map(|MethodLookup { generic_params,base_generic_args, sig,id,has_receiver:_ }|{
-            TypeMember::Method { receiver_generic_args:base_generic_args,receiver_generic_params: generic_params, sig,id}
         })
-    }
-    
-    pub fn get_method(&self,symbols:&GlobalSymbols,ty:&Type,method_ident:Ident,keep_receiver:bool) -> Option<MethodLookup>{
-        let method_index = method_ident.index;
-        if let Type::Array(_) | Type::String = ty{
-            if method_ident.index == symbols.len_symbol(){
-                return Some(MethodLookup{
-                    generic_params : None,
-                    sig : FuncSig { params: vec![], return_type: Type::Int },
-                    base_generic_args : GenericArgs::new_empty(),
-                    id : None,
-                    has_receiver : true
-                });
-            }
-        }   
-        None
     }
     pub fn get_variant_by_index(&self, enum_id: DefId, index: VariantIndex) -> &VariantDef{
         &self.enums[enum_id].variants[index.as_index() as usize]

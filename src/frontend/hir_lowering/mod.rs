@@ -77,7 +77,7 @@ impl<'a> ThirLower<'a>{
             hir::Resolution::Variable(variable) => {
                 thir::ExprKind::Variable(variable)
             },
-            hir::Resolution::Definition(hir::DefKind::Function|hir::DefKind::Variant|hir::DefKind::Struct, id) => {
+            hir::Resolution::Definition(hir::DefKind::Function|hir::DefKind::Variant|hir::DefKind::Struct|hir::DefKind::Method, id) => {
                 let generic_args = self.results.generic_args[&expr_id].clone();
                 thir::ExprKind::Definition(generic_args, id)
             },
@@ -189,9 +189,6 @@ impl<'a> ThirLower<'a>{
                     }).collect()
                 }))
             },
-            hir::ExprKind::Typename(_, _) => {
-                todo!("Type name")
-            }
         };
         self.thir.exprs.push(Expr{
             kind,
