@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use pl4::{
-    backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{ast_lowering::{ast_lower::AstLowerer, hir::DefIdProvider, name_finding::NameFinder}, hir_lowering::ThirLower, parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::{checking::check::TypeChecker, items::item_check::ItemCheck, types::collect::ItemCollector}}, GlobalSymbols, SymbolInterner
+    backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{ast_lowering::{ast_lower::AstLowerer, hir::DefIdProvider,name_finding::NameFinder}, hir_lowering::ThirLower, parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::{checking::check::TypeChecker, items::item_check::ItemCheck, types::collect::ItemCollector}}, GlobalSymbols, SymbolInterner
 };
 
 fn compile(source:&str)->Option<Program>{
@@ -16,6 +16,7 @@ fn compile(source:&str)->Option<Program>{
     };
     let mut def_id_provider = DefIdProvider::new();
     let (names_found,name_scopes) = NameFinder::new(&mut interner,&mut def_id_provider,&symbols).find_names(&stmts).ok()?;
+
     let ast_lower = AstLowerer::new(&mut interner,names_found,name_scopes);
     let hir = ast_lower.lower(stmts).ok()?;
     let item_collector = ItemCollector::new(&interner,&symbols,&hir.items);

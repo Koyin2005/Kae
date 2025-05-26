@@ -10,6 +10,12 @@ impl Resolver{
     pub fn new(name_spaces:NameSpaces,scope_tree:ScopeTree) -> Self{
         Self { scope_tree, name_spaces,current_scope:ScopeId::GLOBAL_SCOPE}
     }
+    pub fn namespaces(&mut self) -> &mut NameSpaces{
+        &mut self.name_spaces
+    }
+    pub fn into_namespaces_and_tree(self)->(NameSpaces,ScopeTree){
+        (self.name_spaces,self.scope_tree)
+    }
     pub fn current_scope_id(&self) -> ScopeId{
         self.current_scope
     }

@@ -1,7 +1,7 @@
 use crate::{frontend::{parsing::ast::{FunctionSig, ParsedGenericParam, ParsedMethod, ParsedParam, Symbol}, tokenizing::{tokens::{Token, TokenKind}, SourceLocation}}, identifiers::SymbolInterner};
 
 use super::ast::{
-    EnumDef, ExprNode, ExprNodeKind, FuncDef, FunctionProto, Impl, InferPath, InferPathKind, Item, LiteralKind, NodeId, ParsedAssignmentTarget, ParsedAssignmentTargetKind, ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, Path, PathSegment, PatternMatchArmNode, StmtNode, StructDef
+    EnumDef, ExprNode, ExprNodeKind, FuncDef, FunctionProto, Impl, InferPath, InferPathKind, Item, LiteralKind, NodeId,ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, Path, PathSegment, PatternMatchArmNode, StmtNode, StructDef
 };
 
 #[repr(u8)]
@@ -545,26 +545,15 @@ impl<'a> Parser<'a>{
         Ok(ExprNode{ id : self.next_id(), location: SourceLocation::new(start, self.prev_token.line), kind: ExprNodeKind::Property(Box::new(left), property_symbol) })
     }
     fn assign(&mut self,left:ExprNode)->Result<ExprNode,ParsingFailed>{
-        
-        let assignment_target_kind = match left.kind{
-            ExprNodeKind::Property(lhs,field  ) => {
-                ParsedAssignmentTargetKind::Field { lhs, field }
-            },
-            ExprNodeKind::GetPath(InferPath { location:_, infer_path:InferPathKind::Path(path) }) => {
-                ParsedAssignmentTargetKind::Name(path)
-            },
-            ExprNodeKind::Index { lhs, rhs } => {
-                ParsedAssignmentTargetKind::Index { lhs, rhs }
-            }
+        match &left.kind{
+            ExprNodeKind::Property(_,_  )|ExprNodeKind::GetPath(InferPath { location:_, infer_path:InferPathKind::Path(_) })|
+            ExprNodeKind::Index { lhs:_, rhs:_ } => (),
             _ => {
                 self.error("Invalid assignment target.");
                 return Err(ParsingFailed);
             },
         };
-        let lhs = ParsedAssignmentTarget{
-            location:left.location,
-            kind : assignment_target_kind
-        };
+        let lhs = Box::new(left);
         let rhs = self.parse_precedence(Precedence::Assignment)?;
         Ok(ExprNode{ id : self.next_id(), location: SourceLocation::new(lhs.location.start_line, rhs.location.end_line), kind: ExprNodeKind::Assign { lhs, rhs:Box::new(rhs) } })
     }
@@ -1040,9 +1029,34 @@ impl<'a> Parser<'a>{
     }
     fn impl_stmt(&mut self)->Result<Impl,ParsingFailed>{
         let start_line = self.current_token.line;
-        let generic_params = self.optional_generic_params()?;
-        let ty = self.parse_type()?;
+
+        let (ty,generic_params) = {
+            let name = self.parse_identifer("Expected a valid type name.");
+            let generic_params = self.optional_generic_params()?;
+            if let Some(generic_params) = generic_params{
+                (
+                ParsedType::Path(Path { 
+                    segments:vec![PathSegment {
+                        generic_args : 
+                            Some(ParsedGenericArgs { 
+                                location: name.location, 
+                                types:generic_params.1.iter().map(|&ParsedGenericParam(name)|{
+                                    ParsedType::Path(Path { segments:vec![name.into()], location: name.location })
+                                }).collect()
+                        }), 
+                        ..name.into() 
+                    }], 
+                    location: name.location
+                }),
+                Some(generic_params))
+            }
+            else{
+                (ParsedType::Path(Path { segments: vec![name.into()], location: name.location }),None)
+            }
+        };
         self.expect(TokenKind::LeftBrace, "Expect '{' after impl type.");
+
+
         let mut methods = Vec::new();
         while !self.check(TokenKind::RightBrace) && !self.is_at_end(){
             self.expect(TokenKind::Fun, "Expected 'fun'.");

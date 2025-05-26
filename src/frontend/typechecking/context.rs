@@ -100,7 +100,8 @@ pub struct TypeContext{
     pub(super) impls : DefIdMap<Impl>,
     pub(super) impl_ids : Vec<DefId>,
     pub(super) name_map : DefIdMap<Ident>,
-    pub(super) signatures : DefIdMap<FuncSig>
+    pub(super) signatures : DefIdMap<FuncSig>,
+    pub(super) type_ids_to_method_impls : DefIdMap<Vec<DefId>>
 }
 impl TypeContext{
     pub fn new() -> Self{
@@ -114,7 +115,8 @@ impl TypeContext{
             child_to_owner_map : DefIdMap::new(),
             impls : DefIdMap::new(),
             impl_ids : Vec::new(),
-            signatures : DefIdMap::new()
+            signatures : DefIdMap::new(),
+            type_ids_to_method_impls : DefIdMap::new()
         }
     }
     /*Maps ty's generic args to impl_type's generic args (If the type's are supposed to be the same)*/
@@ -130,38 +132,31 @@ impl TypeContext{
             }
         }).collect()).rebase(&parent_args))
     }
-    pub fn get_methods<'a>(&'a self,ty:&'a Type,method_name:SymbolIndex) -> Vec<MethodPick>{
-        let mut valid_methods = Vec::new();
-        for &impl_id in self.impl_ids.iter(){
-            let impl_ = &self.impls[impl_id];
-            let ty_with_impl = &impl_.ty;
-            //Try an inherent method
-            let generics = self.expect_generics_for(impl_id);
-            if let Some(generic_args) = self.map_generic_args(ty, ty_with_impl, generics, GenericArgs::new_empty()){
-                //Find all methods on this impl that share this name
-                valid_methods.extend(impl_.methods.iter().copied().filter_map(|method_id|{
-                    if self.ident(method_id).index == method_name{
-                        let has_receiver = self.method_has_receiver[method_id];
-                        Some(MethodPick{
-                            owner:impl_id,
-                            owner_generic_args : generic_args.clone(),
-                            method_id,
-                            has_receiver : has_receiver,
-                            sig : self.signatures[method_id].clone(),
+    pub fn get_member_ids(&self, ty: &Type, name : SymbolIndex) -> Vec<(hir::DefKind,DefId)>{
+        let mut members = if let &Type::Adt(_,id,AdtKind::Enum) = ty {
+            self.enums[id].variants.iter().filter_map(|variant|(self.ident(variant.id).index == name).then_some((hir::DefKind::Variant,variant.id))).collect()
+        } else { Vec::new()};
 
-                        })
-                    }
-                    else{
-                        None
-                    }
-                }));
-                
-            }
+        members.extend(self.get_method_ids(ty).into_iter().filter_map(|id| (self.ident(id).index == name).then_some((hir::DefKind::Method,id))));
+        members
 
+    }
+    pub fn get_variant_ids(&self, ty:&Type) -> Vec<DefId>{
+        if let &Type::Adt(_,id,AdtKind::Enum) = ty {
+            self.enums[id].variants.iter().map(|variant| variant.id).collect()
         }
-        
-        valid_methods.reverse();
-        valid_methods
+        else{
+            Vec::new()
+        }
+    }
+    pub fn get_method_ids(&self,ty:& Type) -> Vec<DefId>{
+        if let &Type::Adt(_,id,_) = ty {
+            let Some(methods) = self.type_ids_to_method_impls.get(id) else {
+                return Vec::new();
+            };
+            return methods.clone();
+        }
+        Vec::new()
     }
     pub fn ident(&self,id:DefId) -> Ident{
         self.name_map.get(id).copied().expect(&format!("There should be an ident for this id {:?}",id))
@@ -194,7 +189,10 @@ impl TypeContext{
     }
     pub fn get_generic_count(&self,res:&hir::Resolution) -> usize{
         match res{
-            &hir::Resolution::Definition(hir::DefKind::Struct|hir::DefKind::Enum|hir::DefKind::Function,id) => self.expect_generics_for(id).param_names.len(),
+            &hir::Resolution::Definition(kind @ (hir::DefKind::Struct|hir::DefKind::Enum|hir::DefKind::Function | hir::DefKind::Method),id) => {
+                println!("{:?} {:?}",kind,id);
+                self.expect_generics_for(id).param_names.len()
+            },
             hir::Resolution::Variable(_) | 
             hir::Resolution::Definition(hir::DefKind::Variant|hir::DefKind::Param, _) | 
             hir::Resolution::Primitive(_) | 
@@ -254,17 +252,7 @@ impl TypeContext{
                 });
             }
         }   
-        self.get_methods(ty, method_index).pop().map(|method|{
-            let generics = self.expect_generics_for(method.method_id);
-            let sig = {
-                let mut sig = method.sig;
-                if method.has_receiver && !keep_receiver{
-                    sig.params.remove(0);
-                }
-                sig
-            };
-            MethodLookup{generic_params:Some(generics),base_generic_args:method.owner_generic_args,sig,id:Some(method.method_id),has_receiver:method.has_receiver}
-        })
+        None
     }
     pub fn get_variant_by_index(&self, enum_id: DefId, index: VariantIndex) -> &VariantDef{
         &self.enums[enum_id].variants[index.as_index() as usize]

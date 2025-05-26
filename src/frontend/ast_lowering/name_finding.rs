@@ -2,13 +2,11 @@ use std::{cell::Cell, collections::BTreeMap};
 
 use fxhash::{FxHashMap, FxHashSet};
 use crate::{
-    data_structures::IndexVec, 
-    frontend::{ast_lowering::{hir::Ident, SymbolIndex, SymbolInterner}, 
-    parsing::ast::{self, ExprNode, FunctionSig, NodeId, ParsedAssignmentTargetKind}, tokenizing::SourceLocation, }, 
-    identifiers::VariableIndex, GlobalSymbols
+    data_structures::IndexVec, errors::ErrorReporter, frontend::{ast_lowering::{hir::Ident, SymbolIndex, SymbolInterner}, 
+    parsing::ast::{self, ExprNode, FunctionSig, Impl, NodeId}, tokenizing::SourceLocation, }, identifiers::VariableIndex, GlobalSymbols
 };
 
-use super::{hir::{BuiltinKind, DefId, DefIdMap, DefIdProvider, DefKind, PrimitiveType, Resolution}, scope::{NameSpaces, Scope, ScopeId, ScopeKind, ScopeTree}};
+use super::{hir::{BuiltinKind, DefId, DefIdMap, DefIdProvider, DefKind, PrimitiveType, Resolution},scope::{NameSpaces, Scope, ScopeId, ScopeKind, ScopeTree}};
 
 pub struct Record{
     pub name : Ident,
@@ -28,6 +26,9 @@ pub struct NamesFound{
     pub(super) name_map : DefIdMap<Ident>,
 }
 impl NamesFound{
+    pub fn expect_base_scope_for(&self, node: NodeId) -> ScopeId{
+        self.scope_map.get(&node).expect("Expected scopes for node id ").last().copied().expect("Expect base scope")
+    }
     pub fn expect_def_id_with_message(&self,node:NodeId,msg:&str) -> DefId{
         self.node_to_def_map.get(&node).copied().expect(msg)
     }
@@ -42,13 +43,14 @@ pub struct NameFinder<'b>{
     next_local_variable:usize,
     prev_last_local_variables:Vec<usize>,
     def_ids : &'b mut DefIdProvider,
-    had_error : Cell<bool>,
     namespaces : NameSpaces,
     current_scope : ScopeId,
     global_symbols : &'b GlobalSymbols,
+    pub(super) impl_map : Vec<(&'b Impl,Vec<DefId>)>,
+    error_reporter : ErrorReporter,
     scope_tree : ScopeTree
 }
-impl<'b,'a> NameFinder<'b>{
+impl<'b,'a:'b> NameFinder<'b>{
     pub fn new(interner:&'b mut SymbolInterner,def_id_provider:&'b mut DefIdProvider,symbols:&'b GlobalSymbols)->Self{
         let global_scope = {
             let int_symbol = interner.intern("int".to_string());
@@ -67,6 +69,7 @@ impl<'b,'a> NameFinder<'b>{
             root_scope
         };
         Self { 
+            error_reporter:ErrorReporter::new(true),
             next_local_variable:0,
             info : NamesFound{
                 name_map:DefIdMap::new(),
@@ -78,21 +81,20 @@ impl<'b,'a> NameFinder<'b>{
                 structs: DefIdMap::new(), 
                 enum_defs: DefIdMap::new(),
                 generics : DefIdMap::new(),
-
             },
+            
+                impl_map : Vec::new(),
             scope_tree : ScopeTree::new(global_scope),
             current_scope : ScopeId::GLOBAL_SCOPE,
             global_symbols:symbols,
             namespaces : NameSpaces::new(),
             interner,
             prev_last_local_variables:Vec::new(),
-            had_error:false.into(),
             def_ids:def_id_provider
         }
     }
     fn error(&self,message:String,span:SourceLocation){
-        self.had_error.set(true);
-        eprintln!("Error on line {}: {}",span.start_line,message);
+        self.error_reporter.emit(message, span);
     }
     fn define_bindings(&mut self,base_pattern_id:NodeId,bindings:&BTreeMap<NodeId,Ident>,seen_symbols:&BTreeMap<SymbolIndex,NodeId>){
         let mut all_variables = Vec::new();
@@ -136,7 +138,7 @@ impl<'b,'a> NameFinder<'b>{
             self.find_names_in_stmt(stmt);
         }
     }
-    fn find_names_in_expr(&mut self,expr:&'a ast::ExprNode){
+    fn find_names_in_expr(&mut self,expr:&'b ast::ExprNode){
         let id = expr.id;
         match &expr.kind {
             ast::ExprNodeKind::Array(elements) | ast::ExprNodeKind::Print(elements) | ast::ExprNodeKind::Tuple(elements) => elements.iter().for_each(|element|{
@@ -186,14 +188,7 @@ impl<'b,'a> NameFinder<'b>{
                 self.end_scope(id);
             },
             ast::ExprNodeKind::Assign { lhs, rhs } => {
-                match &lhs.kind{
-                    ParsedAssignmentTargetKind::Field { lhs, field:_ } => self.find_names_in_expr(lhs),
-                    ParsedAssignmentTargetKind::Index { lhs, rhs } => {
-                        self.find_names_in_expr(lhs);
-                        self.find_names_in_expr(rhs);
-                    },
-                    ParsedAssignmentTargetKind::Name(_) => ()
-                }
+                self.find_names_in_expr(lhs);
                 self.find_names_in_expr(rhs);
             },
             ast::ExprNodeKind::Function(sig,body) => {
@@ -228,7 +223,7 @@ impl<'b,'a> NameFinder<'b>{
             ast::ParsedPatternNodeKind::Wildcard | ast::ParsedPatternNodeKind::Literal(_) | ast::ParsedPatternNodeKind::Path(_) | ast::ParsedPatternNodeKind::Infer(_) => ()
         }
     }
-    fn find_generic_params(&mut self,owner:DefId,generic_params:Option<&'a ast::ParsedGenericParams>){
+    fn find_generic_params(&mut self,owner:DefId,generic_params:Option<&'b ast::ParsedGenericParams>){
         let mut seen_generic_params = FxHashSet::default();
         let generic_params = if let Some(generic_params) = generic_params {
             let params = generic_params.1.iter().filter_map(|param| {
@@ -248,7 +243,7 @@ impl<'b,'a> NameFinder<'b>{
         };
         self.info.generics.insert(owner,generic_params);
     }
-    fn find_names_in_function(&mut self,id:NodeId,sig:&'a FunctionSig,body:Option<&ExprNode>){
+    fn find_names_in_function(&mut self,id:NodeId,sig:&'b FunctionSig,body:Option<&'b ExprNode>){
         self.begin_scope(ScopeKind::Function(id));
         self.prev_last_local_variables.push(std::mem::replace(&mut self.next_local_variable,0));
         let mut bindings = BTreeMap::new();
@@ -270,7 +265,7 @@ impl<'b,'a> NameFinder<'b>{
             field
         }).collect()
     }
-    fn find_names_in_method(&mut self, method_id: NodeId, name: ast::Symbol, generic_params:Option<&ast::ParsedGenericParams>, sig: &FunctionSig, method_body: Option<&ExprNode>){
+    fn find_names_in_method(&mut self, method_id: NodeId, name: ast::Symbol, generic_params:Option<&'b ast::ParsedGenericParams>, sig: &'b FunctionSig, method_body: Option<&'b ExprNode>) -> DefId{
         let method_def_id = self.def_ids.next();
         self.add_node_to_def(method_id, method_def_id);
         self.info.name_map.insert(method_def_id, name.into());
@@ -278,6 +273,7 @@ impl<'b,'a> NameFinder<'b>{
         self.find_generic_params(method_def_id,generic_params);
         self.find_names_in_function(method_id,&sig,method_body);
         self.end_scope(method_id);
+        method_def_id
     }
     fn find_names_in_item(&mut self,item:&'a ast::Item){
         match item{
@@ -321,10 +317,12 @@ impl<'b,'a> NameFinder<'b>{
                 self.add_node_to_def(struct_def.id, struct_def_id);
                 self.info.name_map.insert(struct_def_id, name);
                 let index = struct_def.name.content;
+                let name_scope = self.current_scope;
                 self.end_scope(struct_def.id);
                 if !self.get_current_scope_mut().add_binding(index,Resolution::Definition(DefKind::Struct, struct_def_id)).is_none(){
                     self.error(format!("Repeated item '{}'.",self.interner.get(struct_def.name.content)), struct_def.name.location);
                 }
+                self.namespaces.define_namespace(Resolution::Definition(DefKind::Struct, struct_def_id),name_scope);
             },
             ast::Item::Fun(function_def) => {
                 let func_def_id = self.def_ids.next();
@@ -348,10 +346,13 @@ impl<'b,'a> NameFinder<'b>{
                 self.find_generic_params(impl_def_id,impl_.generic_params.as_ref());
                 let self_symbol = self.global_symbols.upper_self_symbol();
                 self.get_current_scope_mut().add_binding(self_symbol,Resolution::SelfType);
+                let mut methods = Vec::new();
                 for method in &impl_.methods{
-                    self.find_names_in_method(method.id,method.function.proto.name,method.function.proto.generic_params.as_ref(),&method.function.proto.sig,Some(&method.function.body));
+                    let method_def_id = self.find_names_in_method(method.id,method.function.proto.name,method.function.proto.generic_params.as_ref(),&method.function.proto.sig,Some(&method.function.body));
+                    methods.push(method_def_id);
                 }
                 self.end_scope(impl_.id);
+                self.impl_map.push((impl_,methods));
             },
         }
     }
@@ -373,11 +374,11 @@ impl<'b,'a> NameFinder<'b>{
             },
         }
     }
-    pub fn find_names(mut self,items:&'a [ast::Item]) -> Result<(NamesFound,NameScopes),()>{
+    pub fn find_names(mut self,items:&'b [ast::Item]) -> Result<(NamesFound,NameScopes),()>{
         for item in items{
             self.find_names_in_item(item);
         }
-        if self.had_error.get(){
+        if self.error_reporter.error_occurred(){
             return Err(());
         }
         Ok((self.info,NameScopes{

@@ -4,13 +4,13 @@ use fxhash::FxHashSet;
 
 use crate::{
     data_structures::IndexVec, errors::ErrorReporter, frontend::{
-        ast_lowering::hir::{Generics, VariantDef}, parsing::ast::{self, InferPathKind, NodeId, ParsedType, Symbol}, 
+        ast_lowering::hir::{Generics, VariantDef}, parsing::ast::{self, InferPathKind, NodeId, ParsedType, PathSegment, Symbol}, 
         tokenizing::SourceLocation
     }, identifiers::BodyIndex
 };
 
 use super::{
-    hir::{self, DefId, DefIdMap, DefKind, Expr, FunctionDef, GenericArg, Hir, HirId, Ident, Item, LiteralKind, PatternKind, Resolution}, name_finding::{self, NameScopes, Record}, resolve::Resolver, scope::{ScopeId, ScopeKind}, SymbolInterner
+    hir::{self, DefId, DefIdMap, DefKind, Expr, FunctionDef, GenericArg, Hir, HirId, Ident, Item, LiteralKind, PatternKind, Resolution, Type}, name_finding::{self, NameScopes, NodeMap, Record}, resolve::Resolver, scope::{ScopeId, ScopeKind}, SymbolInterner
 };
 use crate::identifiers::ItemIndex;
 
@@ -29,7 +29,7 @@ pub struct AstLowerer<'a>{
 }
 
 impl<'a> AstLowerer<'a>{
-    pub fn new(interner:&'a mut SymbolInterner,name_info:name_finding::NamesFound,name_scopes:NameScopes,)->Self{
+    pub fn new(interner:&'a mut SymbolInterner,name_info:name_finding::NamesFound,name_scopes:NameScopes)->Self{
         Self {
             symbol_interner:interner,
             items:IndexVec::new(),
@@ -105,7 +105,8 @@ impl<'a> AstLowerer<'a>{
         };
         (!had_error).then_some(generics).ok_or(LoweringErr)
     }
-    fn validate_path(&self,resolution:Resolution,segments:&[ast::PathSegment]){
+    fn validate_path(&self,resolution:Resolution, name: Symbol) -> bool{
+        let mut had_error = false;
         match resolution {
             Resolution::Definition(DefKind::Param,_) => {
                 let mut scope = self.resolver.borrow().current_scope_id();
@@ -116,8 +117,9 @@ impl<'a> AstLowerer<'a>{
                     match scopes.get_scope(scope).kind(){
                         ScopeKind::Item(_) => {
                             if found_item{
-                                if let Some((name,_)) =  scopes.get_scope(scope).bindings_iter().find(|(_,res)| *res == resolution){
-                                    self.error(format!("Cannot use generic parameter '{}' from outer item.",self.symbol_interner.get(name)), segments.last().expect("There should be a segment here").location);
+                                if let Some((name_index,_)) =  scopes.get_scope(scope).bindings_iter().find(|(_,res)| *res == resolution){
+                                    self.error(format!("Cannot use generic parameter '{}' from outer item.",self.symbol_interner.get(name_index)), name.location);
+                                    had_error = true;
                                     break;
                                     }
                             }
@@ -131,10 +133,11 @@ impl<'a> AstLowerer<'a>{
             },
             _ => ()
         }
+        !had_error
     }
-    fn lower_path(&self,path:&ast::Path) -> Result<hir::Path,LoweringErr>{
+    fn lower_path(&self,path:&ast::Path) -> Result<hir::QualifiedPath,LoweringErr>{
         let resolutions = self.resolver.borrow().resolve_path(path.segments.iter().map(|segment| segment.name.content));
-        if resolutions.len() != path.segments.len(){
+        if resolutions.is_empty(){
             let mut base_path = String::new();
             for (i,segment) in path.segments.iter().take(resolutions.len()).enumerate(){
                 if i>0{
@@ -147,8 +150,9 @@ impl<'a> AstLowerer<'a>{
             self.error(format!("Cannot find {} in {}.",self.symbol_interner.get(last.content),base_path),span);
             return Err(LoweringErr);
         }
+        let resolution_len = resolutions.len();
         let final_res = resolutions.last().copied().expect("There should be at least one!");
-        self.validate_path(final_res, &path.segments);
+        self.validate_path(final_res, path.segments.last().expect("There should be at least one segment").name);
         let segments = resolutions.into_iter().zip(&path.segments).map(|(resolution,segment)|{
             Ok(hir::PathSegment{
                 res:resolution,
@@ -156,7 +160,37 @@ impl<'a> AstLowerer<'a>{
                 args:self.lower_generic_args(segment.generic_args.as_ref())?
             })
         }).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>()?;
-        Ok(hir::Path{span:path.location,final_res,segments})
+        let full_path = hir::QualifiedPath::FullyResolved(hir::Path{span:path.location,final_res,segments});
+        /*Number of path segments is always greater or equal to the number of resolutions along a path*/
+        let unresolved_segments = path.segments.len() - resolution_len;
+        if unresolved_segments == 0{
+            return Ok(full_path);
+        }
+        let (Resolution::Primitive(_) | Resolution::SelfType | Resolution::Definition(hir::DefKind::Enum|hir::DefKind::Struct,_)) = final_res else {
+            let mut base_path = String::new();
+            for (i,segment) in path.segments.iter().take(resolution_len).enumerate(){
+                if i>0{
+                    base_path += "::";
+                }
+                base_path += &self.symbol_interner.get(segment.name.content);
+            }
+            let last = path.segments[resolution_len].name;
+            let span = last.location;
+            self.error(format!("Cannot find {} in {}.",self.symbol_interner.get(last.content),base_path),span);
+            return Err(LoweringErr);
+        };
+        let mut full_path = full_path;
+        for offset in 0..unresolved_segments{
+            let i = resolution_len + offset;
+            let segment = &path.segments[i];
+            full_path = hir::QualifiedPath::TypeRelative(Box::new(Type {span: full_path.span() , kind: hir::TypeKind::Path(full_path) }),hir::PathSegment{
+                res : Resolution::None,
+                ident : segment.name.into(),
+                args : self.lower_generic_args(segment.generic_args.as_ref())?
+            });
+        }
+        Ok(full_path)
+        
     }
     fn lower_type(&self,ty:&ast::ParsedType) -> Result<hir::Type,LoweringErr>{
         let (kind,span) = match ty{
@@ -428,38 +462,7 @@ impl<'a> AstLowerer<'a>{
                 hir::ExprKind::StructLiteral(path, fields)
             },
             ast::ExprNodeKind::Assign { lhs, rhs } => {
-                let lhs = match lhs.kind{
-                    ast::ParsedAssignmentTargetKind::Name(name) => {
-                        let span = name.location;
-                        self.lower_path(&name).map(|path| hir::Expr{
-                            id:self.next_id(),
-                            span,
-                            kind:hir::ExprKind::Path(hir::PathExpr::Path(path))
-                        })
-                    },
-                    ast::ParsedAssignmentTargetKind::Index { lhs:indexed, rhs:index } => {
-                        let indexed = self.lower_expr(*indexed).map(Box::new);
-                        let index = self.lower_expr(*index).map(Box::new);
-                        match (indexed,index) {
-                            (Ok(indexed),Ok(index)) => Ok(hir::Expr{
-                                id:self.next_id(),
-                                kind:hir::ExprKind::Index(indexed, index),
-                                span:lhs.location
-                            }),
-                            _ => Err(LoweringErr)
-                        }
-                    },
-                    ast::ParsedAssignmentTargetKind::Field { lhs:receiver, field } => {
-                        let receiver = self.lower_expr(*receiver);
-                        receiver.map(|receiver|{
-                            hir::Expr{
-                                id : self.next_id(),
-                                kind:hir::ExprKind::Field(Box::new(receiver), self.intern_symbol(field)),
-                                span:lhs.location
-                            }
-                        })
-                    }
-                };
+                let lhs = self.lower_expr(*lhs);
                 let rhs = self.lower_expr(*rhs);
                 match (lhs.map(Box::new),rhs.map(Box::new)) {
                     (Ok(lhs),Ok(rhs)) => hir::ExprKind::Assign(lhs, rhs),
@@ -557,8 +560,8 @@ impl<'a> AstLowerer<'a>{
             ast::Item::Impl(impl_) => {
                 let impl_id =  self.expect_def_id(impl_.id,"There should be an impl");
                 self.begin_scope(impl_.id);
-                let generics = self.lower_generic_params(impl_id, impl_.generic_params);
                 let ty = self.lower_type(&impl_.ty);
+                let generics = self.lower_generic_params(impl_id, impl_.generic_params);
                 let methods = (||{
                     let mut had_error = false;
                     let mut methods = Vec::with_capacity(impl_.methods.len());

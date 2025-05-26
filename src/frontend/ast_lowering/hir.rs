@@ -214,7 +214,7 @@ pub enum ExprKind {
 #[derive(Clone,Debug)]
 pub enum PathExpr {
     Infer(Ident),
-    Path(Path)
+    Path(QualifiedPath)
 }
 #[derive(Clone,Debug)]
 pub struct MatchArm{
@@ -253,7 +253,7 @@ pub struct FieldPattern{
 
 #[derive(Clone,Debug)]
 pub enum InferOrPath {
-    Path(Path),
+    Path(QualifiedPath),
     Infer(SourceLocation,Option<Ident>)
 }
 #[derive(Clone,Debug)]
@@ -270,6 +270,12 @@ pub struct Type{
     pub span : SourceLocation
 }
 impl Type{
+    pub fn id(&self) -> Option<DefId>{
+        match &self.kind{
+            TypeKind::Path(QualifiedPath::FullyResolved(path)) => path.final_res.def_id(),
+            _ => None
+        }
+    }
     pub fn format(&self,interner:&SymbolInterner) -> String{
         match &self.kind{
             TypeKind::Array(ty) => format!("[{}]",ty.format(interner)),
@@ -306,7 +312,7 @@ pub enum TypeKind {
     Array(Box<Type>),
     Tuple(Vec<Type>),
     Function(Vec<Type>,Option<Box<Type>>),
-    Path(Path)
+    Path(QualifiedPath)
 }
 #[derive(Clone,Debug)]
 pub struct PathSegment{
@@ -322,6 +328,30 @@ pub struct GenericArg{
 impl PathSegment{
     pub fn format<'a>(&self,interner:&'a SymbolInterner) -> &'a str{
         interner.get(self.ident.index)
+    }
+}
+#[derive(Clone,Debug)]
+pub enum QualifiedPath {
+    FullyResolved(Path),
+    TypeRelative(Box<Type>,PathSegment),
+}
+impl QualifiedPath{
+    
+    pub fn format(&self,interner:&SymbolInterner) -> String{
+        match self{
+            Self::FullyResolved(path) => path.format(interner),
+            Self::TypeRelative(ty,segment) => {
+                format!("{}::{}",ty.format(interner),segment.format(interner))
+            }
+        }
+    }
+    pub fn span(&self) -> SourceLocation{
+        match self{
+            Self::FullyResolved(path) => path.span,
+            Self::TypeRelative(ty,segment) => {
+                SourceLocation::new(ty.span.start_line,segment.ident.span.end_line)
+            }
+        }
     }
 }
 #[derive(Clone,Debug)]
@@ -363,7 +393,22 @@ pub enum Resolution {
     SelfType,
     None
 }
-
+impl Resolution{
+    pub fn is_type(&self) -> bool{
+        match self{
+            Self::Definition(DefKind::Enum|DefKind::Struct|DefKind::Param,_) | Self::SelfType | Self::Primitive(_) => {
+                true
+            },
+            _ => false
+        }
+    }
+    pub fn def_id(&self) -> Option<DefId>{
+        match self {
+            &Self::Definition(_,id) => Some(id),
+            _ => None
+        }
+    }
+}
 
 
 #[derive(Clone, Copy,Debug,PartialEq,Eq,Hash)]
@@ -373,6 +418,7 @@ pub enum DefKind {
     Enum,
     Param,
     Variant,
+    Method
 }
 #[derive(Clone,Debug)]
 pub struct FieldExpr{
@@ -399,6 +445,9 @@ impl<T> DefIdMap<T>{
     }
     pub fn iter(&self) -> DefIdMapIter<'_,T>{
         DefIdMapIter(self.0.iter())
+    }
+    pub fn entry(&mut self, id: DefId) ->std::collections::hash_map::Entry<'_,DefId,T>{
+        self.0.entry(id)
     }
 }
 impl<T> std::ops::Index<DefId> for DefIdMap<T>{

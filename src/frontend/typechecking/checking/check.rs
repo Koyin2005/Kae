@@ -498,6 +498,9 @@ impl<'a> TypeChecker<'a>{
                 (generic_args,Some(kind_and_id))
             },
             hir::InferOrPath::Path(path) => {
+                let hir::QualifiedPath::FullyResolved(path) = path else {
+                    todo!("Handle type relative paths")
+                };
                 let generic_args = self.lowerer().lower_generic_args_of_path(path);
                 match path.final_res{
                     hir::Resolution::Definition(hir::DefKind::Struct,id) => (generic_args,Some((AdtKind::Struct,id))),
@@ -758,15 +761,22 @@ impl<'a> TypeChecker<'a>{
             false
         }
     }
-    fn check_path(&mut self, path: &hir::Path) -> bool{
+    fn check_path(&mut self, path: &hir::QualifiedPath) -> bool{
+        
+        let  hir::QualifiedPath::FullyResolved(path) = path else {
+            todo!("Handle type relative paths for checking")
+        };
         let mut ok = true;
         for segment in path.segments.iter(){
             ok &= self.check_path_segment(segment,self.context.get_generic_count(&segment.res));
         }
         ok
     }
-    fn check_expr_path(&mut self, expr_id: HirId, path: &hir::Path, as_callable: bool) -> Type{
+    fn check_expr_path(&mut self, expr_id: HirId, path: &hir::QualifiedPath, as_callable: bool) -> Type{
         let ok = self.check_path(path);
+        let  hir::QualifiedPath::FullyResolved(path) = path else {
+            todo!("Handle type relative paths for typing")
+        };
         let ty = match path.final_res{
             hir::Resolution::Variable(variable) => {
                 self.store_resolution(expr_id, Resolution::Variable(variable));
@@ -831,6 +841,9 @@ impl<'a> TypeChecker<'a>{
                 self.store_resolution(expr_id, Resolution::Builtin(hir::BuiltinKind::Panic));
                 Type::new_function(vec![Type::String], Type::Never)
             },
+            hir::Resolution::Definition(hir::DefKind::Method, id) => {
+                todo!("Method")
+            }
             hir::Resolution::SelfType => {
                 if let Some((generic_args,id,AdtKind::Struct))  = self.env.get_self_type().and_then(|ty| ty.0.as_adt()){
                     self.store_generic_args(expr_id, generic_args.clone());

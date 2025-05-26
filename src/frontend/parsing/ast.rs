@@ -10,21 +10,6 @@ impl NodeId{
         Self(self.0 + 1)
     }
 }
-pub struct ParsedAssignmentTarget{
-    pub location : SourceLocation,
-    pub kind : ParsedAssignmentTargetKind
-}
-pub enum ParsedAssignmentTargetKind {
-    Name(Path),
-    Index{
-        lhs : Box<ExprNode>,
-        rhs : Box<ExprNode>
-    },
-    Field{
-        lhs : Box<ExprNode>,
-        field : Symbol
-    }
-}
 #[derive(Clone)]
 pub enum LiteralKind {
     Int(i64),
@@ -85,7 +70,7 @@ pub enum ExprNodeKind {
     Tuple(Vec<ExprNode>),
     Print(Vec<ExprNode>),
     Assign{
-        lhs : ParsedAssignmentTarget,
+        lhs : Box<ExprNode>,
         rhs : Box<ExprNode>
     },
     Function(FunctionSig,Box<ExprNode>),
@@ -168,7 +153,6 @@ pub struct ExprNode{
     pub id : NodeId,
     pub kind : ExprNodeKind
 }
-
 pub struct ParsedGenericParam(pub Symbol);
 pub struct ParsedGenericParams(pub NodeId,pub Vec<ParsedGenericParam>);
 
@@ -188,6 +172,9 @@ pub struct EnumDef{
     pub id : NodeId,
     pub generic_params : Option<ParsedGenericParams>,
     pub variants : Vec<ParsedEnumVariant>
+}
+pub struct ImplType{
+    pub name : Symbol,
 }
 pub struct Impl{
     pub span : SourceLocation,
@@ -291,6 +278,11 @@ pub struct PathSegment{
     pub name : Symbol,
     pub generic_args : Option<ParsedGenericArgs>,
     pub location : SourceLocation
+}
+impl Into<PathSegment> for Symbol{
+    fn into(self) -> PathSegment {
+        PathSegment { name:self, generic_args: None, location: self.location }
+    }
 }
 #[derive(Clone,Debug)]
 pub struct Path{

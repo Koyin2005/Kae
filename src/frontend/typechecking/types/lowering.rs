@@ -1,12 +1,13 @@
 use crate::{errors::ErrorReporter, frontend::{ast_lowering::hir::{self, DefKind, GenericArg, Resolution}, typechecking::context::{FuncSig, TypeContext}}, SymbolInterner};
 
-use super::{generics::GenericArgs, AdtKind, Type};
+use super::{format::TypeFormatter, generics::GenericArgs, AdtKind, Type};
 
 pub struct TypeLower<'a>{
     interner:&'a SymbolInterner,
     context:&'a TypeContext,
     self_type : Option<Type>,
-    error_reporter:&'a ErrorReporter
+    error_reporter:&'a ErrorReporter,
+    ignore_methods : bool
 }
 impl<'a> TypeLower<'a>{
     pub fn new(interner:&'a SymbolInterner,context:&'a TypeContext,self_type:Option<Type>,error_reporter:&'a ErrorReporter)->Self{
@@ -14,7 +15,17 @@ impl<'a> TypeLower<'a>{
             interner,
             context,
             self_type,
-            error_reporter
+            error_reporter,
+            ignore_methods : false
+        }
+    }
+    pub fn new_with_ignore_methods(interner:&'a SymbolInterner,context:&'a TypeContext,self_type:Option<Type>,error_reporter:&'a ErrorReporter)->Self{
+        Self { 
+            interner,
+            context,
+            self_type,
+            error_reporter,
+            ignore_methods : true
         }
     }
     pub fn lower_sig<'b>(&self, params: impl Iterator<Item = &'b hir::Type>, return_type : Option<&'b hir::Type>) -> FuncSig{
@@ -46,6 +57,7 @@ impl<'a> TypeLower<'a>{
                         })?;
                         &segment.args
                     },
+                    Resolution::Definition(DefKind::Method, id) => todo!("METHOD GENERIC ARG LOWERING FOR {:?}",id),
                     Resolution::Primitive(_) | Resolution::Variable(_) | Resolution::Definition(DefKind::Param, _) | Resolution::SelfType | Resolution::Builtin(_) => return None
         }))();
         generic_args.map(|generic_args| self.lower_generic_args(generic_args)).unwrap_or_else(GenericArgs::new_empty)
@@ -85,7 +97,23 @@ impl<'a> TypeLower<'a>{
                 Type::new_function(params.iter().map(|param| self.lower_type(param)).collect(), return_type.as_ref().map_or(Type::new_unit(), |ty| self.lower_type(ty))),
             hir::TypeKind::Tuple(elements) => Type::new_tuple(elements.into_iter().map(|element| self.lower_type(element)).collect()),
             hir::TypeKind::Path(path) => {
-                self.lower_path(path)
+                match path{
+                    hir::QualifiedPath::TypeRelative(ty, name) => {
+                        let ty = self.lower_type(&ty);
+                        if ty.is_error(){
+                            return Type::new_error();
+                        }
+                        if !self.ignore_methods{
+                            self.error_reporter.emit(format!("Cannot use {}member '{}' of '{}' as type.",
+                                if self.context.get_member_ids(&ty, name.ident.index).is_empty() {"undefined "} else {""},
+                                self.interner.get(name.ident.index),TypeFormatter::new(self.interner, self.context).format_type(&ty)), name.ident.span);
+                            }
+                        Type::new_error()
+                    },
+                    hir::QualifiedPath::FullyResolved(path) => {
+                        self.lower_path(path)
+                    }
+                }
             }
         }
     }
@@ -99,6 +127,7 @@ impl<'a> TypeLower<'a>{
                 });
                 segment.into_iter().collect()
             },
+            Resolution::Definition(DefKind::Method, id) => todo!("METHOD GENERIC SEGMENTS FOR {:?}",id),
             hir::Resolution::Definition(hir::DefKind::Struct|hir::DefKind::Function|hir::DefKind::Enum,_) => {
                 vec![last]
             },

@@ -61,6 +61,9 @@ impl<'a> ItemCheck<'a>{
                 }
             },
             hir::TypeKind::Path(path) => {
+                let hir::QualifiedPath::FullyResolved(path) = path else {
+                    todo!("Handle type relative paths in item check")
+                };
                 for segment in &path.segments{
                     self.check_generic_count(self.context.get_generic_count(&segment.res), segment.args.len(), segment.ident.span);
                 }

@@ -69,12 +69,16 @@ impl<'a> ItemCollector<'a>{
                 self.collect_names_for_generics(function_def.id, &function_def.generics);
             },
             Item::Impl(impl_) => {
+                let Some(id) = impl_.ty.id() else {
+                    unreachable!("That shouldn't be possible as only nominal types can have impls.")
+                };
                 self.collect_names_for_generics(impl_.id,&impl_.generics);
                 let parent_count = self.next_param_index;
                 for method in &impl_.methods{
                     self.add_name(method.id, method.name);
                     self.add_child_for(impl_.id, method.id);
                     self.collect_names_for_generics(method.id, &method.generics);
+                    self.context.type_ids_to_method_impls.entry(id).or_default().push(id);
                     self.next_param_index = parent_count;
                 }
             }
