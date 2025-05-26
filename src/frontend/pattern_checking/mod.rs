@@ -50,7 +50,7 @@ impl Pattern{
                     )
                 }
                 else{
-                    interner.get(context.ident(id).index).to_string()
+                    interner.get(context.get_variant_by_index(id, index).name.index).to_string()
                 }
             },
             (Constructor::Struct,ty) => {
