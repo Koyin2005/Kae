@@ -12,7 +12,7 @@ impl Pattern{
         if !constructor.is_covered_by(&self.constructor){
             return None;
         }
-        let is_wildcard = constructor == Constructor::Wildcard;
+        let is_wildcard = self.constructor == Constructor::Wildcard;
         Some(if is_wildcard{
             fields.iter().map(|field|{
                 Pattern{
@@ -249,11 +249,12 @@ impl<'a> PatternChecker<'a>{
             (Constructor::Bool(_),_) => vec![],
             (Constructor::Float(_),_) => vec![],
             (Constructor::Int(_),_) => vec![],
+            (Constructor::Missing,_) => vec![],
+            (Constructor::NonExhaustive|Constructor::Wildcard,_) => vec![],
             (Constructor::Struct,Type::Tuple(fields)) => fields.clone(),
             (Constructor::Struct,&Type::Adt(ref args, id, AdtKind::Struct)) => self.context.field_defs(id).iter().map(|field_def| TypeSubst::new(args).instantiate_type(&field_def.ty)).collect(),
             (Constructor::Variant(id, variant_index),&Type::Adt(ref args, _, AdtKind::Enum)) => self.context.variant_field_defs(id, variant_index).iter().map(|field_def| TypeSubst::new(args).instantiate_type(&field_def.ty)).collect(),
-            (Constructor::Missing,_) => vec![],
-            (Constructor::NonExhaustive|Constructor::Wildcard,_) => vec![],
+            
             (ctor,ty) => unreachable!("Cannot find arity for {:?} {:?}",ctor,ty)
         }
     }
