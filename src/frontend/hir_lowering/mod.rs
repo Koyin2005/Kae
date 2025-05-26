@@ -62,6 +62,9 @@ impl<'a> ThirLower<'a>{
             hir::StmtKind::Let(pattern,_,expr) => {
                 let pattern = self.lower_pattern(pattern);
                 let expr = self.lower_expr(expr);
+                if !PatternChecker::new(self.context).check_exhaustive(vec![lower_to_pattern(&pattern)], &pattern.ty).missing_patterns().is_empty(){
+                    self.error_reporter.emit(format!("Refutable pattern in 'let' statement."), stmt.span);
+                }
                 self.thir.stmts.push(Stmt{kind:StmtKind::Let(Box::new(pattern),expr)})
             },
             hir::StmtKind::Semi(expr) => {
