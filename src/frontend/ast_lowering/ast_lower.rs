@@ -138,16 +138,8 @@ impl<'a> AstLowerer<'a>{
     fn lower_path(&self,path:&ast::Path) -> Result<hir::QualifiedPath,LoweringErr>{
         let resolutions = self.resolver.borrow().resolve_path(path.segments.iter().map(|segment| segment.name.content));
         if resolutions.is_empty(){
-            let mut base_path = String::new();
-            for (i,segment) in path.segments.iter().take(resolutions.len()).enumerate(){
-                if i>0{
-                    base_path += "::";
-                }
-                base_path += &self.symbol_interner.get(segment.name.content);
-            }
-            let last = path.segments[resolutions.len()].name;
-            let span = last.location;
-            self.error(format!("Cannot find {} in {}.",self.symbol_interner.get(last.content),base_path),span);
+            let name = path.segments.first().expect("Should be at least 1 segment").name;
+            self.error(format!("Cannot find '{}' in scope.",self.symbol_interner.get(name.content)),name.location);
             return Err(LoweringErr);
         }
         let resolution_len = resolutions.len();
@@ -176,7 +168,7 @@ impl<'a> AstLowerer<'a>{
             }
             let last = path.segments[resolution_len].name;
             let span = last.location;
-            self.error(format!("Cannot find {} in {}.",self.symbol_interner.get(last.content),base_path),span);
+            self.error(format!("Cannot find '{}' in '{}'.",self.symbol_interner.get(last.content),base_path),span);
             return Err(LoweringErr);
         };
         let mut full_path = full_path;
