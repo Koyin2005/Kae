@@ -17,16 +17,14 @@ fn lower_constructor_and_fields(pattern:&thir::Pattern) -> (Constructor,Vec<Patt
              (Constructor::Wildcard,vec![])
         },
         thir::PatternKind::Tuple(fields) => (Constructor::Struct,fields.iter().map(lower_to_pattern).collect()),
-        &thir::PatternKind::Variant(_,id, variant,ref fields) => {
-            let mut fields = fields.iter().map(|field| field).collect::<Box<[_]>>();
-            fields.sort_by_key(|field| field.field);
-            if let Some(variant) = variant{
-                (Constructor::Variant(id, variant),fields.iter().map(|field| lower_to_pattern(&field.pattern)).collect())
-            }
-            else{
-                (Constructor::Struct,fields.iter().map(|field| lower_to_pattern(&field.pattern)).collect())
-            }
+        &thir::PatternKind::Variant(_,_,variant,ref fields) => {
+            (Constructor::Variant(variant),fields.iter().map(lower_to_pattern).collect())
         },
+        &thir::PatternKind::Struct(_,_,ref fields) =>  {
+            let mut fields = fields.iter().map(|field| field).collect::<Box<[_]>>();
+            fields.sort_by_key(|field_pattern| field_pattern.field);
+            (Constructor::Struct,fields.iter().map(|field| lower_to_pattern(&field.pattern)).collect::<Vec<Pattern>>())
+        }
         thir::PatternKind::Wildcard => (Constructor::Wildcard,vec![])
     }
 

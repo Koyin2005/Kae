@@ -155,22 +155,22 @@ pub struct ExprNode{
 pub struct ParsedGenericParam(pub Symbol);
 pub struct ParsedGenericParams(pub NodeId,pub Vec<ParsedGenericParam>);
 
-pub struct ParsedEnumVariant{
+pub struct EnumVariant{
     pub name : Symbol,
-    pub fields : Vec<(Symbol,ParsedType)>
+    pub fields : Vec<Type>
 }
 
 pub struct StructDef{ 
     pub name : Symbol,
     pub id : NodeId,
     pub generic_params : Option<ParsedGenericParams>,
-    pub fields : Vec<(Symbol,ParsedType)>
+    pub fields : Vec<(Symbol,Type)>
 }
 pub struct EnumDef{
     pub name : Symbol,
     pub id : NodeId,
     pub generic_params : Option<ParsedGenericParams>,
-    pub variants : Vec<ParsedEnumVariant>
+    pub variants : Vec<EnumVariant>
 }
 pub struct ImplType{
     pub name : Symbol,
@@ -179,7 +179,7 @@ pub struct Impl{
     pub span : SourceLocation,
     pub id : NodeId,
     pub generic_params : Option<ParsedGenericParams>,
-    pub ty : ParsedType,
+    pub ty : Type,
     pub methods : Vec<ParsedMethod>
 }
 pub struct FuncDef{
@@ -201,7 +201,7 @@ pub enum StmtNode{
         id : NodeId,
         pattern : ParsedPatternNode,
         expr : ExprNode,
-        ty : Option<ParsedType>
+        ty : Option<Type>
     },
     Item(Item)
 }
@@ -211,6 +211,7 @@ pub enum ParsedPatternNodeKind {
     Name(SymbolIndex),
     Tuple(Vec<ParsedPatternNode>),
     Literal(LiteralKind),
+    TupleStruct(InferPath,Vec<ParsedPatternNode>),
     Struct{
         path : InferPath,
         fields : Vec<(Symbol,ParsedPatternNode)>
@@ -234,16 +235,16 @@ pub struct Symbol{
 }
 
 #[derive(Clone,Debug)]
-pub enum ParsedType{
+pub enum Type{
     Path(Path),
-    Array(SourceLocation,Box<ParsedType>),
-    Tuple(SourceLocation,Vec<ParsedType>),
-    Fun(SourceLocation,Vec<ParsedType>,Option<Box<ParsedType>>),
+    Array(SourceLocation,Box<Type>),
+    Tuple(SourceLocation,Vec<Type>),
+    Fun(SourceLocation,Vec<Type>,Option<Box<Type>>),
 }
 
 pub struct ParsedParam{
     pub pattern : ParsedPatternNode,
-    pub ty : ParsedType,
+    pub ty : Type,
     pub by_ref : bool,
 }
 
@@ -259,7 +260,7 @@ pub struct FunctionProto{
 }
 pub struct FunctionSig{
     pub params : Vec<ParsedParam>,
-    pub return_type : Option<ParsedType>,
+    pub return_type : Option<Type>,
 }
 pub struct ParsedFunction{
     pub proto : FunctionProto,
@@ -268,7 +269,7 @@ pub struct ParsedFunction{
 #[derive(Clone,Debug)]
 pub struct ParsedGenericArgs{
     pub location : SourceLocation,
-    pub types : Vec<ParsedType>
+    pub types : Vec<Type>
 }
 
 

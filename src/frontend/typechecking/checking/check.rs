@@ -166,6 +166,47 @@ impl<'a> TypeChecker<'a>{
                 };
                 self.check_type_is_expected(literal_ty, &expected_type, pattern.span)
             },
+            hir::PatternKind::Variant(path, fields) => {
+                let (generic_args,kind_and_id) = self.get_constructor_with_generic_args(path,Some(&expected_type));
+                let Ok(kind_and_id) = kind_and_id else {
+                    return;
+                };
+                let Some((constructor_kind,id)) = kind_and_id else{
+                    self.error(if let hir::InferOrPath::Path(path) = path { format!("Cannot use '{}' as constructor.",path.format(self.ident_interner))} else { format!("Cannot infer type of constructor.")},pattern.span);
+                    return;
+                };
+                let type_id = match constructor_kind{
+                    AdtKind::Enum => self.context.expect_owner_of(id),
+                    AdtKind::Struct => id
+                };
+                let field_types = match constructor_kind{
+                   AdtKind::Enum =>  Some(TypeSubst::new(&generic_args).instantiate_types(self.context.expect_variant(id).fields.iter())),
+                   AdtKind::Struct => {
+                        for field in fields{
+                            self.check_pattern(field, Type::new_error());
+                        }
+                        None
+                   }
+                };
+                if let Some(field_types) = field_types{
+                    let field_len = field_types.len();
+                    if field_len != fields.len(){
+                        self.error(format!("Expected '{}' field{} got '{}'.",field_len,if fields.len() == 1{""} else{"s"},fields.len()), pattern.span);
+                    }
+                    self.store_generic_args(pattern.id, generic_args.clone());
+                    self.store_resolution(pattern.id, Resolution::Definition(match constructor_kind { AdtKind::Enum => hir::DefKind::Variant, AdtKind::Struct => hir::DefKind::Struct}, id));
+                    if let AdtKind::Struct = constructor_kind{
+                        self.error(format!("Cannot match struct '{}' with ( ).",self.ident_interner.get(self.context.ident(id).index)), pattern.span);
+                    };
+                    for (field,field_ty) in fields.iter().zip(field_types){
+                        self.check_pattern(&field, field_ty);
+                    }
+                }
+                match constructor_kind{
+                    AdtKind::Enum => Type::new_enum(generic_args,type_id),
+                    AdtKind::Struct => Type::new_struct(generic_args, type_id)
+                }
+            },
             hir::PatternKind::Struct(path, fields) => {
                 let (generic_args,kind_and_id) = self.get_constructor_with_generic_args(path,Some(&expected_type));
                 let Ok(kind_and_id) = kind_and_id else {
@@ -181,39 +222,42 @@ impl<'a> TypeChecker<'a>{
                 };
                 self.store_generic_args(pattern.id, generic_args.clone());
                 self.store_resolution(pattern.id, Resolution::Definition(match constructor_kind { AdtKind::Enum => hir::DefKind::Variant, AdtKind::Struct => hir::DefKind::Struct}, id));
-                let field_tys = match constructor_kind{
-                    AdtKind::Struct => self.context.structs[id].fields.iter().enumerate().map(|(field_index,field)|{
-                        (field.name.index,(FieldIndex::new(field_index as u32),field.ty.clone()))
-                    }).collect::<FxHashMap<SymbolIndex,(FieldIndex,Type)>>(),
-                    AdtKind::Enum => {
-                        self.context.get_variant(id).expect("Should definitely be a variant with this id").fields.iter().enumerate().map(|(field_index,field)|{
+                match constructor_kind{
+                    AdtKind::Struct => {
+                        let field_tys = self.context.structs[id].fields.iter().enumerate().map(|(field_index,field)|{
                             (field.name.index,(FieldIndex::new(field_index as u32),field.ty.clone()))
-                        }).collect::<FxHashMap<SymbolIndex,(FieldIndex,Type)>>()
+                        }).collect::<FxHashMap<SymbolIndex,(FieldIndex,Type)>>();
+                        let mut seen_fields = FxHashSet::default();
+                        let mut last_field_span = pattern.span;
+                        for field_pattern in fields{
+                            let (field_ty,field_index)= match field_tys.get(&field_pattern.name.index).map(|&(field_index,ref ty)| (TypeSubst::new(&generic_args).instantiate_type(ty),field_index)){
+                                Some((ty,field_index)) => (ty,Some(field_index)),
+                                None => {
+                                    (self.new_error(format!("Unkown field '{}'.",self.ident_interner.get(field_pattern.name.index)), field_pattern.name.span),None)
+                                }
+                            };
+                            if !seen_fields.insert(field_pattern.name.index){
+                                self.error(format!("Repeated field '{}'.",self.ident_interner.get(field_pattern.name.index)), field_pattern.name.span);
+                            }
+                            self.check_pattern(&field_pattern.pattern, field_ty);
+                            if let Some(field_index) = field_index{
+                                self.results.borrow_mut().fields.insert(field_pattern.id, field_index);
+                            }
+                            last_field_span = field_pattern.name.span;
+                        }
+                        let field_names = field_tys.into_keys().collect::<FxHashSet<_>>();
+                        let missing_fields = field_names.difference(&seen_fields);
+                        for &field in missing_fields.into_iter(){
+                            self.error(format!("Missing field pattern for field '{}'.",self.ident_interner.get(field)), last_field_span);
+                        }
+                    }
+                    AdtKind::Enum => {
+                        self.error(format!("Cannot match variant '{}' with {{ }}.",self.ident_interner.get(self.context.ident(id).index)), pattern.span);
+                        for field in fields{
+                            self.check_pattern(&field.pattern, Type::new_error());
+                        }
                     }
                 };
-                let mut seen_fields = FxHashSet::default();
-                let mut last_field_span = pattern.span;
-                for field_pattern in fields{
-                    let (field_ty,field_index)= match field_tys.get(&field_pattern.name.index).map(|&(field_index,ref ty)| (TypeSubst::new(&generic_args).instantiate_type(ty),field_index)){
-                        Some((ty,field_index)) => (ty,Some(field_index)),
-                        None => {
-                            (self.new_error(format!("Unkown field '{}'.",self.ident_interner.get(field_pattern.name.index)), field_pattern.name.span),None)
-                        }
-                    };
-                    if !seen_fields.insert(field_pattern.name.index){
-                        self.error(format!("Repeated field '{}'.",self.ident_interner.get(field_pattern.name.index)), field_pattern.name.span);
-                    }
-                    self.check_pattern(&field_pattern.pattern, field_ty);
-                    if let Some(field_index) = field_index{
-                        self.results.borrow_mut().fields.insert(field_pattern.id, field_index);
-                    }
-                    last_field_span = field_pattern.name.span;
-                }
-                let field_names = field_tys.into_keys().collect::<FxHashSet<_>>();
-                let missing_fields = field_names.difference(&seen_fields);
-                for &field in missing_fields.into_iter(){
-                    self.error(format!("Missing field pattern for field '{}'.",self.ident_interner.get(field)), last_field_span);
-                }
                 match constructor_kind{
                     AdtKind::Enum => Type::new_enum(generic_args,type_id),
                     AdtKind::Struct => Type::new_struct(generic_args, type_id)
@@ -367,15 +411,9 @@ impl<'a> TypeChecker<'a>{
                             match kind{
                                 AdtKind::Enum => {
                                     self.context.get_variant_of(id, name.index).map(|variant|{
-                                        let mut all_anon_fields = true;
                                         let params = TypeSubst::new(&generic_args).instantiate_types(variant.fields.iter().map(|field|{
-                                            all_anon_fields &= self.ident_interner.get(field.name.index).parse::<usize>().is_ok();
-                                            &field.ty
+                                            field
                                         }));
-                                        if !all_anon_fields{
-                                            self.error(format!("Cannot use variant '{}' as callable.",self.ident_interner.get(name.index)), name.span);
-                                        }
-                                        
                                         self.store_generic_args(callee.id, generic_args.clone());
                                         self.store_resolution(callee.id, Resolution::Definition(hir::DefKind::Variant,variant.id));
                                         Type::new_function(params, ty.clone())
@@ -542,39 +580,44 @@ impl<'a> TypeChecker<'a>{
             AdtKind::Enum => self.context.expect_owner_of(id),
             AdtKind::Struct => id
         };
-        let field_tys = match constructor_kind{
-            AdtKind::Struct => self.context.structs[id].fields.iter().enumerate().map(|(field_index,field_def)|{
-                (field_def.name.index,(field_def.ty.clone(),FieldIndex::new(field_index as u32)))
-            }).collect::<FxHashMap<SymbolIndex,(Type,FieldIndex)>>(),
+        match constructor_kind{
+            AdtKind::Struct => {
+                let field_tys = 
+                self.context.structs[id].fields.iter().enumerate().map(|(field_index,field_def)|{
+                    (field_def.name.index,(field_def.ty.clone(),FieldIndex::new(field_index as u32)))
+                }).collect::<FxHashMap<SymbolIndex,(Type,FieldIndex)>>();
+                
+                let mut seen_fields = FxHashSet::default();
+                let mut last_field_span = expr.span;
+                for field_expr in fields{
+                    let (field_ty,field_index)= match field_tys.get(&field_expr.field.index).map(|&(ref ty,index)| (TypeSubst::new(&generic_args).instantiate_type(ty),index)){
+                        Some((ty,field_index)) => (ty,Some(field_index)),
+                        None => {
+                            (self.new_error(format!("Unkown field '{}'.",self.ident_interner.get(field_expr.field.index)), field_expr.field.span),None)
+                        }
+                    };
+                    if !seen_fields.insert(field_expr.field.index){
+                        self.error(format!("Repeated field '{}'.",self.ident_interner.get(field_expr.field.index)), field_expr.field.span);
+                    }
+                    self.check_expr(&field_expr.expr, Expectation::CoercesTo(field_ty));
+                    if let Some(field_index) = field_index{
+                        self.results.borrow_mut().fields.insert(field_expr.id,field_index);
+                    }
+                    last_field_span = field_expr.span;
+                }
+                let field_names = field_tys.into_keys().collect::<FxHashSet<_>>();
+                let missing_fields = field_names.difference(&seen_fields);
+                for &field in missing_fields.into_iter(){
+                    self.error(format!("Missing field initializer for field '{}'.",self.ident_interner.get(field)), last_field_span);
+                }
+            },
             AdtKind::Enum => {
-                self.context.get_variant(id).expect("Should definitely be a variant with this id").fields.iter().enumerate().map(|(field_index,field_def)|{
-                (field_def.name.index,(field_def.ty.clone(),FieldIndex::new(field_index as u32)))
-            }).collect::<FxHashMap<SymbolIndex,(Type,FieldIndex)>>()
+                self.error(format!("Cannot initialize variant '{}' with {{ }}.",self.ident_interner.get(self.context.ident(id).index)), expr.span);
+                for field in fields{
+                    self.check_expr(&field.expr, Expectation::None);
+                }
             }
         };
-        let mut seen_fields = FxHashSet::default();
-        let mut last_field_span = expr.span;
-        for field_expr in fields{
-            let (field_ty,field_index)= match field_tys.get(&field_expr.field.index).map(|&(ref ty,index)| (TypeSubst::new(&generic_args).instantiate_type(ty),index)){
-                Some((ty,field_index)) => (ty,Some(field_index)),
-                None => {
-                    (self.new_error(format!("Unkown field '{}'.",self.ident_interner.get(field_expr.field.index)), field_expr.field.span),None)
-                }
-            };
-            if !seen_fields.insert(field_expr.field.index){
-                self.error(format!("Repeated field '{}'.",self.ident_interner.get(field_expr.field.index)), field_expr.field.span);
-            }
-            self.check_expr(&field_expr.expr, Expectation::CoercesTo(field_ty));
-            if let Some(field_index) = field_index{
-                self.results.borrow_mut().fields.insert(field_expr.id,field_index);
-            }
-            last_field_span = field_expr.span;
-        }
-        let field_names = field_tys.into_keys().collect::<FxHashSet<_>>();
-        let missing_fields = field_names.difference(&seen_fields);
-        for &field in missing_fields.into_iter(){
-            self.error(format!("Missing field initializer for field '{}'.",self.ident_interner.get(field)), last_field_span);
-        }
         match constructor_kind{
             AdtKind::Enum => Type::new_enum(generic_args, type_id),
             AdtKind::Struct => Type::new_struct(generic_args, type_id)
@@ -824,14 +867,9 @@ impl<'a> TypeChecker<'a>{
                 let enum_id = self.context.expect_owner_of(id);
                 let variant = self.context.get_variant(id).expect("There should be a variant here");
                 if as_callable{
-                    let mut all_anon_fields = true;
                     let params = TypeSubst::new(&generic_args).instantiate_types(variant.fields.iter().map(|field|{
-                        all_anon_fields &= self.ident_interner.get(field.name.index).parse::<usize>().is_ok();
-                        &field.ty
+                        field
                     }));
-                    if !all_anon_fields{
-                        self.error(format!("Cannot use variant '{}' as callable.",path.format(self.ident_interner)), span);
-                    }
                     Type::new_function(params,Type::new_enum(generic_args, enum_id))
                 }
                 else{

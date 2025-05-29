@@ -1,6 +1,6 @@
 use fxhash::FxHashSet;
 
-use crate::{ errors::ErrorReporter, frontend::{ast_lowering::hir, tokenizing::SourceLocation, typechecking::{context::TypeContext, error::TypeError}},  SymbolInterner};
+use crate::{ data_structures::IntoIndex, errors::ErrorReporter, frontend::{ast_lowering::hir, tokenizing::SourceLocation, typechecking::{context::TypeContext, error::TypeError}}, identifiers::VariantIndex, SymbolInterner};
 
 pub fn check_generic_count(error_reporter:&ErrorReporter,expected:usize,got:usize,span:SourceLocation) -> bool{
     if got == expected{
@@ -121,23 +121,19 @@ impl<'a> ItemCheck<'a>{
             },
             hir::Item::Enum(enum_def) => {
                 for (i,variant) in enum_def.variants.iter().enumerate(){
-                    let mut repeated_fields = Vec::new();
-                    let mut seen_fields = FxHashSet::default();
                     let mut is_recursive = false;
-                    for (j,field) in variant.fields.iter().enumerate(){
-                        if !seen_fields.insert(field.name.index){
-                            repeated_fields.push(field.name);
-                        }
-                        self.check_type(&field.ty);
-                        if self.context.is_type_recursive(&self.context.enums[enum_def.id].variants[i].fields[j].ty, enum_def.id){
+                    for (field_def,field_ty) in 
+                        variant.fields.iter().zip(self.context.get_variant_by_index(enum_def.id, VariantIndex::new(i as u32)).fields.iter())
+                    {
+                        self.check_type(&field_def);
+                        if self.context.is_type_recursive(&field_ty, enum_def.id){
                             is_recursive = true;
                         }
+                        
+
                     }
                     if is_recursive{
                         self.error(format!("Recursive type '{}'.",self.ident_interner.get(enum_def.name.index)),enum_def.name.span);
-                    }
-                    for field in repeated_fields{
-                        self.error(format!("Repeated field '{}'.",self.ident_interner.get(field.index)),field.span);
                     }
                 }
             },

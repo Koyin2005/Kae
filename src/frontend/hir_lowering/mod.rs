@@ -37,18 +37,28 @@ impl<'a> ThirLower<'a>{
                 thir::PatternKind::Tuple(patterns.into_iter().map(|pattern| self.lower_pattern(pattern)).collect())
             },
             hir::PatternKind::Struct(_,fields) => {
-                let (id,variant) = match self.results.resolutions[&pattern.id]{
-                    hir::Resolution::Definition(hir::DefKind::Struct,id) => (id,None),
-                    hir::Resolution::Definition(hir::DefKind::Variant,id) => (self.context.expect_owner_of(id),self.context.get_variant_index(id)),
-                    _ => unreachable!("Unknown constructor found for pattern")
+                let id = match self.results.resolutions[&pattern.id]{
+                    hir::Resolution::Definition(hir::DefKind::Struct,id) => id,
+                    res => unreachable!("Unknown resolution {:?} found for pattern",res)
                 };
                 let generic_args = self.results.generic_args[&pattern.id].clone();
-                thir::PatternKind::Variant(generic_args,id,variant,fields.into_iter().map(|field_pattern|{
-                    thir::FieldPattern{
-                        field : self.results.fields[&field_pattern.id],
-                        pattern : self.lower_pattern(field_pattern.pattern)
-                    }
-                }).collect())
+                thir::PatternKind::Struct(id,generic_args,fields.into_iter().map(|field_pattern|{
+                        thir::FieldPattern{
+                            field : self.results.fields[&field_pattern.id],
+                            pattern : self.lower_pattern(field_pattern.pattern)
+                        }
+                    }).collect())  
+            },
+            hir::PatternKind::Variant(_,fields) => {
+                let id = match self.results.resolutions[&pattern.id]{
+                    hir::Resolution::Definition(hir::DefKind::Variant,id) => id,
+                    res => unreachable!("Unknown resolution {:?} found for pattern",res)
+                };
+                let type_id = self.context.expect_owner_of(id);
+                let generic_args = self.results.generic_args[&pattern.id].clone();
+                thir::PatternKind::Variant(type_id,generic_args,self.context.get_variant_index(id).expect("There should be a variant index"),fields.into_iter().map(|field_pattern|{
+                        self.lower_pattern(field_pattern)
+                }).collect())  
             }
         };
         thir::Pattern { ty, span: pattern.span, kind }

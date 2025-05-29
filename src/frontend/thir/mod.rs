@@ -19,7 +19,8 @@ pub enum PatternKind {
     Binding(SymbolIndex,VariableIndex,Option<Box<Pattern>>),
     Constant(LiteralKind),
     Tuple(Box<[Pattern]>),
-    Variant(GenericArgs,DefId,Option<VariantIndex>,Box<[FieldPattern]>),
+    Struct(DefId,GenericArgs,Box<[FieldPattern]>),
+    Variant(DefId,GenericArgs,VariantIndex,Box<[Pattern]>),
     Wildcard
 }
 pub struct FieldExpr{

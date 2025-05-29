@@ -1,6 +1,6 @@
 use crate::{data_structures::IntoIndex, identifiers::{SymbolIndex, VariantIndex}, SymbolInterner};
 pub mod lowering;
-use super::{ast_lowering::hir::DefId, typechecking::{context::TypeContext, types::{format::TypeFormatter, subst::{Subst, TypeSubst}, AdtKind, Type}}};
+use super::{typechecking::{context::TypeContext, types::{format::TypeFormatter, subst::{Subst, TypeSubst}, AdtKind, Type}}};
 #[derive(Clone,Debug)]
 pub struct Pattern{
     ty : Type,
@@ -26,15 +26,20 @@ impl Pattern{
             self.fields.clone()
         })
     }
-    fn format_fields(&self,context: &TypeContext, interner: &SymbolInterner ) -> String{
+    fn format_fields<'a>(&self,context: &TypeContext, interner: &SymbolInterner,mut field_names : impl Iterator<Item = &'a str>) -> String{
         let mut result = String::new();
-            for (i,field) in self.fields.iter().enumerate(){
-                if i>0{
-                    result.push(',');
-                }
+        for (i,field) in self.fields.iter().enumerate(){
+            if i>0{
+                result.push(',');
+            }
+            if let Some(field_name) = field_names.next(){
+                result.push_str(&format!("{}:{}",field_name,field.format(context, interner)));
+            }
+            else{
                 result.push_str(&field.format(context, interner));
             }
-            result
+        }
+        result
     }
     pub fn format(&self, context: &TypeContext, interner: &SymbolInterner) -> String{
         match (self.constructor,&self.ty){
@@ -42,11 +47,14 @@ impl Pattern{
             (Constructor::String(value),_) => interner.get(value).to_string(),
             (Constructor::Int(value),_) => value.to_string(),
             (Constructor::Float(value),_) => value.to_string(),
-            (Constructor::Variant(id, index),_) => {
+            (Constructor::Variant(index),ty) => {
+                let &Type::Adt(_,id,AdtKind::Enum) = ty else {
+                    unreachable!("Variant constructors should always have type enum")
+                };
                 if !self.fields.is_empty(){
                     format!("{}({})",
                         interner.get(context.ident(context.get_variant_by_index(id, index).id).index).to_string(),
-                        self.format_fields(context, interner)
+                        self.format_fields(context, interner,None.into_iter())
                     )
                 }
                 else{
@@ -54,11 +62,12 @@ impl Pattern{
                 }
             },
             (Constructor::Struct,ty) => {
-                if let Type::Adt(_,_,_) = ty{
-                    format!("{}({})",TypeFormatter::new(interner, context).format_type(&ty),self.format_fields(context, interner))
+                if let &Type::Adt(_,id,_) = ty{
+                    let field_names = context.expect_struct(id).fields.iter().map(|field| interner.get(field.name.index));
+                    format!("{}{{{}}}",TypeFormatter::new(interner, context).format_type(&ty),self.format_fields(context, interner,field_names))
                 }
                 else{
-                    format!("({})",self.format_fields(context, interner))
+                    format!("({})",self.format_fields(context, interner,None.into_iter()))
                 }
             }
             (Constructor::Wildcard,_) => format!("_"),
@@ -70,7 +79,7 @@ impl Pattern{
 #[derive(Debug)]
 pub enum ConstructorSet {
     Infinite,
-    Variants(DefId,Vec<VariantIndex>),
+    Variants(Vec<VariantIndex>),
     Bool,
     Struct,
     Empty
@@ -94,19 +103,19 @@ impl ConstructorSet{
                     missing.push(Constructor::Bool(false));
                 }
             },
-            &Self::Variants(id,ref variants) => {
+            &Self::Variants(ref variants) => {
                 let mut seen_map = vec![false;variants.len()];
                 for constructor in seen_constructors{
-                    if let Constructor::Variant(_,variant) = *constructor{
+                    if let Constructor::Variant(variant) = *constructor{
                         seen_map[variant.as_index() as usize] = true;
                     }
                 }
                 for (&variant,was_seen) in  variants.iter().zip(seen_map){
                     if was_seen{
-                        seen.push(Constructor::Variant(id, variant));
+                        seen.push(Constructor::Variant(variant));
                     }
                     else{
-                        missing.push(Constructor::Variant(id, variant));
+                        missing.push(Constructor::Variant(variant));
                     }
                 } 
             },
@@ -134,7 +143,7 @@ pub enum Constructor {
     Float(f64),
     Struct,
     Wildcard,
-    Variant(DefId,VariantIndex),
+    Variant(VariantIndex),
     String(SymbolIndex),
     NonExhaustive,
     Missing
@@ -149,7 +158,7 @@ impl Constructor{
             (Constructor::Int(value),Constructor::Int(other_value)) => value == other_value,
             (Constructor::Float(value),Constructor::Float(other_value)) => value == other_value,
             (Constructor::String(value),Constructor::String(other_value)) => value == other_value,
-            (Constructor::Variant(id,index),Constructor::Variant(other_id,other_index)) => id == other_id && index == other_index,
+            (Constructor::Variant(index),Constructor::Variant(other_index)) => index == other_index,
             _ => false
         };
         covered
@@ -227,7 +236,7 @@ impl<'a> PatternChecker<'a>{
                             ConstructorSet::Empty
                         }
                         else{
-                            ConstructorSet::Variants(id,variants)
+                            ConstructorSet::Variants(variants)
                         }
                     },
                     AdtKind::Struct => {
@@ -253,9 +262,13 @@ impl<'a> PatternChecker<'a>{
             (Constructor::NonExhaustive|Constructor::Wildcard,_) => vec![],
             (Constructor::Struct,Type::Tuple(fields)) => fields.clone(),
             (Constructor::Struct,&Type::Adt(ref args, id, AdtKind::Struct)) => self.context.field_defs(id).iter().map(|field_def| TypeSubst::new(args).instantiate_type(&field_def.ty)).collect(),
-            (Constructor::Variant(id, variant_index),&Type::Adt(ref args, _, AdtKind::Enum)) => self.context.variant_field_defs(id, variant_index).iter().map(|field_def| TypeSubst::new(args).instantiate_type(&field_def.ty)).collect(),
+            (Constructor::Variant(variant_index),&Type::Adt(ref args, id, AdtKind::Enum)) => {
+                self.context.get_variant_by_index(id, variant_index).fields.iter().map(|ty|{
+                    TypeSubst::new(args).instantiate_type(ty)
+                }).collect()
+            },
             
-            (ctor,ty) => unreachable!("Cannot find arity for {:?} {:?}",ctor,ty)
+            (ctor,ty) => unreachable!("Cannot find fields for {:?} {:?}",ctor,ty)
         }
     }
     fn usefulness(&self, matrix : PatternMatrix,depth:usize) -> PatternMatrix{

@@ -46,7 +46,7 @@ pub struct FieldDef{
 pub struct VariantDef{
     pub id : DefId,
     pub name : Ident,
-    pub fields : Vec<FieldDef>
+    pub fields : Vec<Type>
 }
 pub struct FunctionDef{
     pub id : DefId,
@@ -249,7 +249,6 @@ pub struct FieldPattern{
     pub name : Ident,
     pub pattern : Pattern
 }
-
 #[derive(Clone,Debug)]
 pub enum InferOrPath {
     Path(QualifiedPath),
@@ -260,6 +259,7 @@ pub enum PatternKind {
     Binding(VariableIndex,Ident,Option<Box<Pattern>>),
     Tuple(Vec<Pattern>),
     Literal(LiteralKind),
+    Variant(InferOrPath,Vec<Pattern>),
     Struct(InferOrPath,Vec<FieldPattern>),
     Wildcard
 }

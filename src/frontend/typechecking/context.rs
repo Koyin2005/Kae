@@ -13,7 +13,7 @@ pub struct StructDef{
 pub struct VariantDef{
     pub id : DefId,
     pub name : Ident,
-    pub fields : Vec<FieldDef>,
+    pub fields : Vec<Type>
 }
 pub struct EnumDef{
     pub name : Ident,
@@ -153,6 +153,12 @@ impl TypeContext{
             self.enums.get(owner)).and_then(|enum_| enum_.variants.iter().position(|variant| variant.id == variant_id).map(|variant_index| VariantIndex::new(variant_index as u32))
         )
     }
+    pub fn expect_struct(&self, struct_id: DefId) -> &StructDef{
+        self.structs.get(struct_id).expect("There should be a struct")
+    }
+    pub fn expect_variant(&self,variant_id:DefId) -> &VariantDef{
+        self.get_variant(variant_id).expect("There should be a variant")
+    }
     pub fn get_variant(&self,variant_id:DefId) -> Option<&VariantDef>{
         self.child_to_owner_map.get(variant_id).copied().and_then(|owner| self.enums.get(owner)).and_then(|enum_| enum_.variants.iter().find(|variant| variant.id == variant_id))
     }
@@ -188,8 +194,8 @@ impl TypeContext{
                     },
                     AdtKind::Enum => {
                         self.enums[type_id].variants.iter().any(|variant|{
-                            variant.fields.iter().any(|field|{
-                                self.is_type_recursive(&TypeSubst::new(generic_args).instantiate_type(&field.ty), id)
+                            variant.fields.iter().any(|variant_ty|{
+                                self.is_type_recursive(&TypeSubst::new(generic_args).instantiate_type(variant_ty), id)
                             })
                         })
                     }
@@ -218,13 +224,7 @@ impl TypeContext{
     pub fn expect_variants_for(&self, enum_id: DefId) -> Vec<VariantIndex>{
         (0..self.enums[enum_id].variants.len()).map(|variant| VariantIndex::new(variant as u32)).collect()
     }
-    pub fn variant_field_count(&self, enum_id: DefId, variant_index: VariantIndex) -> usize{
-        self.enums[enum_id].variants[variant_index.as_index() as usize].fields.len()
-    } 
     pub fn field_defs(&self, struct_id: DefId) -> &[FieldDef]{
         &self.structs[struct_id].fields
-    }
-    pub fn variant_field_defs(&self, enum_id: DefId, variant_index: VariantIndex) -> &[FieldDef]{
-        &self.get_variant_by_index(enum_id, variant_index).fields
     }
 }

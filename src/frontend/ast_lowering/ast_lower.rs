@@ -4,13 +4,13 @@ use fxhash::FxHashSet;
 
 use crate::{
     data_structures::IndexVec, errors::ErrorReporter, frontend::{
-        ast_lowering::hir::{Generics, VariantDef}, parsing::ast::{self, InferPathKind, NodeId, ParsedType, Symbol}, 
+        ast_lowering::hir::Generics, parsing::ast::{self, InferPathKind, NodeId, Symbol}, 
         tokenizing::SourceLocation
     }, identifiers::BodyIndex
 };
 
 use super::{
-    hir::{self, DefId, DefIdMap, DefKind, Expr, FunctionDef, GenericArg, Hir, HirId, Ident, Item, LiteralKind, PatternKind, Resolution, Type}, name_finding::{self, NameScopes, Record}, resolve::Resolver, scope::{ScopeId, ScopeKind}, SymbolInterner
+    hir::{self, DefId, DefIdMap, DefKind, Expr, FunctionDef, GenericArg, Hir, HirId, Ident, Item, LiteralKind, PatternKind, Resolution, Type}, name_finding::{self, NameScopes}, resolve::Resolver, scope::{ScopeId, ScopeKind}, SymbolInterner
 };
 use crate::identifiers::ItemIndex;
 
@@ -184,22 +184,22 @@ impl<'a> AstLowerer<'a>{
         Ok(full_path)
         
     }
-    fn lower_type(&self,ty:&ast::ParsedType) -> Result<hir::Type,LoweringErr>{
+    fn lower_type(&self,ty:&ast::Type) -> Result<hir::Type,LoweringErr>{
         let (kind,span) = match ty{
-            &ast::ParsedType::Array(span,ref element) => { 
+            &ast::Type::Array(span,ref element) => { 
                 let element_ty = self.lower_type(element);
                 (hir::TypeKind::Array(Box::new(element_ty?)),span)
             },
-            &ast::ParsedType::Tuple(span,ref elements) => {
+            &ast::Type::Tuple(span,ref elements) => {
                 let element_types = elements.iter().map(|element| self.lower_type(element)).collect::<Vec<_>>();
                 (hir::TypeKind::Tuple(element_types.into_iter().collect::<Result<_,_>>()?),span)
             },
-            &ast::ParsedType::Fun(span, ref params, ref return_type) => {
+            &ast::Type::Fun(span, ref params, ref return_type) => {
                 let param_types = params.into_iter().map(|param| self.lower_type(param)).collect::<Vec<_>>();
                 let return_type = return_type.as_ref().map(|return_type|self.lower_type(return_type).map(Box::new)).map_or(Ok(None),|result| result.map(Some))?;
                 (hir::TypeKind::Function(param_types.into_iter().collect::<Result<_,_>>()?, return_type),span)
             },
-            ast::ParsedType::Path(path) => {
+            ast::Type::Path(path) => {
                 let span = path.location;
                 (hir::TypeKind::Path(self.lower_path(path)?),span)
             }
@@ -285,6 +285,26 @@ impl<'a> AstLowerer<'a>{
                 }).collect();
                 (PatternKind::Tuple(elements.into_iter().collect::<Result<Vec<_>,_>>()?),span)
             },
+            ast::ParsedPatternNodeKind::TupleStruct(path,fields) => {
+                let path = match path.infer_path{
+                    ast::InferPathKind::Infer(symbol) => {
+                        if let Some(symbol) = symbol{
+                            Ok(hir::InferOrPath::Infer(pattern.location,Some(self.intern_symbol(symbol))))
+                        }
+                        else{
+                            self.error(format!("Cannot use _ in variant patterns."), span);
+                            Err(LoweringErr)
+                        }
+                    },
+                    ast::InferPathKind::Path(path) => {
+                        self.lower_path(&path).map(|path| hir::InferOrPath::Path(path))
+                    }
+                };
+                let fields = fields.into_iter().map(|field_pattern|{
+                    self.lower_pattern(field_pattern)
+                }).collect::<Vec<_>>();
+                (PatternKind::Variant(path?,fields.into_iter().collect::<Result<Vec<_>,_>>()?),span)
+            }
             ast::ParsedPatternNodeKind::Struct { path, fields } => {
                 let path:Result<hir::InferOrPath,LoweringErr> = match path.infer_path{
                     ast::InferPathKind::Infer(symbol) => {
@@ -304,7 +324,7 @@ impl<'a> AstLowerer<'a>{
                 (PatternKind::Struct(path?, fields.into_iter().collect::<Result<Vec<_>,_>>()?),span)
             }
             ast::ParsedPatternNodeKind::Wildcard => (PatternKind::Wildcard,span),
-            ast::ParsedPatternNodeKind::Infer(name) => (PatternKind::Struct(hir::InferOrPath::Infer(pattern.location,Some(self.intern_symbol(name))), vec![]),pattern.location)
+            ast::ParsedPatternNodeKind::Infer(name) => (PatternKind::Variant(hir::InferOrPath::Infer(pattern.location,Some(self.intern_symbol(name))), vec![]),pattern.location)
         };
         Ok(hir::Pattern{
             id : self.next_id(),
@@ -480,7 +500,7 @@ impl<'a> AstLowerer<'a>{
         };
         Ok(hir::Expr { id:self.next_id(), span, kind})
     }
-    fn lower_fields(&mut self,fields:Vec<(Symbol,ParsedType)>,field_names:Vec<hir::Ident>)->Result<Vec<hir::FieldDef>,LoweringErr>{
+    fn lower_fields(&mut self,fields:Vec<(Symbol,ast::Type)>,field_names:Vec<hir::Ident>)->Result<Vec<hir::FieldDef>,LoweringErr>{
         let fields = field_names.into_iter().zip(fields.into_iter()).map(|(field,(_,field_ty))|{
             let field_ty = self.lower_type(&field_ty);
             field_ty.map(|field_ty| hir::FieldDef{
@@ -512,16 +532,14 @@ impl<'a> AstLowerer<'a>{
                 self.begin_scope(enum_def.id);
                 let generics = self.lower_generic_params(enum_id,enum_def.generic_params);
                 let (name,ref variants) = self.name_info.enum_defs[enum_id];
-                let variants : Vec<_> = variants.iter().map(|(variant_id,variant)|{
-                    (*variant_id,Record{
-                        name:variant.name,
-                        fields:variant.fields.clone()
-                    })
+                let variants : Vec<_> = variants.iter().map(|&(variant_id,variant)|{
+                    (variant_id,variant)
                 }).collect();
-                let variants = variants.iter().zip(enum_def.variants).map(|((variant_id,variant_info),variant)|{
-                    let fields = variant_info.fields.clone();
-                    self.lower_fields(variant.fields, fields).map(|fields|{
-                        VariantDef { id:*variant_id,name:variant_info.name, fields }
+                let variants = variants.iter().zip(enum_def.variants).map(|(&(variant_id,variant_name),variant)|{
+                    Ok(hir::VariantDef{
+                        id:variant_id,
+                        name:variant_name,
+                        fields : variant.fields.iter().map(|ty| self.lower_type(ty)).collect::<Result<Vec<_>,_>>()?
                     })
                 }).collect::<Vec<_>>();
                 self.end_scope();

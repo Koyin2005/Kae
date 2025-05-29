@@ -110,9 +110,7 @@ impl<'a> ItemCollector<'a>{
                         VariantDef { 
                             id: variant.id, 
                             name: variant.name, 
-                            fields: variant.fields.iter().map(|field|{
-                                FieldDef{name:field.name, ty: self.lowerer().lower_type(&field.ty)}
-                            }).collect()
+                            fields : variant.fields.iter().map(|ty|  self.lowerer().lower_type(ty)).collect(),
                         }
                     }).collect()
                 };

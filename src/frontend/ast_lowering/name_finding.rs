@@ -20,7 +20,7 @@ pub struct NamesFound{
     pub(super) scope_map : FxHashMap<NodeId,Vec<ScopeId>>,
     pub(super) variable_def_map : FxHashMap<NodeId,Vec<VariableIndex>>,
     pub(super) structs : DefIdMap<Record>,
-    pub(super) enum_defs : DefIdMap<(Ident,Vec<(DefId,Record)>)>,
+    pub(super) enum_defs : DefIdMap<(Ident,Vec<(DefId,Ident)>)>,
     pub(super) generics : DefIdMap<Vec<(DefId,Ident)>>,
     pub(super) node_to_def_map : NodeMap<DefId>,
     pub(super) name_map : DefIdMap<Ident>,
@@ -217,6 +217,9 @@ impl<'b,'a:'b> NameFinder<'b>{
                     self.find_names_in_pattern(pattern, bindings,seen_symbols);
                 });
             },
+            ast::ParsedPatternNodeKind::TupleStruct(_, fields) => {
+                fields.iter().for_each(|pattern| self.find_names_in_pattern(pattern, bindings, seen_symbols));
+            },
             ast::ParsedPatternNodeKind::Tuple(elements) => elements.iter().for_each(|element|{
                 self.find_names_in_pattern(element, bindings,seen_symbols);
             }),
@@ -259,7 +262,7 @@ impl<'b,'a:'b> NameFinder<'b>{
         self.next_local_variable = self.prev_last_local_variables.pop().expect("Any popped scopes must have prev scope");
         self.end_scope(id);
     }
-    fn find_fields(&mut self,fields:&[(ast::Symbol,ast::ParsedType)]) -> Vec<Ident>{
+    fn find_fields(&mut self,fields:&[(ast::Symbol,ast::Type)]) -> Vec<Ident>{
         fields.iter().map(|&(field,_)|{
             let field = field.into();
             field
@@ -288,15 +291,11 @@ impl<'b,'a:'b> NameFinder<'b>{
                     enum_def.variants.iter().map(|variant|{
                         let id = self.def_ids.next();
                         let name = variant.name.into();
-                        let fields = self.find_fields(&variant.fields);
                         self.info.name_map.insert(id, name);
                         if self.get_current_scope_mut().add_binding(name.index, Resolution::Definition(DefKind::Variant, id)).is_some(){
                             self.error(format!("Repeated variant '{}'.",self.interner.get(variant.name.content)), name.span);
                         }
-                        (id,Record{
-                            name,
-                            fields
-                        })
+                        (id,name)
                     }).collect();
                 self.info.enum_defs.insert(enum_def_id,(name,variants));
                 let name_scope = self.current_scope;
@@ -386,13 +385,4 @@ impl<'b,'a:'b> NameFinder<'b>{
             namespaces:self.namespaces,
         }))
     }
-}
-#[derive(Debug,Clone)]
-pub enum Item {
-    Function(DefId),
-    Variant(DefId),
-    Enum(DefId),
-    Struct(DefId),
-    Impl(DefId),
-    Method(DefId)
 }

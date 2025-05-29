@@ -1,7 +1,7 @@
 use crate::{frontend::{parsing::ast::{FunctionSig, ParsedGenericParam, ParsedMethod, ParsedParam, Symbol}, tokenizing::{tokens::{Token, TokenKind}, SourceLocation}}, identifiers::SymbolInterner};
 
 use super::ast::{
-    EnumDef, ExprNode, ExprNodeKind, FuncDef, FunctionProto, Impl, InferPath, InferPathKind, Item, LiteralKind, NodeId,ParsedBinaryOp, ParsedEnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, ParsedType, ParsedUnaryOp, Path, PathSegment, PatternMatchArmNode, StmtNode, StructDef
+    EnumDef, ExprNode, ExprNodeKind, FuncDef, FunctionProto, Impl, InferPath, InferPathKind, Item, LiteralKind, NodeId,ParsedBinaryOp, EnumVariant, ParsedFunction, ParsedGenericArgs, ParsedGenericParams, ParsedLogicalOp, ParsedPatternNode, ParsedPatternNodeKind, Type, ParsedUnaryOp, Path, PathSegment, PatternMatchArmNode, StmtNode, StructDef
 };
 
 #[repr(u8)]
@@ -421,7 +421,7 @@ impl<'a> Parser<'a>{
             by_ref : false
         })
     }
-    fn parse_function_return_type(&mut self) -> Result<Option<ParsedType>,ParsingFailed>{
+    fn parse_function_return_type(&mut self) -> Result<Option<Type>,ParsingFailed>{
         self.matches(TokenKind::ThinArrow).then(|| self.parse_type()).transpose()
     }
     fn parse_function_prototype(&mut self) -> Result<FunctionProto,ParsingFailed>{
@@ -626,17 +626,17 @@ impl<'a> Parser<'a>{
     fn expression(&mut self)->Result<ExprNode,ParsingFailed>{
         self.parse_precedence(Precedence::Assignment)
     }
-    fn parse_type(&mut self)->Result<ParsedType,ParsingFailed>{
+    fn parse_type(&mut self)->Result<Type,ParsingFailed>{
         Ok(if self.matches(TokenKind::Identifier)||self.matches(TokenKind::UpperSelf){
             let path = self.parse_path()?;
-            ParsedType::Path(path)
+            Type::Path(path)
         }
         else if self.matches(TokenKind::LeftBracket){
             let start = self.prev_token.line;
             let ty = self.parse_type()?;
             self.expect(TokenKind::RightBracket, "Expect ']'.");
             let end = self.prev_token.line;
-            ParsedType::Array(SourceLocation::new(start,end),Box::new(ty))
+            Type::Array(SourceLocation::new(start,end),Box::new(ty))
         }
         else if self.matches(TokenKind::LeftParen){
             let start = self.prev_token.line;
@@ -649,7 +649,7 @@ impl<'a> Parser<'a>{
             }
             self.expect(TokenKind::RightParen, "Expect ')'.");
             let end = self.prev_token.line;
-            ParsedType::Tuple(SourceLocation::new(start,end),elements)
+            Type::Tuple(SourceLocation::new(start,end),elements)
         }
         else if self.matches(TokenKind::Fun){
             let start = self.prev_token.line;
@@ -666,7 +666,7 @@ impl<'a> Parser<'a>{
             self.expect(TokenKind::RightParen, "Expect ')' after parameter types.");
             let return_type = if self.matches(TokenKind::ThinArrow){Some(self.parse_type()?)} else {None};
             let end = self.prev_token.line;
-            ParsedType::Fun(SourceLocation::new(start, end),params, return_type.map(Box::new))
+            Type::Fun(SourceLocation::new(start, end),params, return_type.map(Box::new))
         }
         else{
             self.error_at_current("Invalid type.");
@@ -750,18 +750,16 @@ impl<'a> Parser<'a>{
                 let mut fields = Vec::new();
                 while !self.check(TokenKind::RightParen) && !self.is_at_end(){
                     let field_pattern = self.pattern()?;
-                    let field_name = self.new_symbol(fields.len().to_string(), field_pattern.location);
-                    fields.push((field_name,field_pattern));
+                    fields.push(field_pattern);
                     if !self.matches(TokenKind::Coma){
                         break;
                     }
                 }
                 self.expect(TokenKind::RightParen, "Expect ')'.");
                 (SourceLocation::new(path.location.start_line,self.prev_token.line),
-                    ParsedPatternNodeKind::Struct {
-                        path,
+                    ParsedPatternNodeKind::TupleStruct(path, 
                         fields
-                    }
+                    )
                 )
 
             }
@@ -885,33 +883,19 @@ impl<'a> Parser<'a>{
         self.expect(TokenKind::RightBracket, "Expect ']' after generic parameters.");
         Ok(ParsedGenericParams(id,params))
     }
-    fn parse_enum_variant(&mut self)->Result<ParsedEnumVariant,ParsingFailed>{
+    fn parse_enum_variant(&mut self)->Result<EnumVariant,ParsingFailed>{
         let variant_name = self.parse_identifer("Expect valid enum variant name.");
-        if self.matches(TokenKind::LeftBrace){let mut fields = Vec::new();
-            while !self.check(TokenKind::RightBrace) && !self.is_at_end() {
-                fields.push(self.parse_struct_field()?);
-                if !self.matches(TokenKind::Coma){
-                    break;
-                }
-            }
-            self.expect(TokenKind::RightBrace, "Expect '}'.");
-            Ok(ParsedEnumVariant { name:variant_name, fields})
-        }
-        else if self.matches(TokenKind::LeftParen){
-            let mut fields = Vec::new();
+        let mut fields = Vec::new();
+        if self.matches(TokenKind::LeftParen){
             while !self.check(TokenKind::RightParen) && !self.is_at_end() {
-                let field_name = self.new_symbol(format!("{}",fields.len()),SourceLocation::new(self.current_token.line, self.current_token.line));
-                fields.push((field_name,self.parse_type()?));
+                fields.push(self.parse_type()?);
                 if !self.matches(TokenKind::Coma){
                     break;
                 }
             }
-            self.expect(TokenKind::RightParen, "Expect '}'.");
-            Ok(ParsedEnumVariant { name: variant_name, fields})
+            self.expect(TokenKind::RightParen, "Expected ')'.");
         }
-        else{
-            Ok(ParsedEnumVariant{name:variant_name,fields:Vec::new()})
-        }
+        Ok(EnumVariant { name: variant_name, fields: fields })
         
     }
     fn enum_stmt(&mut self)->Result<EnumDef,ParsingFailed>{
@@ -929,7 +913,7 @@ impl<'a> Parser<'a>{
         self.expect(TokenKind::RightBrace, "Expect '}'.");
         Ok(EnumDef{ id : self.next_id(), name,generic_params, variants })
     }
-    fn parse_struct_field(&mut self)->Result<(Symbol,ParsedType),ParsingFailed>{
+    fn parse_struct_field(&mut self)->Result<(Symbol,Type),ParsingFailed>{
         self.expect(TokenKind::Identifier, "Expect valid field name.");
         let field_name = self.prev_token;
         self.expect(TokenKind::Colon, "Expect ':' after field.");
@@ -992,7 +976,7 @@ impl<'a> Parser<'a>{
                             location: self_name.location,
                             kind : ParsedPatternNodeKind::Name(self_name.content.clone())
                         },
-                    ty : ParsedType::Path(Path{
+                    ty : Type::Path(Path{
                        segments:vec![PathSegment{
                         name: self.intern_symbol("Self".to_string(), self_name.location),
                         location: self_name.location,
@@ -1027,13 +1011,13 @@ impl<'a> Parser<'a>{
             let generic_params = self.optional_generic_params()?;
             if let Some(generic_params) = generic_params{
                 (
-                ParsedType::Path(Path { 
+                Type::Path(Path { 
                     segments:vec![PathSegment {
                         generic_args : 
                             Some(ParsedGenericArgs { 
                                 location: name.location, 
                                 types:generic_params.1.iter().map(|&ParsedGenericParam(name)|{
-                                    ParsedType::Path(Path { segments:vec![name.into()], location: name.location })
+                                    Type::Path(Path { segments:vec![name.into()], location: name.location })
                                 }).collect()
                         }), 
                         ..name.into() 
@@ -1043,7 +1027,7 @@ impl<'a> Parser<'a>{
                 Some(generic_params))
             }
             else{
-                (ParsedType::Path(Path { segments: vec![name.into()], location: name.location }),None)
+                (Type::Path(Path { segments: vec![name.into()], location: name.location }),None)
             }
         };
         self.expect(TokenKind::LeftBrace, "Expect '{' after impl type.");
