@@ -191,7 +191,7 @@ impl<'a> TypeChecker<'a>{
                 if let Some(field_types) = field_types{
                     let field_len = field_types.len();
                     if field_len != fields.len(){
-                        self.error(format!("Expected '{}' field{} got '{}'.",field_len,if fields.len() == 1{""} else{"s"},fields.len()), pattern.span);
+                        self.error(format!("Expected '{}' field{} got '{}'.",field_len,if field_len == 1{""} else{"s"},fields.len()), pattern.span);
                     }
                     self.store_generic_args(pattern.id, generic_args.clone());
                     self.store_resolution(pattern.id, Resolution::Definition(match constructor_kind { AdtKind::Enum => hir::DefKind::Variant, AdtKind::Struct => hir::DefKind::Struct}, id));
