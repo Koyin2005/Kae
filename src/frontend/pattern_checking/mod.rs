@@ -287,13 +287,13 @@ impl<'a> PatternChecker<'a>{
         
         let mut had_wildcard = false;
         let seen_constructors = matrix.rows.iter().filter_map(|row| match row.first_pattern()?.constructor{
-            Constructor::Wildcard => {had_wildcard = true; None},
+            Constructor::Wildcard => { had_wildcard = true; None},
             constructor => Some(constructor)
         }).collect();
 
         let  (mut constructors,mut missing) = all_constructors.split_constructors(&seen_constructors);
         let mut witness_matrix = PatternMatrix::new_empty(matrix.column_types.clone());
-        if !missing.is_empty() && seen_constructors.is_empty(){
+        if !missing.is_empty() && seen_constructors.is_empty() && depth > 0{
             missing = vec![Constructor::Wildcard];
         }
         if !missing.is_empty(){
