@@ -60,7 +60,8 @@ pub enum ExprKind {
     Match(ExprId,Box<[ArmId]>),
     Block(BlockId),
     While(ExprId,ExprId),
-    StructLiteral(Box<StructLiteral>)
+    StructLiteral(Box<StructLiteral>),
+    Cast(ExprId)
 }
 pub struct Stmt{
     pub kind : StmtKind

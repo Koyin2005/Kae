@@ -22,7 +22,7 @@ impl<'a> ThirLower<'a>{
         exprs.map(|expr| self.lower_expr(expr)).collect()
     }
     fn lower_pattern(&mut self, pattern: hir::Pattern) -> thir::Pattern{
-        let ty = self.results.expr_types[&pattern.id].clone();
+        let ty = self.results.node_types[&pattern.id].clone();
         let kind = match pattern.kind{
             hir::PatternKind::Binding(variable,name,sub_pattern) => {
                 thir::PatternKind::Binding(name.index, variable, sub_pattern.map(|pattern| Box::new(self.lower_pattern(*pattern))))
@@ -103,7 +103,7 @@ impl<'a> ThirLower<'a>{
 
     }
     fn lower_expr(&mut self, expr: hir::Expr) -> ExprId{
-        let ty = self.results.expr_types[&expr.id].clone();
+        let ty =  self.results.node_types[&expr.id].clone();
         let kind = match expr.kind{
             hir::ExprKind::Literal(literal) => {
                 thir::ExprKind::Literal(literal)
@@ -203,11 +203,24 @@ impl<'a> ThirLower<'a>{
                 }))
             },
         };
-        self.thir.exprs.push(Expr{
-            kind,
-            span:expr.span,
-            ty
-        })
+        if let Some(coercion) = self.results.coercions.get(&expr.id){
+            let span = expr.span;
+            let expr_id = self.thir.exprs.push(
+                Expr{
+                    kind,
+                    span:expr.span,
+                    ty
+                }
+            );
+            self.thir.exprs.push(Expr { ty: coercion.clone(), kind: thir::ExprKind::Cast(expr_id), span })
+            
+        } else { 
+            self.thir.exprs.push(Expr{
+                kind,
+                span:expr.span,
+                ty
+            })
+        }
     }
     pub fn lower_bodies(mut self,bodies: IndexVec<BodyIndex,hir::Expr>) -> Result<Thir,ThirLoweringErr>{
         for body in bodies.into_iter(){

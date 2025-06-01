@@ -33,14 +33,15 @@ pub enum InferError{
 
 
 pub struct TypeCheckResults{
-    pub expr_types : FxHashMap<HirId,Type>,
+    pub node_types : FxHashMap<HirId,Type>,
     pub generic_args : FxHashMap<HirId,GenericArgs>,
     pub resolutions : FxHashMap<HirId,hir::Resolution>,
     pub fields : FxHashMap<HirId,FieldIndex>,
-    pub signatures : FxHashMap<HirId,FuncSig>
+    pub signatures : FxHashMap<HirId,FuncSig>,
+    pub coercions : FxHashMap<HirId,Type>
 }
 impl TypeCheckResults{
     pub fn new() -> Self{
-        Self { expr_types: FxHashMap::default(), generic_args: FxHashMap::default(), resolutions: FxHashMap::default(), fields: FxHashMap::default(), signatures : FxHashMap::default()}
+        Self { node_types: FxHashMap::default(), generic_args: FxHashMap::default(), resolutions: FxHashMap::default(), fields: FxHashMap::default(), signatures : FxHashMap::default(), coercions : FxHashMap::default()}
     }
 }
