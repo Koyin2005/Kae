@@ -1,5 +1,6 @@
 pub mod backend;
 pub mod frontend;
+pub mod middle;
 mod data_structures;
 mod identifiers;
 pub use identifiers::SymbolInterner as SymbolInterner;
