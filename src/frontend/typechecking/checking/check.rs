@@ -290,28 +290,43 @@ impl<'a> TypeChecker<'a>{
         }
     }
     fn check_array_expr(&mut self,span:SourceLocation,elements:&[hir::Expr],expected:Expectation) -> Type{
-        let mut element_type = match &expected{
-            Expectation::HasType(Type::Array(element_type)) | Expectation::CoercesTo(Type::Array(element_type)) => 
-                Some(*element_type.clone()),
+        let element_type =expected.as_type().and_then(|ty| match ty{
+            Type::Array(element_type) => Some(element_type.as_ref().clone()),
             _ => None
-        };
-        let element_type = if !elements.is_empty(){
+        });
+        if let Some(element_type) = element_type{
             for element in elements{
-                let current_element = self.check_expr(element,element_type.as_ref().map_or(Expectation::None,|ty|Expectation::CoercesTo(ty.clone())));
-                if element_type.as_ref().is_none(){
-                    element_type = Some(current_element);
-                }
-
+                self.check_expr(element,Expectation::CoercesTo(element_type.clone()));
             }
-            element_type
+            Type::new_array(element_type)
         }
         else{
-            element_type
-        };
-        let Some(element_type) = element_type else {
-            return self.new_error("Cannot infer type of empty array.".to_string(), span);
-        };
-        Type::new_array(element_type)
+            let mut all_element_type = None;
+            let element_types = elements.iter().map(|element|{
+                let element_type = self.check_expr(element, Expectation::None);
+                if all_element_type.is_none() || all_element_type.as_ref().is_some_and(|ty: &Type| ty.is_never() && !element_type.is_never()){
+                    all_element_type = Some(element_type.clone());
+                }
+                (element_type,element.id,element.span)
+            }).collect::<Vec<_>>();
+            if let Some(element_type) = all_element_type{
+                for (ty,id,span) in element_types{
+                    if ty != element_type{
+                        if !self.coerces(&ty, &element_type){
+                            self.error(format!("Expected '{}' for match arm got '{}'.",self.format_type(&element_type),self.format_type(&ty)), span);
+                        }
+                        else{
+                            self.results.borrow_mut().coercions.insert(id, element_type.clone());
+                        }
+                    }
+
+                }
+                Type::new_array(element_type)
+            }
+            else{
+                self.new_error("Cannot infer type of empty array.".to_string(), span)
+            }
+        }
     }
     fn check_literal_expr(&self,literal:&hir::LiteralKind) -> Type{
         let lit_ty = match literal{
@@ -323,8 +338,8 @@ impl<'a> TypeChecker<'a>{
         lit_ty
     }
     fn check_tuple_expr(&mut self,elements:&[hir::Expr],expected : Expectation) -> Type{
-        let element_types = if let Expectation::HasType(Type::Tuple(element_types)) | Expectation::CoercesTo(Type::Tuple(element_types)) = expected{
-            element_types
+        let element_types = if let Some(Type::Tuple(element_types)) = expected.as_type(){
+            element_types.clone()
         } 
         else{
             Vec::new()
@@ -654,7 +669,7 @@ impl<'a> TypeChecker<'a>{
             hir::ExprKind::Path(path) => {
                 match path{
                     hir::PathExpr::Path(path) => {
-                        self.check_expr_path(expr.id,path, matches!(expected,Expectation::CoercesTo(Type::Function(_,_))|Expectation::HasType(Type::Function(_,_))))
+                        self.check_expr_path(expr.id,path, expected.as_type().is_some_and(|ty| matches!(ty,Type::Function(_, _))))
                     },
                     &hir::PathExpr::Infer(name) => {
                          expected.as_type().and_then(|ty|{
