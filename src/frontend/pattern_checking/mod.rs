@@ -76,6 +76,26 @@ impl Pattern{
         }
     }
 }
+
+fn is_inhabited(context:&TypeContext,ty:&Type) -> bool{
+    match ty{
+        Type::Bool|Type::Error|Type::Float|Type::Int|Type::Param(_,_) |Type::String => true,
+        Type::Function(_,_) => true,
+        Type::Never => false,
+        Type::Array(element_type) => is_inhabited(context,element_type),
+        Type::Tuple(elements) => elements.iter().all(|element| is_inhabited(context,element)),
+        Type::Adt(args,id,kind) => match kind{
+            AdtKind::Enum => {
+                let variants = context.expect_variants_for(*id);
+                if variants.is_empty() { false } else { 
+                    variants.iter().all(|&variant| context.get_variant_by_index(*id, variant).fields.iter().all(|field| 
+                        is_inhabited(context,&TypeSubst::new(args).instantiate_type(field))))
+                    }
+            },
+            AdtKind::Struct => context.expect_struct(*id).fields.iter().all(|field| is_inhabited(context,&TypeSubst::new(args).instantiate_type(&field.ty)))
+        }
+    }
+}
 #[derive(Debug)]
 pub enum ConstructorSet {
     Infinite,
@@ -85,7 +105,7 @@ pub enum ConstructorSet {
     Empty
 }
 impl ConstructorSet{
-    pub fn split_constructors(&self,seen_constructors:&Vec<Constructor>) -> (Vec<Constructor>,Vec<Constructor>){
+    pub fn split_constructors(&self, checker: &PatternChecker ,ty: &Type,seen_constructors:&Vec<Constructor>) -> (Vec<Constructor>,Vec<Constructor>){
         let mut seen = Vec::new();
         let mut missing = Vec::new();
         match self{
@@ -114,7 +134,7 @@ impl ConstructorSet{
                     if was_seen{
                         seen.push(Constructor::Variant(variant));
                     }
-                    else{
+                    else if checker.fields(ty, Constructor::Variant(variant)).iter().all(|ty| is_inhabited(checker.context, ty)) {
                         missing.push(Constructor::Variant(variant));
                     }
                 } 
@@ -123,7 +143,7 @@ impl ConstructorSet{
                 if !seen_constructors.is_empty(){
                     seen.push(Constructor::Struct);
                 }
-                else{
+                else if checker.fields(ty, Constructor::Struct).iter().all(|ty| is_inhabited(checker.context, ty)){
                     missing.push(Constructor::Missing);
                 }
             },
@@ -291,7 +311,7 @@ impl<'a> PatternChecker<'a>{
             constructor => Some(constructor)
         }).collect();
 
-        let  (mut constructors,mut missing) = all_constructors.split_constructors(&seen_constructors);
+        let  (mut constructors,mut missing) = all_constructors.split_constructors(self,ty,&seen_constructors);
         let mut witness_matrix = PatternMatrix::new_empty(matrix.column_types.clone());
         if !missing.is_empty() && seen_constructors.is_empty() && depth > 0{
             missing = vec![Constructor::Wildcard];
