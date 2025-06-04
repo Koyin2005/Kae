@@ -1,4 +1,4 @@
-use crate::{data_structures::IndexVec, define_id, frontend::ast_lowering::hir::BinaryOp, identifiers::{BodyIndex, SymbolIndex, VariableIndex}};
+use crate::{data_structures::IndexVec, define_id, frontend::{ast_lowering::hir::{BinaryOp, DefId, UnaryOp}, typechecking::types::generics::GenericArgs}, identifiers::{BodyIndex, FieldIndex, SymbolIndex, VariableIndex, VariantIndex}};
 
 pub enum Constant {
     Int(i64),
@@ -10,24 +10,36 @@ pub struct Block {
     pub stmts : Vec<Stmt>,
     pub terminator : Terminator
 }
-pub struct Place{
-    local : Local,
+pub enum PlaceProjection {
+    Field(FieldIndex),
+    Variant(VariantIndex),
+    Index(Local)
 }
+pub struct Place{
+    pub local : Local,
+    pub projections : Box<[PlaceProjection]>
+}
+
 pub enum RValue {
-    Binary(BinaryOp,Operand,Operand),
+    Binary(BinaryOp,Box<(Operand,Operand)>),
+    Unary(UnaryOp,Operand),
+    Call(Operand,Box<[Operand]>),
+    Array(Box<[Operand]>),
+    Adt(Box<(DefId,GenericArgs,Option<VariantIndex>)>,IndexVec<FieldIndex,Operand>),
 }
 pub enum Operand {
     Constant(Constant),
-    Copy(Place)
+    Load(Place)
 }
 pub enum Stmt{
     Assign(Place,RValue),
-    
 }
 pub enum Terminator {
     Jump(BlockId),
     Switch(Operand,Box<[BlockId]>),
-    ConditionalJump(Operand,BlockId,BlockId)
+    ConditionalJump(Operand,BlockId,BlockId),
+    Return,
+    Unreachable
 }
 
 define_id!(Local);

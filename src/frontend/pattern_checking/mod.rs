@@ -88,7 +88,7 @@ fn is_inhabited(context:&TypeContext,ty:&Type) -> bool{
             AdtKind::Enum => {
                 let variants = context.expect_variants_for(*id);
                 if variants.is_empty() { false } else { 
-                    variants.iter().all(|&variant| context.get_variant_by_index(*id, variant).fields.iter().all(|field| 
+                    variants.iter().any(|&variant| context.get_variant_by_index(*id, variant).fields.iter().all(|field| 
                         is_inhabited(context,&TypeSubst::new(args).instantiate_type(field))))
                     }
             },
