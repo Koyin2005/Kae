@@ -125,6 +125,9 @@ impl Type{
     pub fn new_struct(args:GenericArgs,id:DefId) -> Self{
         Self::Adt(args, id, AdtKind::Struct)
     }
+    pub fn new_adt(args:GenericArgs,id:DefId,kind:AdtKind) -> Self{
+        Self::Adt(args, id, kind)
+    } 
     pub fn new_enum(args:GenericArgs,id:DefId) -> Self{
         Self::Adt(args, id, AdtKind::Enum)
     }
