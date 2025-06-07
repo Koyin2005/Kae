@@ -56,7 +56,7 @@ pub struct FunctionDef{
 }
 #[derive(Clone,Debug)]
 pub struct Function{
-    pub params : Vec<Param>,
+    pub params : Vec<Type>,
     pub return_type : Option<Type>,
     pub body : BodyIndex
 }
@@ -64,7 +64,6 @@ pub struct Function{
 #[derive(Clone,Debug)]
 pub struct Param{
     pub pattern : Pattern,
-    pub ty : Type
 }
 pub struct GenericParam(pub Ident,pub DefId);
 pub struct Generics{
@@ -188,6 +187,11 @@ impl Display for LogicalOp{
     }
 }
 #[derive(Clone,Debug)]
+pub struct AnonFunction{
+    pub id : DefId,
+    pub function : Function
+}
+#[derive(Clone,Debug)]
 pub enum ExprKind {
     Literal(LiteralKind),
     Binary(BinaryOp,Box<Expr>,Box<Expr>),
@@ -202,7 +206,7 @@ pub enum ExprKind {
     While(Box<Expr>,Box<Expr>),
     Path(PathExpr),
     Block(Vec<Stmt>,Option<Box<Expr>>),
-    Function(Box<Function>),
+    Function(Box<AnonFunction>),
     Field(Box<Expr>,Ident),
     Return(Option<Box<Expr>>),
     Index(Box<Expr>,Box<Expr>),
@@ -412,6 +416,7 @@ impl Resolution{
 
 #[derive(Clone, Copy,Debug,PartialEq,Eq,Hash)]
 pub enum DefKind {
+    AnonFunction,
     Function,
     Struct,
     Enum,
@@ -475,8 +480,15 @@ impl<'a,T> Iterator for DefIdMapIter<'a,T> {
     }
 }
 
+pub struct Body{
+    pub span : SourceLocation,
+    pub params : Vec<Param>,
+    pub value : Expr
+}
 pub struct Hir{
     pub items : IndexVec<ItemIndex,Item>,
     pub defs_to_items : DefIdMap<ItemIndex>,
-    pub bodies : IndexVec<BodyIndex,Expr>
+    pub body_owners : DefIdMap<BodyIndex>,
+    pub bodies : IndexVec<BodyIndex,Body>
 }
+

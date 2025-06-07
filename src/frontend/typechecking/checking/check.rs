@@ -2,10 +2,10 @@ use std::cell::RefCell;
 use fxhash::{FxHashMap, FxHashSet};
 use crate::{
      data_structures::{IndexVec, IntoIndex}, errors::ErrorReporter, frontend::{
-        ast_lowering::hir::{self, DefId, Expr, HirId, Resolution}, 
+        ast_lowering::hir::{self, DefId, HirId, Resolution}, 
         tokenizing::SourceLocation, 
         typechecking::{context::{FuncSig, TypeContext, TypeMember}, error::TypeError, items::item_check::ItemCheck, types::{format::TypeFormatter, generics::GenericArgs, lowering::TypeLower, subst::{Subst, TypeSubst}, AdtKind, Type}}
-    }, identifiers::{BodyIndex, FieldIndex, GlobalSymbols, SymbolIndex, SymbolInterner}
+    }, identifiers::{BodyIndex, FieldIndex, GlobalSymbols, SymbolIndex, SymbolInterner, VariableIndex}
 };
 use super::{env::{SelfType, TypeEnv}, Expectation, TypeCheckResults};
 struct FuncContext{
@@ -15,14 +15,15 @@ pub struct TypeChecker<'a>{
     env : TypeEnv,
     error_reporter: ErrorReporter,
     prev_functions : RefCell<Vec<FuncContext>>,
+    variable_types : RefCell<FxHashMap<VariableIndex,Type>>,
     context : &'a TypeContext,
     ident_interner : &'a SymbolInterner,
     symbols:&'a GlobalSymbols,
-    bodies:&'a IndexVec<BodyIndex,Expr>,
+    bodies:&'a IndexVec<BodyIndex,hir::Body>,
     results : RefCell<TypeCheckResults>
 }
 impl<'a> TypeChecker<'a>{
-    pub fn new(context:&'a TypeContext,symbols:&'a GlobalSymbols,bodies:&'a IndexVec<BodyIndex,Expr>,interner:&'a SymbolInterner) -> Self{
+    pub fn new(context:&'a TypeContext,symbols:&'a GlobalSymbols,bodies:&'a IndexVec<BodyIndex,hir::Body>,interner:&'a SymbolInterner) -> Self{
         Self { 
             env : TypeEnv::new(),
             error_reporter: ErrorReporter::new(false),
@@ -31,7 +32,8 @@ impl<'a> TypeChecker<'a>{
             bodies,
             ident_interner: interner,
             symbols,
-            results: RefCell::new(TypeCheckResults::new())
+            results: RefCell::new(TypeCheckResults::new()),
+            variable_types : RefCell::new(FxHashMap::default())
         }
     }
     pub(super) fn lowerer(&self) -> TypeLower{
@@ -91,11 +93,11 @@ impl<'a> TypeChecker<'a>{
     }
     fn check_function<'b>(&mut self,sig:&FuncSig, function : &hir::Function){
         let FuncSig { params:param_types, return_type } = sig;
-        for (param_pattern,param_ty) in function.params.iter().map(|param| &param.pattern).zip(param_types){
+        for (param_pattern,param_ty) in self.bodies[function.body].params.iter().map(|param| &param.pattern).zip(param_types){
             self.check_pattern(param_pattern, param_ty.clone());
         }
         self.prev_functions.borrow_mut().push(FuncContext { return_type: return_type.clone() });
-        self.check_expr(&self.bodies[function.body], Expectation::CoercesTo(return_type.clone()));
+        self.check_expr(&self.bodies[function.body].value, Expectation::CoercesTo(return_type.clone()));
         self.prev_functions.borrow_mut().pop();
 
     }
@@ -131,10 +133,10 @@ impl<'a> TypeChecker<'a>{
             },
         }
     }
-    fn check_pattern(&mut self,pattern : &hir::Pattern, expected_type : Type){
+    fn check_pattern(&self,pattern : &hir::Pattern, expected_type : Type){
         let ty = match &pattern.kind{
             &hir::PatternKind::Binding(variable, _,ref binding_pattern) => {
-                self.env.define_variable_type(variable, expected_type.clone());
+                self.variable_types.borrow_mut().insert(variable, expected_type.clone());
                 if let Some(pattern) = binding_pattern.as_ref(){
                     self.check_pattern(pattern, expected_type.clone());
                 }
@@ -551,7 +553,7 @@ impl<'a> TypeChecker<'a>{
         }
         method_sig.return_type
     }
-    fn get_constructor_with_generic_args(&mut self, path: &hir::InferOrPath, expected_type: Option<&Type>) -> (GenericArgs,Result<Option<(AdtKind,DefId)>,TypeError>){
+    fn get_constructor_with_generic_args(&self, path: &hir::InferOrPath, expected_type: Option<&Type>) -> (GenericArgs,Result<Option<(AdtKind,DefId)>,TypeError>){
         match path{
             &hir::InferOrPath::Infer(_,name) => {
                 let generic_args_and_adt = expected_type.and_then(|ty|{
@@ -750,7 +752,8 @@ impl<'a> TypeChecker<'a>{
                 Type::Never
             },
             hir::ExprKind::Function(function) => {
-                let sig = self.lowerer().lower_sig(function.params.iter().map(|param|  &param.ty), function.return_type.as_ref());
+                let &hir::AnonFunction{id:_,ref function} = function.as_ref();
+                let sig = self.lowerer().lower_sig(function.params.iter(), function.return_type.as_ref());
                 /*Checks the items signature */
                 let item_check = ItemCheck::new(self.context, self.ident_interner, &self.error_reporter);
                 item_check.check_function(function);
@@ -835,7 +838,7 @@ impl<'a> TypeChecker<'a>{
             false
         }
     }
-    fn check_path_segment(&mut self, segment: &hir::PathSegment, generic_param_count: usize) -> bool{
+    fn check_path_segment(&self, segment: &hir::PathSegment, generic_param_count: usize) -> bool{
         if self.check_generic_count(generic_param_count, segment.args.len(), segment.ident.span){
             true
         }
@@ -843,7 +846,7 @@ impl<'a> TypeChecker<'a>{
             false
         }
     }
-    fn resolve_path(&mut self, path: &hir::QualifiedPath) -> Result<(GenericArgs,Resolution),TypeError>{
+    fn resolve_path(&self, path: &hir::QualifiedPath) -> Result<(GenericArgs,Resolution),TypeError>{
         match path{
             hir::QualifiedPath::TypeRelative(ty,segment) => {
                 ItemCheck::new(self.context, self.ident_interner, &self.error_reporter).check_type(&ty);
@@ -898,7 +901,7 @@ impl<'a> TypeChecker<'a>{
         let span = path.span();
         let ty = match res{
             hir::Resolution::Variable(variable) => {
-                self.env.get_variable_type(variable)
+                self.variable_types.borrow()[&variable].clone()
             },
             hir::Resolution::Definition(hir::DefKind::Function|hir::DefKind::Method,id) => {
                 let sig = &self.context.signatures[id];
@@ -948,6 +951,7 @@ impl<'a> TypeChecker<'a>{
             hir::Resolution::SelfType(id) => {
                 unreachable!("Self type {:?} should already be resolved.",id)
             },
+            hir::Resolution::Definition(hir::DefKind::AnonFunction, _) => unreachable!("Can't use anonymous functions in this context"),
             hir::Resolution::Primitive(_) | 
             hir::Resolution::Definition(hir::DefKind::Param|hir::DefKind::Enum,_) | 
             hir::Resolution::None => 

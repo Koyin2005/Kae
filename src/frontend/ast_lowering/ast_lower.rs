@@ -10,7 +10,7 @@ use crate::{
 };
 
 use super::{
-    hir::{self, DefId, DefIdMap, DefKind, Expr, FunctionDef, GenericArg, Hir, HirId, Ident, Item, LiteralKind, PatternKind, Resolution, Type}, name_finding::{self, NameScopes}, resolve::Resolver, scope::{ScopeId, ScopeKind}, SymbolInterner
+    hir::{self, Body, DefId, DefIdMap, DefKind, FunctionDef, GenericArg, Hir, HirId, Ident, Item, LiteralKind, PatternKind, Resolution, Type}, name_finding::{self, NameScopes}, resolve::Resolver, scope::{ScopeId, ScopeKind}, SymbolInterner
 };
 use crate::identifiers::ItemIndex;
 
@@ -24,7 +24,8 @@ pub struct AstLowerer<'a>{
     next_id : Cell<HirId>,
     error_reporter: ErrorReporter,
     prev_scopes : RefCell<Vec<ScopeId>>,
-    bodies : IndexVec<BodyIndex,Expr>,
+    bodies : IndexVec<BodyIndex,Body>,
+    body_owners : DefIdMap<BodyIndex>,
     resolver : RefCell<Resolver>
 }
 
@@ -39,7 +40,8 @@ impl<'a> AstLowerer<'a>{
             resolver :  RefCell::new(Resolver::new(name_scopes.namespaces,name_scopes.scope_tree)),
             prev_scopes : RefCell::new(Vec::new()),
             error_reporter: ErrorReporter::new(false),
-            bodies : IndexVec::new()
+            bodies : IndexVec::new(),
+            body_owners:DefIdMap::new()
         }
     }
     fn next_id(&self) -> HirId{
@@ -209,8 +211,7 @@ impl<'a> AstLowerer<'a>{
             span
         })
     }
-    fn lower_function_sig(&mut self,sig:ast::FunctionSig) -> Result<(Vec<hir::Param>,Option<hir::Type>),LoweringErr>{
-        
+    fn lower_function_sig(&mut self,sig:ast::FunctionSig) -> Result<(Vec<hir::Param>,Vec<hir::Type>,Option<hir::Type>),LoweringErr>{
         let params =  (||{
             let params : Vec<_> = sig.params.into_iter().map(|param|{
                 let pattern = self.define_bindings_and_lower_pattern(param.pattern);
@@ -219,27 +220,40 @@ impl<'a> AstLowerer<'a>{
             params.into_iter().map(|(pattern,ty)|{
                 let pattern = pattern?;
                 let ty = ty?;
-                Ok(hir::Param{
-                    pattern,
-                    ty
-                })
-            }).collect::<Result<Vec<_>,_>>()
+                Ok((hir::Param{
+                    pattern
+                },ty))
+            }).collect::<Result<(Vec<_>,Vec<_>),_>>()
         })();
 
         let return_type = sig.return_type.map(|return_type| self.lower_type(&return_type)).transpose();
-        params.and_then(|params| return_type.map(|return_type| (params,return_type)))
+        let (params,param_types,return_type)  = return_type.and_then(|return_type|{
+            params.map(|(params,param_types)|{
+                (params,param_types,return_type)
+            })
+        })?;
+        Ok((params,param_types,return_type))
     }
-    fn lower_function(&mut self,id:NodeId,sig:ast::FunctionSig,body:ast::ExprNode) -> Result<hir::Function,LoweringErr>{
+    fn lower_function(&mut self, def_id: DefId,id:NodeId,sig:ast::FunctionSig,body:ast::ExprNode) -> Result<hir::Function,LoweringErr>{
+        let span = body.location;
         self.begin_scope(id);
         let params_and_return_type = self.lower_function_sig(sig);
         let body = self.lower_expr(body);
         self.end_scope();
 
-        let (params,return_type) = params_and_return_type?;
+        let (params,param_types,return_type) = params_and_return_type?;
         Ok(hir::Function{
-            params:params,
+            params:param_types,
             return_type:return_type,
-            body:self.bodies.push(body?)
+            body:{
+                let body = self.bodies.push(hir::Body{
+                    params,
+                    value:body?,
+                    span
+                });
+                self.body_owners.insert(def_id, body);
+                body
+            }
         })
 
     }
@@ -420,7 +434,12 @@ impl<'a> AstLowerer<'a>{
                 self.end_scope();
                 hir::ExprKind::Block(stmts, expr?)
             },
-            ast::ExprNodeKind::Function(sig,body) => hir::ExprKind::Function(Box::new(self.lower_function(expr.id,sig,*body)?)),
+            ast::ExprNodeKind::Function(sig,body) => 
+                hir::ExprKind::Function({
+                    let id = self.expect_def_id(expr.id, "Expected a function id");
+                    Box::new(hir::AnonFunction { id, function: self.lower_function(id,expr.id,sig,*body)? 
+                })
+            }),
             ast::ExprNodeKind::Print(args) => hir::ExprKind::Print(args.into_iter().map(|arg| self.lower_expr(arg)).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>()?),
             ast::ExprNodeKind::GetPath(path) => {
                 hir::ExprKind::Path(match path.infer_path{
@@ -559,7 +578,7 @@ impl<'a> AstLowerer<'a>{
                 self.begin_scope(function_def.id);
                 let ast::ParsedFunction{proto:ast::FunctionProto{name:_,generic_params,sig},body} = function_def.function;
                 let generics = self.lower_generic_params(func_id,generic_params);
-                let function = self.lower_function(function_def.id, sig,body);
+                let function = self.lower_function(func_id, function_def.id, sig,body);
                 //End item scope
                 self.end_scope();
                 let function = function?;
@@ -580,7 +599,7 @@ impl<'a> AstLowerer<'a>{
                             let name = self.name_info.name_map[method_id];
                             self.begin_scope(method.id);
                             let generics = self.lower_generic_params(method_id,method.function.proto.generic_params.take());
-                            let function = self.lower_function(method.id,method.function.proto.sig, method.function.body);
+                            let function = self.lower_function(method_id,method.id,method.function.proto.sig, method.function.body);
                             self.end_scope();
                             Ok(FunctionDef { id:method_id, generics:generics?, name, function:function? })
                         })();
@@ -653,6 +672,6 @@ impl<'a> AstLowerer<'a>{
         if self.error_reporter.error_occurred(){
             return Err(LoweringErr);
         }
-        Ok(Hir{items:self.items,defs_to_items:self.def_id_map,bodies:self.bodies})
+        Ok(Hir{items:self.items,defs_to_items:self.def_id_map,bodies:self.bodies,body_owners:self.body_owners})
     }
 }

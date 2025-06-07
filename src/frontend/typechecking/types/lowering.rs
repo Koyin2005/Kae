@@ -58,6 +58,7 @@ impl<'a> TypeLower<'a>{
                         &segment.args
                     },
                     Resolution::Definition(DefKind::Method, _) => unreachable!("Cannot access methods outside of type checking"),
+                    Resolution::Definition(DefKind::AnonFunction, _) => unreachable!("Cannot use anonymous functions at this point"),
                     Resolution::Primitive(_) | Resolution::Variable(_) | Resolution::Definition(DefKind::Param, _) | Resolution::SelfType(_) | Resolution::Builtin(_) => return None
         }))();
         generic_args.map(|generic_args| self.lower_generic_args(generic_args)).unwrap_or_else(GenericArgs::new_empty)
@@ -127,6 +128,7 @@ impl<'a> TypeLower<'a>{
                 segment.into_iter().collect()
             },
             Resolution::Definition(DefKind::Method, _) => unreachable!("Shouldn't be able to use methods in paths"),
+            Resolution::Definition(DefKind::AnonFunction, _) => unreachable!("Cannot use anonymous functions here"),
             hir::Resolution::Definition(hir::DefKind::Struct|hir::DefKind::Function|hir::DefKind::Enum,_) => {
                 vec![last]
             },

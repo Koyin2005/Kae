@@ -1,11 +1,12 @@
 use crate::{data_structures::IndexVec, define_id, identifiers::{BodyIndex, FieldIndex, SymbolIndex, VariableIndex, VariantIndex}};
 
-use super::{ast_lowering::hir::{self, BinaryOp, DefId, LiteralKind, LogicalOp, UnaryOp}, tokenizing::SourceLocation, typechecking::types::{generics::GenericArgs, AdtKind, Type}};
+use super::{ast_lowering::hir::{self, BinaryOp, DefId, DefIdMap, LiteralKind, LogicalOp, UnaryOp}, tokenizing::SourceLocation, typechecking::types::{generics::GenericArgs, AdtKind, Type}};
 
 define_id!(ExprId);
 define_id!(BlockId);
 define_id!(StmtId);
 define_id!(ArmId);
+define_id!(ParamId);
 pub struct FieldPattern{
     pub field : FieldIndex,
     pub pattern : Pattern
@@ -52,8 +53,7 @@ pub enum ExprKind {
     If(ExprId,ExprId,Option<ExprId>),
     Return(Option<ExprId>),
     Variable(VariableIndex),
-    Definition(GenericArgs,DefId),
-    Function(BodyIndex),
+    Definition(DefId,GenericArgs),
     Builtin(GenericArgs,hir::BuiltinKind),
     Print(Box<[ExprId]>),
     Index(ExprId,ExprId),
@@ -79,12 +79,18 @@ pub struct Arm{
     pub body : ExprId
 }
 
+pub struct Param{
+    pub pattern : Pattern,
+    pub ty : Type,
+}
 pub struct ThirBody{
+    pub params : IndexVec<ParamId,Param>,
     pub exprs : IndexVec<ExprId,Expr>,
     pub blocks : IndexVec<BlockId,Block>,
     pub stmts : IndexVec<StmtId,Stmt>,
     pub arms : IndexVec<ArmId,Arm>
 }
 pub struct Thir{
+    pub body_owners : DefIdMap<BodyIndex>,
     pub bodies : IndexVec<BodyIndex,ThirBody>
 }

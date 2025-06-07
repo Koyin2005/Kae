@@ -86,7 +86,7 @@ impl<'a> ItemCheck<'a>{
         }
     }
     pub fn check_function(&self, function_def: &hir::Function){
-        for hir::Param{pattern:_,ty} in &function_def.params{
+        for ty in &function_def.params{
             self.check_type(&ty);
         }
         if let Some(return_type) = function_def.return_type.as_ref(){

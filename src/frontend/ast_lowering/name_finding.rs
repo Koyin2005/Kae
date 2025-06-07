@@ -131,7 +131,7 @@ impl<'b,'a:'b> NameFinder<'b>{
         self.info.scope_map.entry(id).or_insert(Vec::new()).push(scope);
     }
     fn add_node_to_def(&mut self,id:NodeId,def_id:DefId){
-        self.info.node_to_def_map.insert(id, def_id);
+        assert!(self.info.node_to_def_map.insert(id, def_id).is_none(),"There should be 1 def id for every node id");
     }
     fn find_names_in_stmts(&mut self,stmts:&'a [ast::StmtNode]){
         for stmt in stmts{
@@ -192,6 +192,8 @@ impl<'b,'a:'b> NameFinder<'b>{
                 self.find_names_in_expr(rhs);
             },
             ast::ExprNodeKind::Function(sig,body) => {
+                let def_id = self.def_ids.next();
+                self.add_node_to_def(id,def_id);
                 self.find_names_in_function(id,sig,Some(body));
             }
             ast::ExprNodeKind::StructInit { path:_, fields } => fields.iter().for_each(|(_,expr)| self.find_names_in_expr(expr)),

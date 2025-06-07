@@ -19,12 +19,12 @@ fn compile(source:&str)->Option<Program>{
 
     let ast_lower = AstLowerer::new(&mut interner,names_found,name_scopes);
     let hir = ast_lower.lower(stmts).ok()?;
-    let item_collector = ItemCollector::new(&interner,&symbols,&hir.items);
+    let item_collector = ItemCollector::new(&interner,&symbols,&hir.items,&hir);
     let (context,error_reporter) = item_collector.collect();
     ItemCheck::new(&context,&interner,&error_reporter).check_items(hir.items.iter()).ok()?;
     let type_checker = TypeChecker::new(&context,&symbols,&hir.bodies,&interner);
     let type_check_results = type_checker.check(hir.items.iter()).ok()?;
-    let _thir = ThirLower::new(type_check_results,&context,&interner).lower_bodies(hir.bodies).ok()?;
+    let _thir = ThirLower::new(type_check_results,&context,&interner).lower_bodies(hir.bodies,hir.body_owners).ok()?;
     let Ok(code) = Compiler::new().compile() else {
         return None;
     };

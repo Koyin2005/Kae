@@ -1,4 +1,4 @@
-use crate::{data_structures::IntoIndex, frontend::{ast_lowering::hir::{self, DefId, DefIdMap, Ident}, tokenizing::SourceLocation}, identifiers::{SymbolIndex, VariantIndex}, GlobalSymbols};
+use crate::{data_structures::IntoIndex, frontend::{ast_lowering::hir::{self, DefId, DefIdMap, DefKind, Ident}, tokenizing::SourceLocation}, identifiers::{SymbolIndex, VariantIndex}, GlobalSymbols};
 
 use super::{ types::{generics::GenericArgs, subst::{Subst, TypeSubst}, AdtKind, Type}};
 
@@ -78,22 +78,22 @@ pub struct TypeContext{
     pub(super) enums : DefIdMap<EnumDef>,
     pub(super) generics_map : DefIdMap<Generics>,
     pub(super) params_to_indexes : DefIdMap<u32>,
-    pub(super) method_has_receiver : DefIdMap<bool>,
     pub(super) child_to_owner_map : DefIdMap<DefId>,
     pub(super) impls : DefIdMap<Impl>,
     pub(super) impl_ids : Vec<DefId>,
     pub(super) name_map : DefIdMap<Ident>,
     pub(super) signatures : DefIdMap<FuncSig>,
     pub(super) type_ids_to_method_impls : DefIdMap<Vec<DefId>>,
+    pub(super) kind_map : DefIdMap<DefKind>,
     pub(super) has_receiver : DefIdMap<bool>,
 }
 impl TypeContext{
     pub fn new() -> Self{
         Self { 
+            kind_map : DefIdMap::new(),
             structs: DefIdMap::new(), 
             name_map : DefIdMap::new(),
             generics_map:DefIdMap::new(),
-            method_has_receiver: DefIdMap::new(),
             enums: DefIdMap::new(),
             params_to_indexes : DefIdMap::new(),
             child_to_owner_map : DefIdMap::new(),
@@ -167,7 +167,7 @@ impl TypeContext{
     }
     pub fn get_generic_count(&self,res:&hir::Resolution) -> usize{
         match res{
-            &hir::Resolution::Definition(hir::DefKind::Struct|hir::DefKind::Enum|hir::DefKind::Function | hir::DefKind::Method,id) => {
+            &hir::Resolution::Definition(hir::DefKind::Struct|hir::DefKind::Enum|hir::DefKind::Function | hir::DefKind::AnonFunction | hir::DefKind::Method,id) => {
                 self.expect_generics_for(id).param_names.len()
             },
             hir::Resolution::Variable(_) | 

@@ -1,5 +1,5 @@
 use crate::{data_structures::IndexVec, errors::ErrorReporter, frontend::{
-        ast_lowering::hir::{self, DefId, Ident, Item}, 
+        ast_lowering::hir::{self, DefId, Hir, Ident, Item}, 
         typechecking::context::{EnumDef, FieldDef, Generics, Impl, StructDef, TypeContext, VariantDef}}, identifiers::ItemIndex, GlobalSymbols, SymbolInterner};
 
 use super::{ lowering::TypeLower, Type};
@@ -11,10 +11,11 @@ pub struct ItemCollector<'a>{
     next_param_index : u32,
     error_reporter : ErrorReporter,
     items : &'a IndexVec<ItemIndex,Item>,
+    hir : &'a Hir
 }
 
 impl<'a> ItemCollector<'a>{
-    pub fn new(symbol_interner: &'a SymbolInterner, symbols: &'a GlobalSymbols,items: &'a IndexVec<ItemIndex,Item>) -> Self{
+    pub fn new(symbol_interner: &'a SymbolInterner, symbols: &'a GlobalSymbols,items: &'a IndexVec<ItemIndex,Item>,hir:&'a Hir) -> Self{
         Self { 
             context: TypeContext::new(), 
             interner: symbol_interner, 
@@ -22,6 +23,7 @@ impl<'a> ItemCollector<'a>{
             next_param_index: 0, 
             error_reporter: ErrorReporter::new(true),
             items,
+            hir
         }
     }
     fn lowerer(&self) -> TypeLower{
@@ -55,18 +57,22 @@ impl<'a> ItemCollector<'a>{
             Item::Struct(struct_def) => {
                 self.add_name(struct_def.id, struct_def.name);
                 self.collect_names_for_generics(struct_def.id, &struct_def.generics);
+                self.context.kind_map.insert(struct_def.id, hir::DefKind::Struct);
             },
             Item::Enum(enum_def) => {
                 self.add_name(enum_def.id, enum_def.name);
                 self.collect_names_for_generics(enum_def.id, &enum_def.generics);
+                self.context.kind_map.insert(enum_def.id, hir::DefKind::Enum);
                 for variant in &enum_def.variants{
                     self.add_name(variant.id,variant.name);
                     self.add_child_for(enum_def.id,variant.id);
+                    self.context.kind_map.insert(variant.id, hir::DefKind::Variant);
                 }
             },
             Item::Function(function_def) => {
                 self.add_name(function_def.id, function_def.name);
                 self.collect_names_for_generics(function_def.id, &function_def.generics);
+                self.context.kind_map.insert(function_def.id, hir::DefKind::Function);
             },
             Item::Impl(impl_) => {
                 let Some(type_id) = impl_.ty.id() else {
@@ -80,7 +86,8 @@ impl<'a> ItemCollector<'a>{
                     self.add_child_for(impl_.id, method.id);
                     self.collect_names_for_generics(method.id, &method.generics);
                     self.context.type_ids_to_method_impls.entry(type_id).or_default().push(method.id);
-                    self.context.has_receiver.insert(method.id,method.function.params.first().is_some_and(|param|{
+                    self.context.kind_map.insert(method.id, hir::DefKind::Method);
+                    self.context.has_receiver.insert(method.id,self.hir.bodies[self.hir.body_owners[method.id]].params.first().is_some_and(|param|{
                         matches!(param.pattern.kind,hir::PatternKind::Binding(_,name,_) if name.index == self.symbols.lower_self_symbol())
                     }));
                     self.next_param_index = parent_count;
@@ -118,9 +125,7 @@ impl<'a> ItemCollector<'a>{
             },
             Item::Function(function_def) => {
                 let id = function_def.id;
-                let sig = self.lowerer().lower_sig(function_def.function.params.iter().map(|param|{
-                      &param.ty  
-                    }), function_def.function.return_type.as_ref()
+                let sig = self.lowerer().lower_sig(function_def.function.params.iter(), function_def.function.return_type.as_ref()
                 );
                 self.context.signatures.insert(id, sig);
             },
@@ -130,11 +135,8 @@ impl<'a> ItemCollector<'a>{
                 let impl_ = Impl { 
                     span: impl_.span,
                     methods: impl_.methods.iter().map(|method|{
-                        let sig = self.lowerer_with_self(self_ty.clone()).lower_sig(method.function.params.iter().map(|param| &param.ty), method.function.return_type.as_ref());
+                        let sig = self.lowerer_with_self(self_ty.clone()).lower_sig(method.function.params.iter(), method.function.return_type.as_ref());
                         self.context.signatures.insert(method.id, sig);
-                        self.context.method_has_receiver.insert(method.id, method.function.params.first().is_some_and(|param|{
-                            matches!(param.pattern.kind,hir::PatternKind::Binding(_,name,None) if name.index == self.symbols.lower_self_symbol())
-                        }));
                         method.id
                     }).collect(),
                     ty : self_ty
