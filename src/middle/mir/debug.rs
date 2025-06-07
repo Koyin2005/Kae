@@ -31,7 +31,7 @@ impl<'a> DebugMir<'a>{
     }
 
     fn debug_lvalue(&self, lvalue: &Place) -> String{
-        let mut output = format!("l{}",lvalue.local.as_index());
+        let mut output = format!("local{}",lvalue.local.as_index());
         for projection in &lvalue.projections{
             match projection{
                 PlaceProjection::Field(field_index) => {
@@ -53,7 +53,8 @@ impl<'a> DebugMir<'a>{
                 match constant{
                     Constant::Bool(value) => value.to_string(),
                     Constant::Int(value) => value.to_string(),
-                    Constant::String(index) => self.symbol_interner.get(*index).to_string(),
+                    Constant::String(index) => format!("\"{}\"",self.symbol_interner.get(*index)),
+                    Constant::ZeroSized(ty) => TypeFormatter::new(self.symbol_interner, self.context).format_type(ty)
                 }
             },
             Operand::Load(place) => {
@@ -82,7 +83,7 @@ impl<'a> DebugMir<'a>{
                 let (left,right) = left_and_right.as_ref();
                 let mut output = String::new();
                 output.push_str(&self.debug_operand(left));
-                output.push_str(&op.to_string());
+                output.push_str(&format!(" {} ",op));
                 output.push_str(&self.debug_operand(right));
                 output
             },

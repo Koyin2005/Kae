@@ -85,7 +85,7 @@ impl <'a> BodyLower<'a>{
         Some(match stmt.kind{
             hir::StmtKind::Expr(expr) => {
                 let expr_id = self.lower_expr(expr);
-                self.thir.stmts.push(Stmt{kind:StmtKind::Expr{expr:expr_id,drop:false}})
+                self.thir.stmts.push(Stmt{kind:StmtKind::Expr(expr_id)})
             },
             hir::StmtKind::Let(pattern,_,expr) => {
                 let pattern = self.lower_pattern(pattern);
@@ -97,7 +97,7 @@ impl <'a> BodyLower<'a>{
             },
             hir::StmtKind::Semi(expr) => {
                 let expr = self.lower_expr(expr);
-                self.thir.stmts.push(Stmt{kind:StmtKind::Expr{expr,drop:true}})
+                self.thir.stmts.push(Stmt{kind:StmtKind::Expr(expr)})
             },
             hir::StmtKind::Item(_) => return None
         })

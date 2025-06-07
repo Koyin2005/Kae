@@ -67,7 +67,7 @@ pub struct Stmt{
     pub kind : StmtKind
 }
 pub enum StmtKind {
-    Expr{expr:ExprId,drop:bool},
+    Expr(ExprId),
     Let(Box<Pattern>,ExprId),
 }
 pub struct Block{

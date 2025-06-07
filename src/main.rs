@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use pl4::{
-    backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{ast_lowering::{ast_lower::AstLowerer, hir::DefIdProvider,name_finding::NameFinder}, hir_lowering::ThirLower, parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::{checking::check::TypeChecker, items::item_check::ItemCheck, types::collect::ItemCollector}}, GlobalSymbols, SymbolInterner
+    backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{ast_lowering::{ast_lower::AstLowerer, hir::DefIdProvider,name_finding::NameFinder}, hir_lowering::ThirLower, parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::{checking::check::TypeChecker, items::item_check::ItemCheck, types::collect::ItemCollector}}, middle::mir::debug::DebugMir, thir_lowering::MirBuild, GlobalSymbols, SymbolInterner
 };
 
 fn compile(source:&str)->Option<Program>{
@@ -24,7 +24,9 @@ fn compile(source:&str)->Option<Program>{
     ItemCheck::new(&context,&interner,&error_reporter).check_items(hir.items.iter()).ok()?;
     let type_checker = TypeChecker::new(&context,&symbols,&hir.bodies,&interner);
     let type_check_results = type_checker.check(hir.items.iter()).ok()?;
-    let _thir = ThirLower::new(type_check_results,&context,&interner).lower_bodies(hir.bodies,hir.body_owners).ok()?;
+    let thir = ThirLower::new(type_check_results,&context,&interner).lower_bodies(hir.bodies,hir.body_owners).ok()?;
+    let mir = MirBuild::new(thir).lower();
+    println!("{}",DebugMir::new(&mir, &context, &interner).debug());
     let Ok(code) = Compiler::new().compile() else {
         return None;
     };

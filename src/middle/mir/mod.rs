@@ -1,12 +1,13 @@
 use std::fmt::Display;
 
-use crate::{data_structures::IndexVec, define_id, frontend::{ast_lowering::hir::{BinaryOp, DefId, UnaryOp}, typechecking::types::generics::GenericArgs}, identifiers::{BodyIndex, FieldIndex, SymbolIndex, VariableIndex, VariantIndex}};
+use crate::{data_structures::IndexVec, define_id, frontend::{ast_lowering::hir::{BinaryOp, DefId, UnaryOp}, typechecking::types::{generics::GenericArgs, Type}}, identifiers::{BodyIndex, FieldIndex, SymbolIndex, VariableIndex, VariantIndex}};
 
 pub mod debug;
 pub enum Constant {
     Int(i64),
     Bool(bool),
     String(SymbolIndex),
+    ZeroSized(Type),
 }
 
 pub struct Block {
