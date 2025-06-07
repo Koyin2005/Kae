@@ -53,12 +53,18 @@ impl TypeChecker<'_>{
     }
     pub(super) fn check_unary_expr(&mut self,op:hir::UnaryOp,operand:&hir::Expr,span:SourceLocation) -> Type{
         let operand = self.check_expr(operand, Expectation::None);
-        if (matches!(op,hir::UnaryOp::Negate) && (operand != Type::Float || operand != Type::Float ))|| operand != Type::Error{
-            let operand = self.format_type(&operand);
-            self.new_error(format!("Cannot apply '{}' to operand of type '{}'.",op,operand), span)
-        }
-        else{
-            Type::Bool
+
+        let result_type = match (op,operand){
+            (hir::UnaryOp::Negate,ty @ (Type::Int|Type::Float)) => Ok(ty),
+            (_,Type::Error) => return Type::Error,
+            (_,ty) => Err(ty)
+        };
+        match result_type{
+            Ok(ty) => ty,
+            Err(operand) => {
+                let operand = self.format_type(&operand);
+                self.new_error(format!("Cannot apply '{}' to operand of type '{}'.",op,operand), span)
+            }
         }
     }
 }
