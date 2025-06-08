@@ -1,4 +1,4 @@
-use crate::{data_structures::IndexVec, errors::ErrorReporter, identifiers::BodyIndex, SymbolInterner};
+use crate::{data_structures::{IndexVec, IntoIndex}, errors::ErrorReporter, identifiers::BodyIndex, SymbolInterner};
 
 use super::{ast_lowering::hir::{self, DefIdMap}, pattern_checking::{lowering::lower_to_pattern, PatternChecker}, thir::{self, Block, Expr, ExprId, Param, Stmt, StmtId, StmtKind, Thir, ThirBody}, typechecking::{checking::TypeCheckResults, context::TypeContext, types::{generics::GenericArgs, AdtKind}}};
 
@@ -10,22 +10,22 @@ struct BodyLower<'a>{
     thir : ThirBody
 }
 impl <'a> BodyLower<'a>{
-    fn lower(context:&'a ThirLower<'a>,body:hir::Body) -> ThirBody{
+    fn lower(context:&'a ThirLower<'a>,body:hir::Body) -> (ThirBody,ExprId){
         let mut lower = Self { 
             lower_context:context, thir: ThirBody { 
                 params: IndexVec::new(), 
                 exprs: IndexVec::new(), 
                 blocks: IndexVec::new(), 
                 stmts: IndexVec::new(), 
-                arms: IndexVec::new() 
+                arms: IndexVec::new(),
             } 
         };
         for param in body.params{
             let pattern = lower.lower_pattern(param.pattern);
             lower.thir.params.push(Param{ty:pattern.ty.clone(),pattern});
         }
-        lower.lower_expr(body.value);
-        lower.thir
+        let id = lower.lower_expr(body.value);
+        (lower.thir,id)
     }
     fn results(&self) -> &TypeCheckResults{
         &self.lower_context.results
@@ -108,9 +108,27 @@ impl <'a> BodyLower<'a>{
             hir::Resolution::Variable(variable) => {
                 thir::ExprKind::Variable(variable)
             },
-            hir::Resolution::Definition(hir::DefKind::Function|hir::DefKind::Variant|hir::DefKind::Struct|hir::DefKind::Method, id) => {
+            hir::Resolution::Definition(hir::DefKind::Variant, id) => {
+                if self.results().signatures.contains_key(&expr_id){
+                    let generic_args = self.results().generic_args[&expr_id].clone();
+                    thir::ExprKind::Function(thir::Function { id, kind: thir::FunctionKind::Variant, generic_args})
+
+                }
+                else{
+                    let generic_args = self.results().generic_args[&expr_id].clone();
+                    let enum_id = self.type_context().expect_owner_of(id);
+                    let variant = self.type_context().get_variant_index(id).expect("Should definitely be a variant");
+                    thir::ExprKind::StructLiteral(Box::new(thir::StructLiteral { kind: AdtKind::Enum, generic_args,id:enum_id, variant: Some(variant), fields: Box::new([]) }))
+                }
+            }
+            hir::Resolution::Definition(kind @ (hir::DefKind::Function|hir::DefKind::Method), id) => {
+                let kind = match kind{
+                    hir::DefKind::Function => thir::FunctionKind::Normal,
+                    hir::DefKind::Method => thir::FunctionKind::Method,
+                    _ => unreachable!("These should have been checked")
+                };
                 let generic_args = self.results().generic_args[&expr_id].clone();
-                thir::ExprKind::Definition(id,generic_args)
+                thir::ExprKind::Function(thir::Function { id, kind, generic_args })
             },
             hir::Resolution::Builtin(hir::BuiltinKind::Panic) => {
                 thir::ExprKind::Builtin(GenericArgs::new_empty(),hir::BuiltinKind::Panic)
@@ -186,7 +204,11 @@ impl <'a> BodyLower<'a>{
 
                 thir::ExprKind::Match(scrutinee, arms)
             },
-            hir::ExprKind::Function(function) => thir::ExprKind::Definition(function.id,GenericArgs::new_empty()),
+            hir::ExprKind::Function(function) => thir::ExprKind::Function(thir::Function{
+                id:function.id,
+                kind:thir::FunctionKind::Anon,
+                generic_args:GenericArgs::new_empty()
+            }),
             hir::ExprKind::MethodCall(receiver,method,args) =>{
                 let expr_id = expr.id;
                 let receiver = self.lower_expr(*receiver);
@@ -202,6 +224,7 @@ impl <'a> BodyLower<'a>{
             },
             hir::ExprKind::While(condition,body) => thir::ExprKind::While(self.lower_expr(*condition), self.lower_expr(*body)),
             hir::ExprKind::StructLiteral(_,fields) => {
+                let generic_args = self.results().generic_args[&expr.id].clone();
                 let (kind,id,variant) = match self.results().resolutions[&expr.id]{
                     hir::Resolution::Definition(hir::DefKind::Struct,id) => (AdtKind::Struct,id,None),
                     hir::Resolution::Definition(hir::DefKind::Variant,id) => (AdtKind::Enum,self.type_context().expect_owner_of(id),self.type_context().get_variant_index(id)),
@@ -211,6 +234,7 @@ impl <'a> BodyLower<'a>{
                     kind,
                     id,
                     variant,
+                    generic_args,
                     fields : fields.into_iter().map(|field|{
                         let field_index = self.results().fields[&field.id];
                         thir::FieldExpr{
@@ -243,7 +267,7 @@ impl <'a> BodyLower<'a>{
 }
 pub struct ThirLower<'a>{
     results : TypeCheckResults,
-    bodies : IndexVec<BodyIndex,ThirBody>,
+    bodies : IndexVec<BodyIndex,(ThirBody,ExprId)>,
     error_reporter : ErrorReporter,
     interner: &'a SymbolInterner,
     context: &'a TypeContext

@@ -1,6 +1,6 @@
 use crate::{data_structures::IntoIndex, frontend::typechecking::{context::TypeContext, types::{format::TypeFormatter, AdtKind, Type}}, SymbolInterner};
 
-use super::{Block, Body, Constant, Mir, Operand, Place, PlaceProjection, RValue, Stmt, Terminator};
+use super::{Block, Body, Constant, FunctionKind, Mir, Operand, Place, PlaceProjection, RValue, Stmt, Terminator};
 
 
 pub struct DebugMir<'a>{
@@ -41,7 +41,7 @@ impl<'a> DebugMir<'a>{
                     output = format!("({output} as {})",self.symbol_interner.get(*name));
                 },
                 PlaceProjection::Index(local) => {
-                    output.push_str(&format!("[l{}]",local.as_index()));
+                    output.push_str(&format!("[local{}]",local.as_index()));
                 }
             }
         }
@@ -54,7 +54,15 @@ impl<'a> DebugMir<'a>{
                     Constant::Bool(value) => value.to_string(),
                     Constant::Int(value) => value.to_string(),
                     Constant::String(index) => format!("\"{}\"",self.symbol_interner.get(*index)),
-                    Constant::ZeroSized(ty) => TypeFormatter::new(self.symbol_interner, self.context).format_type(ty)
+                    Constant::ZeroSized(ty) => TypeFormatter::new(self.symbol_interner, self.context).format_type(ty),
+                    Constant::Function(id,kind,generic_args) => {
+                        let name = match kind {
+                            FunctionKind::Anon => "anonymous",
+                            FunctionKind::Normal => self.symbol_interner.get(self.context.ident(*id).index)
+                        };
+                        format!("{}{}",name,TypeFormatter::new(self.symbol_interner, self.context).format_generic_args(generic_args))
+                        
+                    }
                 }
             },
             Operand::Load(place) => {
@@ -88,7 +96,7 @@ impl<'a> DebugMir<'a>{
                 output
             },
             RValue::Unary(op,operand) => {
-                format!("{} {}",op.to_string(),self.debug_operand(operand))
+                format!("{}{}",op.to_string(),self.debug_operand(operand))
             },
             RValue::Adt(adt,operands) => {
                 let &(id,ref generic_args,variant) = adt.as_ref();
@@ -202,13 +210,11 @@ impl<'a> DebugMir<'a>{
     }
     fn format_body(&mut self,body:&Body){
         for (i,block) in body.blocks.iter().enumerate(){
-            if i>0{
-                self.output.push('\n');
-            }
             self.increase_indent_level();
             self.format_block(block);
             self.decrease_indent_level();
         }
+        self.output.push('\n');
     }
     pub fn debug(mut self) -> String{
         for body in self.mir.bodies.iter(){

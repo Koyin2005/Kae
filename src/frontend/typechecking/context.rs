@@ -84,13 +84,11 @@ pub struct TypeContext{
     pub(super) name_map : DefIdMap<Ident>,
     pub(super) signatures : DefIdMap<FuncSig>,
     pub(super) type_ids_to_method_impls : DefIdMap<Vec<DefId>>,
-    pub(super) kind_map : DefIdMap<DefKind>,
     pub(super) has_receiver : DefIdMap<bool>,
 }
 impl TypeContext{
     pub fn new() -> Self{
         Self { 
-            kind_map : DefIdMap::new(),
             structs: DefIdMap::new(), 
             name_map : DefIdMap::new(),
             generics_map:DefIdMap::new(),

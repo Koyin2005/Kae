@@ -19,6 +19,10 @@ impl<Index:IntoIndex,Value> IndexVec<Index,Value>{
     pub fn new()->Self{
         Self::with_capacity(0)
     }
+    pub fn last_index(&self) -> Option<Index>{
+        let last = (self.len() as u32).checked_sub(1)?;
+        Some(Index::new(last))
+    }
     pub fn with_capacity(capacity:usize) -> Self{
         Self { data: Vec::with_capacity(capacity), _phantom: PhantomData }
     }

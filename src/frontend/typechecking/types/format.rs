@@ -1,6 +1,6 @@
 use crate::{frontend::typechecking::context::TypeContext, identifiers::SymbolInterner};
 
-use super::Type;
+use super::{generics::GenericArgs, Type};
 
 
 pub struct TypeFormatter<'a>{
@@ -62,5 +62,15 @@ impl<'b> TypeFormatter<'b>{
         let mut buffer = String::new();
         self.format(ty, &mut buffer);
         buffer
+    }
+    pub fn format_generic_args(&mut self,args:&GenericArgs) -> String{
+        let mut buffer = String::new();
+        if !args.is_empty(){
+            buffer.push('[');
+            self.format_types(args.iter(),&mut buffer);
+            buffer.push(']');
+        }
+        buffer
+
     }
 }

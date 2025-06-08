@@ -315,7 +315,7 @@ impl<'a> TypeChecker<'a>{
                 for (ty,id,span) in element_types{
                     if ty != element_type{
                         if !self.coerces(&ty, &element_type){
-                            self.error(format!("Expected '{}' for match arm got '{}'.",self.format_type(&element_type),self.format_type(&ty)), span);
+                            self.error(format!("Expected '{}' for array element got '{}'.",self.format_type(&element_type),self.format_type(&ty)), span);
                         }
                         else{
                             self.results.borrow_mut().coercions.insert(id, element_type.clone());
@@ -914,7 +914,9 @@ impl<'a> TypeChecker<'a>{
                     let params = TypeSubst::new(&generic_args).instantiate_types(variant.fields.iter().map(|field|{
                         field
                     }));
-                    Type::new_function(params,Type::new_enum(generic_args, enum_id))
+                    let return_type = Type::new_enum(generic_args, enum_id);
+                    self.results.borrow_mut().signatures.insert(expr_id, FuncSig { params: params.clone(), return_type:return_type.clone() });
+                    Type::new_function(params,return_type)
                 }
                 else{
                     if !variant.fields.is_empty(){
@@ -931,9 +933,7 @@ impl<'a> TypeChecker<'a>{
                         all_anon_fields &= self.ident_interner.get(field.name.index).parse::<usize>().is_ok();
                         &field.ty
                     }));
-                    if !all_anon_fields{
-                        self.error(format!("Cannot use struct '{}' as callable.",path.format(self.ident_interner)), span);
-                    }
+                    self.error(format!("Cannot use struct '{}' as callable.",path.format(self.ident_interner)), span);
                     Type::new_function(params,Type::new_struct(generic_args, id))
                 }
                 else{
