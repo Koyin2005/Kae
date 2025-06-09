@@ -240,6 +240,19 @@ impl<'a> BodyBuild<'a>{
                 let operands = args.iter().map(|arg| self.lower_as_operand(*arg)).collect();
                 self.push_stmt(Stmt::Print(operands));
             },
+            &ExprKind::While(condition,body) => {
+                let condition_block = self.new_block();
+                self.terminate(Terminator::Goto(condition_block));
+                self.current_block = condition_block;
+                let condition = self.lower_as_operand(condition);
+                let body_block = self.new_block();
+                let rest_block = self.new_block();
+                self.terminate(Terminator::Switch(condition, Box::new([(0,rest_block)]), body_block));
+                self.current_block = body_block;
+                self.lower_as_temp(body);
+                self.terminate(Terminator::Goto(condition_block));
+                self.current_block = rest_block;
+            },
             _ => {
                 let temp = self.new_temporary(self.body.exprs[expr].ty.clone());
                 self.lower_into_place(temp.into(),expr);
@@ -282,6 +295,9 @@ impl<'a> BodyBuild<'a>{
                 }
                 if let Some(expr) = block.expr{
                     self.lower_into_place(place, expr);
+                }
+                else{
+                    self.assign_unit(place);
                 }
             },
             &ExprKind::If(condition,then_branch,else_branch) => {
@@ -326,7 +342,7 @@ impl<'a> BodyBuild<'a>{
             &ExprKind::Return(_) => {
                 self.lower_stmt_expr(expr);
             }, 
-            ExprKind::Print(_) | ExprKind::Assign(_,_) => {
+            &ExprKind::While(_,_)| ExprKind::Print(_) | ExprKind::Assign(_,_) =>{
                 self.lower_stmt_expr(expr);
                 self.assign_unit(place);
             }
@@ -356,6 +372,7 @@ impl<'a> BodyBuild<'a>{
             ExprKind::Function(_) |
             ExprKind::Call(_,_) |
             ExprKind::Index(_, _) |
+            ExprKind::Field(_,_) |
             ExprKind::Builtin(_,_) => {
                 let rvalue = self.lower_as_rvalue(expr);
                 self.assign_stmt(place, rvalue);
