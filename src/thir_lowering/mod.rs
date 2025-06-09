@@ -1,7 +1,8 @@
 use fxhash::FxHashMap;
 use indexmap::IndexMap;
 
-use crate::{data_structures::{IndexVec, IntoIndex}, frontend::{ast_lowering::hir::{self, BodyOwner, DefId, DefIdMap, DefKind}, thir::{self, Expr, ExprId, ExprKind, Pattern, PatternKind, StmtKind, Thir, ThirBody}, typechecking::{context::TypeContext, types::Type}}, identifiers::{BodyIndex, FieldIndex, VariableIndex}, middle::mir::{self, Block, BlockId, Body, BodyKind, BodySource, Constant, Local, LocalKind, Mir, Operand, Place, PlaceProjection, RValue, Stmt, Terminator}};
+use crate::{data_structures::{IndexVec, IntoIndex}, frontend::{ast_lowering::hir::{self, BodyOwner}, thir::{self, ExprId, ExprKind, FieldPattern, Pattern, PatternKind, StmtKind, Thir, ThirBody}, 
+typechecking::{context::TypeContext, types::Type}}, identifiers::{BodyIndex, FieldIndex, VariableIndex}, middle::mir::{self, Block, BlockId, Body, BodyKind, BodySource, Constant, Local, LocalInfo, Mir, Operand, Place, PlaceProjection, RValue, Stmt, Terminator}};
 
 
 pub struct MirBuild<'a>{
@@ -65,12 +66,12 @@ impl<'a> BodyBuild<'a>{
             },
             ExprKind::Index(array,index) => {
                 let array = self.lower_as_place(*array);
-                let index = self.lower_as_place(*index);
-                let index = if index.projections.is_empty(){
-                    index.local
+                let index_place = self.lower_as_place(*index);
+                let index = if index_place.projections.is_empty(){
+                    index_place.local
                 } else {
-                    let temp = self.new_temporary();
-                    self.assign_stmt(temp.into(), RValue::Use(Operand::Load(index)));
+                    let temp = self.new_temporary(self.body.exprs[*index].ty.clone());
+                    self.assign_stmt(temp.into(), RValue::Use(Operand::Load(index_place)));
                     temp
                 };
                 array.project(PlaceProjection::Index(index))
@@ -106,6 +107,7 @@ impl<'a> BodyBuild<'a>{
                 let ty = self.body.exprs[expr].ty.clone();
                 let kind = match function.kind{
                     thir::FunctionKind::Anon => mir::FunctionKind::Anon(function.id),
+                    thir::FunctionKind::Variant => mir::FunctionKind::Variant(function.id),
                     _ => mir::FunctionKind::Normal(function.id) 
                 };
                 Operand::Constant(mir::Constant{
@@ -169,7 +171,7 @@ impl<'a> BodyBuild<'a>{
     fn lower_let(&mut self,pattern:&Pattern, place: Place){
         match &pattern.kind{
             &PatternKind::Binding(_,variable,ref sub_pattern) => {
-                let local = self.new_local_for_variable(variable);
+                let local = *self.var_to_local.get(&variable).expect("There should be a variable");
                 self.assign_stmt(local.into(), RValue::Use(Operand::Load(place)));
                 if let Some(sub_pattern) = sub_pattern.as_ref(){
                     self.lower_let(&sub_pattern, local.into());
@@ -180,27 +182,36 @@ impl<'a> BodyBuild<'a>{
                     self.lower_let(field, place.clone().project(PlaceProjection::Field(FieldIndex::new(i as u32))));
                 }
             },
+            PatternKind::Struct(_,_,fields) => {
+                for &FieldPattern { field,ref pattern } in fields.iter(){
+                    self.lower_let(pattern, place.clone().project(PlaceProjection::Field(field)));
+                }
+            },
             PatternKind::Wildcard => {
-                let local = self.new_temporary();
+                let local = self.new_temporary(pattern.ty.clone());
                 self.assign_stmt(local.into(), RValue::Use(Operand::Load(place)));
             },
-            PatternKind::Constant(_) => unreachable!("Can't be used here"),
-            _ => todo!("{:?}",pattern),
+            PatternKind::Constant(_) => (),
+            PatternKind::Variant(enum_id,_,variant,fields) => {
+                let id = self.context.get_variant_by_index(*enum_id, *variant).id;
+                let place = place.project(PlaceProjection::Variant(self.context.ident(id).index, *variant));
+                for (i,field) in fields.iter().enumerate(){
+                    self.lower_let(field, place.clone().project(PlaceProjection::Field(FieldIndex::new(i as u32))));
+                }
+            },
         }
     }
-    fn new_temporary(&mut self) -> Local{
-        self.new_local(LocalKind::Temporary)
+    fn new_temporary(&mut self,ty:Type) -> Local{
+        self.new_local(LocalInfo { ty })
     }
-    fn new_local_for_variable(&mut self, variable : VariableIndex) -> Local{
-        let local = self.new_local(LocalKind::Variable(variable));
-        self.var_to_local.insert(variable, local);
-        local
+    fn new_local(&mut self,info: LocalInfo) -> Local{
+        self.result_body.locals.push(info)
     }
-    fn new_local(&mut self,kind: LocalKind) -> Local{
-        self.result_body.locals.push(kind)
+    fn push_stmt(&mut self, stmt: Stmt){
+        self.result_body.blocks[self.current_block].stmts.push(stmt);
     }
     fn assign_stmt(&mut self,lvalue: Place, rvalue : RValue ){
-        self.result_body.blocks[self.current_block].stmts.push(Stmt::Assign(lvalue,rvalue));
+        self.push_stmt(Stmt::Assign(lvalue,rvalue));
     }
     fn assign_constant(&mut self, place: Place, constant: Constant){
         self.assign_stmt(place, RValue::Use(Operand::Constant(constant)));
@@ -221,9 +232,16 @@ impl<'a> BodyBuild<'a>{
                 else{
                     self.assign_unit(Local::RETURN_PLACE.into());
                 }
+                self.terminate(Terminator::Return);
+                let next_block = self.new_block();
+                self.current_block = next_block;
+            },
+            ExprKind::Print(args) => {
+                let operands = args.iter().map(|arg| self.lower_as_operand(*arg)).collect();
+                self.push_stmt(Stmt::Print(operands));
             },
             _ => {
-                let temp = self.new_temporary();
+                let temp = self.new_temporary(self.body.exprs[expr].ty.clone());
                 self.lower_into_place(temp.into(),expr);
             }
         }
@@ -234,9 +252,10 @@ impl<'a> BodyBuild<'a>{
                 self.lower_stmt_expr(expr);
             },
             &StmtKind::Let(ref pattern,expr) => {
+                self.declare_bindings(&pattern);
                 match &pattern.kind{
                     &PatternKind::Binding(_,variable, None) => {
-                        let local = self.new_local_for_variable(variable);
+                        let local = self.var_to_local[&variable];
                         self.lower_into_place(local.into(), expr);
                     },
                     _ => {
@@ -249,13 +268,12 @@ impl<'a> BodyBuild<'a>{
 
     }
     fn lower_as_temp(&mut self, expr: ExprId) -> Local{
-        let local = self.new_temporary();
+        let local = self.new_temporary(self.body.exprs[expr].ty.clone());
         self.lower_into_place(local.into(), expr);
         local
     }
     fn lower_into_place(&mut self, place: Place, expr: ExprId){
         let ref kind = self.body.exprs[expr].kind;
-        let ref ty = self.body.exprs[expr].ty;
         match kind{
             ExprKind::Block(id) => {
                 let block = &self.body.blocks[*id];   
@@ -305,17 +323,13 @@ impl<'a> BodyBuild<'a>{
                 self.terminate(Terminator::Goto(merge_block));
                 self.current_block = merge_block;
             },
-            &ExprKind::Return(expr) => {
-                if let Some(expr) = expr{
-                    self.lower_into_place(Local::RETURN_PLACE.into(), expr);
-                }
-                else{
-                    self.assign_unit(Local::RETURN_PLACE.into());
-                }
-                self.terminate(Terminator::Return);
-                let next_block = self.new_block();
-                self.current_block = next_block;
-            },
+            &ExprKind::Return(_) => {
+                self.lower_stmt_expr(expr);
+            }, 
+            ExprKind::Print(_) | ExprKind::Assign(_,_) => {
+                self.lower_stmt_expr(expr);
+                self.assign_unit(place);
+            }
             &ExprKind::NeverCast(expr) => {
                 self.lower_as_temp(expr);
                 if !matches!(self.body.exprs[expr].kind,ExprKind::Call{..}) {
@@ -352,27 +366,44 @@ impl<'a> BodyBuild<'a>{
     }
     fn declare_bindings(&mut self, pattern:&Pattern){
         match &pattern.kind{
-            &PatternKind::Binding(name,variable,None) => {
-                self.new_local_for_variable(variable);
+            &PatternKind::Binding(_,variable,ref sub_pattern) => {
+                let local = self.new_local(LocalInfo { ty: pattern.ty.clone() });
+                self.var_to_local.insert(variable, local);
+                if let Some(sub_pattern) = sub_pattern.as_ref(){
+                    self.declare_bindings(sub_pattern);
+                }
             },
-            _ => todo!("Other bindings")
+            PatternKind::Tuple(elements) => {
+                for (_,element) in elements.iter().enumerate(){
+                    self.declare_bindings(element);
+                }
+            },
+            PatternKind::Constant(_) => (),
+            PatternKind::Wildcard => (),
+            PatternKind::Struct(_,_,operands) => {
+                for &FieldPattern{field:_,ref pattern} in operands.iter(){
+                    self.declare_bindings(pattern);
+                }
+            },
+            PatternKind::Variant(_,_,_,fields) => {
+                for element in fields.iter(){
+                    self.declare_bindings(element);
+                }
+            }
         }
     }
     fn lower_body(mut self, expr: ExprId) -> Body{
         self.current_block = self.result_body.blocks.push(Block { stmts: Vec::new(), terminator: None });
-        let return_local = self.new_local(LocalKind::Return);
-        let _ = self.body.params.iter().map(|param|{
-            match &param.pattern.kind{
-                PatternKind::Binding(_,name,None) => {
-                    let local = self.new_local(LocalKind::Argument(Some(*name)));
-                    self.var_to_local.insert(*name, local);
-                    local
-                },
-                _ => {
-                    self.new_local(LocalKind::Argument(None))
-                }
+        let return_local = self.new_local(LocalInfo { ty: self.body.exprs[expr].ty.clone() });
+        for param in self.body.params.iter(){
+            self.new_local(LocalInfo{ty:param.ty.clone()});
+        }
+        for param in self.body.params.iter(){
+            match param.pattern.kind{
+                PatternKind::Binding(_, _, None) => (),
+                _ => self.declare_bindings(&param.pattern),
             }
-        }).collect::<Vec<_>>();
+        }
         self.lower_into_place(return_local.into(),expr);
         self.terminate(Terminator::Return);
         self.result_body

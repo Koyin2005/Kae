@@ -1,4 +1,4 @@
-use crate::{data_structures::IntoIndex, frontend::{ast_lowering::hir::{self, DefId, DefIdMap, DefKind, Ident}, tokenizing::SourceLocation}, identifiers::{SymbolIndex, VariantIndex}, GlobalSymbols};
+use crate::{data_structures::IntoIndex, frontend::{ast_lowering::hir::{self, DefId, DefIdMap, Ident}, tokenizing::SourceLocation}, identifiers::{SymbolIndex, VariantIndex}, GlobalSymbols};
 
 use super::{ types::{generics::GenericArgs, subst::{Subst, TypeSubst}, AdtKind, Type}};
 

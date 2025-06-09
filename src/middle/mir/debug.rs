@@ -57,11 +57,15 @@ impl<'a> DebugMir<'a>{
                     ConstantKind::ZeroSized => TypeFormatter::new(self.symbol_interner, self.context).format_type(&constant.ty),
                     ConstantKind::Function(kind,generic_args) => {
                         let name = match kind {
-                            FunctionKind::Anon(_) => "anonymous",
-                            FunctionKind::Normal(id) => self.symbol_interner.get(self.context.ident(*id).index),
+                            FunctionKind::Anon(_) => "anonymous".to_string(),
+                            FunctionKind::Normal(id) => self.symbol_interner.get(self.context.ident(*id).index).to_string(),
+                            FunctionKind::Variant(id) => {
+                                let base = self.symbol_interner.get(self.context.ident(self.context.expect_owner_of(*id)).index);
+                                format!("{}::{}",base, self.symbol_interner.get(self.context.ident(*id).index))
+                            },
                             FunctionKind::Builtin(builtin) => match builtin{
                                 hir::BuiltinKind::Panic => "panic"
-                            }
+                            }.to_string()
                         };
                         format!("{}{}",name,TypeFormatter::new(self.symbol_interner, self.context).format_generic_args(generic_args))
                         
@@ -104,9 +108,10 @@ impl<'a> DebugMir<'a>{
             RValue::Adt(adt,operands) => {
                 let &(id,ref generic_args,variant) = adt.as_ref();
                 match variant{
-                    Some(_) => {
+                    Some(variant) => {
                         let mut output = TypeFormatter::new(self.symbol_interner, self.context).format_type(&Type::new_adt(generic_args.clone(), id,AdtKind::Enum));
-                        output.push_str(&format!("{}",self.symbol_interner.get(self.context.expect_variant(id).name.index)));
+                        let id = self.context.get_variant_by_index(id, variant).id;
+                        output.push_str(&format!("::{}",self.symbol_interner.get(self.context.expect_variant(id).name.index)));
                         let mut first = true;
                         output.push('(');
                         for operand in  operands.iter(){
@@ -183,7 +188,23 @@ impl<'a> DebugMir<'a>{
                 Stmt::Assign(lvalue,rvalue) => {
                     self.push_next_line(&format!("{} = {};",self.debug_lvalue(lvalue),self.debug_rvalue(rvalue)));
                 },
-                Stmt::Nop => ()
+                Stmt::Print(operands) => {
+                    let mut output = "print".to_string();
+                    output.push('(');
+                    let mut first = true;
+                    for arg in operands{
+                        if !first{
+                            output.push(',');
+                        }
+                        output.push_str(&self.debug_operand(arg));
+                        first = false;
+                    }
+                    output.push(')');
+                    output.push(';');
+                    self.push_next_line(&output);
+
+                }
+                Stmt::Nop => self.push_next_line("nop"),
             }
         }
         if let Some(terminator) = block.terminator.as_ref(){

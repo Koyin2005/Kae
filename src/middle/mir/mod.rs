@@ -1,12 +1,14 @@
 use std::fmt::Display;
 
-use crate::{data_structures::{IndexVec, IntoIndex}, define_id, frontend::{ast_lowering::hir::{BinaryOp, BuiltinKind, DefId, UnaryOp}, typechecking::types::{generics::GenericArgs, Type}}, identifiers::{BodyIndex, FieldIndex, SymbolIndex, VariableIndex, VariantIndex}};
+use crate::{data_structures::IndexVec, define_id, frontend::{ast_lowering::hir::{BinaryOp, BuiltinKind, DefId, UnaryOp}, typechecking::types::{generics::GenericArgs, Type}}, 
+    identifiers::{BodyIndex, FieldIndex, SymbolIndex, VariantIndex}};
 
 pub mod debug;
 
 pub enum FunctionKind {
     Anon(DefId),
     Normal(DefId),
+    Variant(DefId),
     Builtin(BuiltinKind)
 }
 pub enum ConstantKind {
@@ -57,7 +59,7 @@ pub enum RValue {
     Call(Operand,Box<[Operand]>),
     Array(Box<[Operand]>),
     Adt(Box<(DefId,GenericArgs,Option<VariantIndex>)>,IndexVec<FieldIndex,Operand>),
-    Tuple(Box<[Operand]>)
+    Tuple(Box<[Operand]>),
 }
 pub enum Operand {
     Constant(Constant),
@@ -65,6 +67,7 @@ pub enum Operand {
 }
 pub enum Stmt{
     Assign(Place,RValue),
+    Print(Box<[Operand]>),
     Nop
 }
 pub enum Terminator {
@@ -77,7 +80,7 @@ pub enum Terminator {
 define_id!(Local);
 define_id!(BlockId);
 impl Local{
-    pub const RETURN_PLACE : Local = Local::new(0);
+    pub const RETURN_PLACE : Local = Local(0);
 }
 impl From<Local> for Place{
     fn from(value: Local) -> Self {
@@ -89,11 +92,8 @@ impl Display for BlockId{
         f.write_fmt(format_args!("bb{}",self.0))
     }
 }
-pub enum LocalKind {
-    Variable(VariableIndex),
-    Argument(Option<VariableIndex>),
-    Temporary,
-    Return
+pub struct LocalInfo{
+    pub ty : Type
 }
 pub enum BodyKind {
     Anonymous,
@@ -108,7 +108,7 @@ pub struct BodySource{
 }
 pub struct Body{
     pub source : BodySource,
-    pub locals : IndexVec<Local,LocalKind>,
+    pub locals : IndexVec<Local,LocalInfo>,
     pub blocks : IndexVec<BlockId,Block>
 }
 

@@ -1,4 +1,4 @@
-use crate::{data_structures::{IndexVec, IntoIndex}, errors::ErrorReporter, identifiers::BodyIndex, SymbolInterner};
+use crate::{data_structures::IndexVec, errors::ErrorReporter, identifiers::BodyIndex, SymbolInterner};
 
 use super::{ast_lowering::hir::{self, DefIdMap}, pattern_checking::{lowering::lower_to_pattern, PatternChecker}, thir::{self, Block, Expr, ExprId, Param, Stmt, StmtId, StmtKind, Thir, ThirBody}, typechecking::{checking::TypeCheckResults, context::TypeContext, types::{generics::GenericArgs, AdtKind}}};
 

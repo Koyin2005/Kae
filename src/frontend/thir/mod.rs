@@ -1,6 +1,6 @@
 use crate::{data_structures::IndexVec, define_id, identifiers::{BodyIndex, FieldIndex, SymbolIndex, VariableIndex, VariantIndex}};
 
-use super::{ast_lowering::hir::{self, BinaryOp, DefId, DefIdMap, DefKind, LiteralKind, LogicalOp, UnaryOp}, tokenizing::SourceLocation, typechecking::types::{generics::GenericArgs, AdtKind, Type}};
+use super::{ast_lowering::hir::{self, BinaryOp, DefId, DefIdMap, LiteralKind, LogicalOp, UnaryOp}, tokenizing::SourceLocation, typechecking::types::{generics::GenericArgs, AdtKind, Type}};
 
 define_id!(ExprId);
 define_id!(BlockId);

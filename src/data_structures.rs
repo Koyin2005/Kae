@@ -109,11 +109,6 @@ macro_rules! define_id {
     ($id:ident) => {
         #[derive(Clone, Copy,PartialEq,Eq,Hash,Debug,Ord,PartialOrd)]
         pub struct $id(u32);
-        impl $id{
-            pub const fn new(index:u32)-> Self{
-                Self(index)
-            }
-        }
         impl $crate::data_structures::IntoIndex for $id{
             fn new(index:u32)-> Self{
                 Self(index)
