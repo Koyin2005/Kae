@@ -1,6 +1,6 @@
-use crate::{data_structures::IntoIndex, frontend::typechecking::{context::TypeContext, types::{format::TypeFormatter, AdtKind, Type}}, SymbolInterner};
+use crate::{data_structures::IntoIndex, frontend::{ast_lowering::hir, typechecking::{context::TypeContext, types::{format::TypeFormatter, AdtKind, Type}}}, SymbolInterner};
 
-use super::{Block, Body, Constant, FunctionKind, Mir, Operand, Place, PlaceProjection, RValue, Stmt, Terminator};
+use super::{Block, BlockId, Body, BodyKind, ConstantKind, FunctionKind, Mir, Operand, Place, PlaceProjection, RValue, Stmt, Terminator};
 
 
 pub struct DebugMir<'a>{
@@ -31,7 +31,7 @@ impl<'a> DebugMir<'a>{
     }
 
     fn debug_lvalue(&self, lvalue: &Place) -> String{
-        let mut output = format!("local{}",lvalue.local.as_index());
+        let mut output = format!("_{}",lvalue.local.as_index());
         for projection in &lvalue.projections{
             match projection{
                 PlaceProjection::Field(field_index) => {
@@ -41,7 +41,7 @@ impl<'a> DebugMir<'a>{
                     output = format!("({output} as {})",self.symbol_interner.get(*name));
                 },
                 PlaceProjection::Index(local) => {
-                    output.push_str(&format!("[local{}]",local.as_index()));
+                    output.push_str(&format!("[_{}]",local.as_index()));
                 }
             }
         }
@@ -50,15 +50,18 @@ impl<'a> DebugMir<'a>{
     fn debug_operand(&self, operand: &Operand) -> String{
         match operand{
             Operand::Constant(constant) => {
-                match constant{
-                    Constant::Bool(value) => value.to_string(),
-                    Constant::Int(value) => value.to_string(),
-                    Constant::String(index) => format!("\"{}\"",self.symbol_interner.get(*index)),
-                    Constant::ZeroSized(ty) => TypeFormatter::new(self.symbol_interner, self.context).format_type(ty),
-                    Constant::Function(id,kind,generic_args) => {
+                match &constant.kind{
+                    ConstantKind::Bool(value) => value.to_string(),
+                    ConstantKind::Int(value) => value.to_string(),
+                    ConstantKind::String(index) => format!("\"{}\"",self.symbol_interner.get(*index)),
+                    ConstantKind::ZeroSized => TypeFormatter::new(self.symbol_interner, self.context).format_type(&constant.ty),
+                    ConstantKind::Function(kind,generic_args) => {
                         let name = match kind {
-                            FunctionKind::Anon => "anonymous",
-                            FunctionKind::Normal => self.symbol_interner.get(self.context.ident(*id).index)
+                            FunctionKind::Anon(_) => "anonymous",
+                            FunctionKind::Normal(id) => self.symbol_interner.get(self.context.ident(*id).index),
+                            FunctionKind::Builtin(builtin) => match builtin{
+                                hir::BuiltinKind::Panic => "panic"
+                            }
                         };
                         format!("{}{}",name,TypeFormatter::new(self.symbol_interner, self.context).format_generic_args(generic_args))
                         
@@ -172,7 +175,9 @@ impl<'a> DebugMir<'a>{
             }
         }
     }
-    fn format_block(&mut self,block:&Block){
+    fn format_block(&mut self, block_id: BlockId,block:&Block){
+        self.push_next_line(&format!("bb{}",block_id.as_index()));
+        self.increase_indent_level();
         for stmt in block.stmts.iter(){
             match stmt{
                 Stmt::Assign(lvalue,rvalue) => {
@@ -181,37 +186,56 @@ impl<'a> DebugMir<'a>{
                 Stmt::Nop => ()
             }
         }
-        match &block.terminator{
-            Terminator::Switch(operand,branches,otherwise) => {
-                let mut output = format!("switch {} -> {{",self.debug_operand(operand));
-                let mut first = true;
-                for (value,branch) in branches{
-                    if !first{
-                        output.push(',');
+        if let Some(terminator) = block.terminator.as_ref(){
+            match terminator{
+                Terminator::Switch(operand,branches,otherwise) => {
+                    let mut output = format!("switch {} -> {{",self.debug_operand(operand));
+                    let mut first = true;
+                    for (value,branch) in branches{
+                        if !first{
+                            output.push(',');
+                        }
+                        output.push_str(&format!("{} : {}",value,branch));
+                        first = false;
                     }
-                    output.push_str(&format!("{} : {}",value,branch));
-                    first = false;
+                    output.push(',');
+                    output.push_str(&format!("otherwise : {}",otherwise));
+                    output.push('}');
+                    self.push_next_line(&output);
+                },
+                Terminator::Return => {
+                    self.push_next_line("return");
+                },
+                Terminator::Unreachable => {
+                    self.push_next_line("unreachable");
+                },
+                Terminator::Goto(block) => {
+                    self.push_next_line(&format!("goto -> {}",block));
                 }
-                output.push(',');
-                output.push_str(&format!("otherwise : {}",otherwise));
-                output.push('}');
-                self.push_next_line(&output);
-            },
-            Terminator::Return => {
-                self.push_next_line("return");
-            },
-            Terminator::Unreachable => {
-                self.push_next_line("unreachable");
-            },
-            Terminator::Goto(block) => {
-                self.push_next_line(&format!("goto -> {}",block));
             }
         }
+        self.decrease_indent_level();
     }
     fn format_body(&mut self,body:&Body){
-        for (i,block) in body.blocks.iter().enumerate(){
+        let name = match body.source.kind{
+            BodyKind::Anonymous => "anonymous".to_string(),
+            BodyKind::Function => self.symbol_interner.get(self.context.ident(body.source.id).index).to_string(),
+            BodyKind::Constructor =>  self.symbol_interner.get(self.context.ident(body.source.id).index).to_string()
+        };
+        let mut first_line = format!("fun {}(",name);
+        let mut first = true;
+        for (i,ty) in body.source.params.iter().enumerate(){
+            if !first{
+                first_line.push(',');
+            }
+            first_line.push_str(&format!("_{}:{}",i+1,TypeFormatter::new(self.symbol_interner, self.context).format_type(ty)));
+            first = false;
+        }
+        first_line.push_str(&format!(") -> {}",TypeFormatter::new(self.symbol_interner,self.context).format_type(&body.source.return_type)));
+        self.push_next_line(&first_line);
+        for (id,block) in body.blocks.index_value_iter(){
             self.increase_indent_level();
-            self.format_block(block);
+            self.format_block(id,block);
             self.decrease_indent_level();
         }
         self.output.push('\n');

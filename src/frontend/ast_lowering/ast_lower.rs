@@ -10,7 +10,7 @@ use crate::{
 };
 
 use super::{
-    hir::{self, Body, DefId, DefIdMap, DefKind, FunctionDef, GenericArg, Hir, HirId, Ident, Item, LiteralKind, PatternKind, Resolution, Type}, name_finding::{self, NameScopes}, resolve::Resolver, scope::{ScopeId, ScopeKind}, SymbolInterner
+    hir::{self, Body, BodyOwner, DefId, DefIdMap, DefKind, FunctionDef, GenericArg, Hir, HirId, Ident, Item, LiteralKind, PatternKind, Resolution, Type}, name_finding::{self, NameScopes}, resolve::Resolver, scope::{ScopeId, ScopeKind}, SymbolInterner
 };
 use crate::identifiers::ItemIndex;
 
@@ -25,7 +25,8 @@ pub struct AstLowerer<'a>{
     error_reporter: ErrorReporter,
     prev_scopes : RefCell<Vec<ScopeId>>,
     bodies : IndexVec<BodyIndex,Body>,
-    body_owners : DefIdMap<BodyIndex>,
+    body_owners : IndexVec<BodyIndex,BodyOwner>,
+    owners_to_bodies : DefIdMap<BodyIndex>,
     resolver : RefCell<Resolver>
 }
 
@@ -41,7 +42,8 @@ impl<'a> AstLowerer<'a>{
             prev_scopes : RefCell::new(Vec::new()),
             error_reporter: ErrorReporter::new(false),
             bodies : IndexVec::new(),
-            body_owners:DefIdMap::new()
+            body_owners:IndexVec::new(),
+            owners_to_bodies:DefIdMap::new()
         }
     }
     fn next_id(&self) -> HirId{
@@ -234,7 +236,7 @@ impl<'a> AstLowerer<'a>{
         })?;
         Ok((params,param_types,return_type))
     }
-    fn lower_function(&mut self, def_id: DefId,id:NodeId,sig:ast::FunctionSig,body:ast::ExprNode) -> Result<hir::Function,LoweringErr>{
+    fn lower_function(&mut self, def_id: DefId,id:NodeId,sig:ast::FunctionSig,body:ast::ExprNode,is_anon: bool) -> Result<hir::Function,LoweringErr>{
         let span = body.location;
         self.begin_scope(id);
         let params_and_return_type = self.lower_function_sig(sig);
@@ -251,7 +253,9 @@ impl<'a> AstLowerer<'a>{
                     value:body?,
                     span
                 });
-                self.body_owners.insert(def_id, body);
+
+                self.owners_to_bodies.insert(def_id, body);
+                self.body_owners.push(if is_anon { BodyOwner::AnonFunction(def_id)} else { BodyOwner::Function(def_id)});
                 body
             }
         })
@@ -437,7 +441,7 @@ impl<'a> AstLowerer<'a>{
             ast::ExprNodeKind::Function(sig,body) => 
                 hir::ExprKind::Function({
                     let id = self.expect_def_id(expr.id, "Expected a function id");
-                    Box::new(hir::AnonFunction { id, function: self.lower_function(id,expr.id,sig,*body)? 
+                    Box::new(hir::AnonFunction { id, function: self.lower_function(id,expr.id,sig,*body,true)? 
                 })
             }),
             ast::ExprNodeKind::Print(args) => hir::ExprKind::Print(args.into_iter().map(|arg| self.lower_expr(arg)).collect::<Vec<_>>().into_iter().collect::<Result<Vec<_>,_>>()?),
@@ -578,7 +582,7 @@ impl<'a> AstLowerer<'a>{
                 self.begin_scope(function_def.id);
                 let ast::ParsedFunction{proto:ast::FunctionProto{name:_,generic_params,sig},body} = function_def.function;
                 let generics = self.lower_generic_params(func_id,generic_params);
-                let function = self.lower_function(func_id, function_def.id, sig,body);
+                let function = self.lower_function(func_id, function_def.id, sig,body,false);
                 //End item scope
                 self.end_scope();
                 let function = function?;
@@ -599,7 +603,7 @@ impl<'a> AstLowerer<'a>{
                             let name = self.name_info.name_map[method_id];
                             self.begin_scope(method.id);
                             let generics = self.lower_generic_params(method_id,method.function.proto.generic_params.take());
-                            let function = self.lower_function(method_id,method.id,method.function.proto.sig, method.function.body);
+                            let function = self.lower_function(method_id,method.id,method.function.proto.sig, method.function.body,false);
                             self.end_scope();
                             Ok(FunctionDef { id:method_id, generics:generics?, name, function:function? })
                         })();
@@ -672,6 +676,6 @@ impl<'a> AstLowerer<'a>{
         if self.error_reporter.error_occurred(){
             return Err(LoweringErr);
         }
-        Ok(Hir{items:self.items,defs_to_items:self.def_id_map,bodies:self.bodies,body_owners:self.body_owners})
+        Ok(Hir{items:self.items,defs_to_items:self.def_id_map,bodies:self.bodies,body_owners:self.body_owners,owner_to_bodies:self.owners_to_bodies})
     }
 }

@@ -175,6 +175,25 @@ impl TypeContext{
             hir::Resolution::SelfType(_) | hir::Resolution::None => 0
         }
     }
+    pub fn is_type_inhabited(&self, ty: &Type) -> bool{
+        match ty{
+            Type::Bool|Type::Error|Type::Float|Type::Int|Type::Param(_,_) |Type::String => true,
+            Type::Function(_,_) => true,
+            Type::Never => false,
+            Type::Array(element_type) => self.is_type_inhabited(element_type),
+            Type::Tuple(elements) => elements.iter().all(|element| self.is_type_inhabited(element)),
+            Type::Adt(args,id,kind) => match kind{
+                AdtKind::Enum => {
+                    let variants = self.expect_variants_for(*id);
+                    if variants.is_empty() { false } else { 
+                        variants.iter().any(|&variant| self.get_variant_by_index(*id, variant).fields.iter().all(|field| 
+                            self.is_type_inhabited(&TypeSubst::new(args).instantiate_type(field))))
+                        }
+                },
+                AdtKind::Struct => self.expect_struct(*id).fields.iter().all(|field| self.is_type_inhabited(&TypeSubst::new(args).instantiate_type(&field.ty)))
+            }
+        }
+    }
     pub fn is_type_recursive(&self,ty:&Type,id:DefId)->bool{
         match ty{
             Type::Int | Type::Float | Type::Bool | Type::String | Type::Error | Type::Never | Type::Param(_,_) => false,

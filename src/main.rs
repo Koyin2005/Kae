@@ -24,8 +24,8 @@ fn compile(source:&str)->Option<Program>{
     ItemCheck::new(&context,&interner,&error_reporter).check_items(hir.items.iter()).ok()?;
     let type_checker = TypeChecker::new(&context,&symbols,&hir.bodies,&interner);
     let type_check_results = type_checker.check(hir.items.iter()).ok()?;
-    let thir = ThirLower::new(type_check_results,&context,&interner).lower_bodies(hir.bodies,hir.body_owners).ok()?;
-    let mir = MirBuild::new(thir,&context).lower();
+    let thir = ThirLower::new(type_check_results,&context,&interner).lower_bodies(hir.bodies,hir.owner_to_bodies).ok()?;
+    let mir = MirBuild::new(thir,&context).lower(hir.body_owners);
     println!("{}",DebugMir::new(&mir, &context, &interner).debug());
     let Ok(code) = Compiler::new().compile() else {
         return None;

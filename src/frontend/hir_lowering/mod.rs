@@ -247,6 +247,7 @@ impl <'a> BodyLower<'a>{
         };
         if let Some(coercion) = self.lower_context.results.coercions.get(&expr.id){
             let span = expr.span;
+            let is_never_cast = ty.is_never();
             let expr_id = self.thir.exprs.push(
                 Expr{
                     kind,
@@ -254,7 +255,7 @@ impl <'a> BodyLower<'a>{
                     ty
                 }
             );
-            self.thir.exprs.push(Expr { ty: coercion.clone(), kind: thir::ExprKind::Cast(expr_id), span })
+            self.thir.exprs.push(Expr { ty: coercion.clone(), kind: if is_never_cast { thir::ExprKind::NeverCast(expr_id) } else { thir::ExprKind::Cast(expr_id)}, span })
             
         } else { 
             self.thir.exprs.push(Expr{

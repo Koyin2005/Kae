@@ -81,6 +81,7 @@ pub enum ExprKind {
     Block(BlockId),
     While(ExprId,ExprId),
     StructLiteral(Box<StructLiteral>),
+    NeverCast(ExprId),
     Cast(ExprId)
 }
 #[derive(Debug)]

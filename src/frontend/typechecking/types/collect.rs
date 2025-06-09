@@ -82,7 +82,7 @@ impl<'a> ItemCollector<'a>{
                     self.add_child_for(impl_.id, method.id);
                     self.collect_names_for_generics(method.id, &method.generics);
                     self.context.type_ids_to_method_impls.entry(type_id).or_default().push(method.id);
-                    self.context.has_receiver.insert(method.id,self.hir.bodies[self.hir.body_owners[method.id]].params.first().is_some_and(|param|{
+                    self.context.has_receiver.insert(method.id,self.hir.bodies[self.hir.owner_to_bodies[method.id]].params.first().is_some_and(|param|{
                         matches!(param.pattern.kind,hir::PatternKind::Binding(_,name,_) if name.index == self.symbols.lower_self_symbol())
                     }));
                     self.next_param_index = parent_count;

@@ -19,6 +19,12 @@ impl<Index:IntoIndex,Value> IndexVec<Index,Value>{
     pub fn new()->Self{
         Self::with_capacity(0)
     }
+    pub fn last(&self) -> Option<&Value>{
+        self.data.last()
+    }
+    pub fn last_mut(&mut self) -> Option<&mut Value>{
+        self.data.last_mut()
+    }
     pub fn last_index(&self) -> Option<Index>{
         let last = (self.len() as u32).checked_sub(1)?;
         Some(Index::new(last))
@@ -103,6 +109,11 @@ macro_rules! define_id {
     ($id:ident) => {
         #[derive(Clone, Copy,PartialEq,Eq,Hash,Debug,Ord,PartialOrd)]
         pub struct $id(u32);
+        impl $id{
+            pub const fn new(index:u32)-> Self{
+                Self(index)
+            }
+        }
         impl $crate::data_structures::IntoIndex for $id{
             fn new(index:u32)-> Self{
                 Self(index)

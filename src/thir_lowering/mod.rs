@@ -1,7 +1,7 @@
 use fxhash::FxHashMap;
 use indexmap::IndexMap;
 
-use crate::{data_structures::{IndexVec, IntoIndex}, frontend::{ast_lowering::hir, thir::{self, Expr, ExprId, ExprKind, Pattern, PatternKind, StmtKind, Thir, ThirBody}, typechecking::{context::TypeContext, types::Type}}, identifiers::{FieldIndex, VariableIndex}, middle::mir::{self, Block, Body, Constant, Local, LocalKind, Mir, Operand, Place, PlaceProjection, RValue, Stmt}};
+use crate::{data_structures::{IndexVec, IntoIndex}, frontend::{ast_lowering::hir::{self, BodyOwner, DefId, DefIdMap, DefKind}, thir::{self, Expr, ExprId, ExprKind, Pattern, PatternKind, StmtKind, Thir, ThirBody}, typechecking::{context::TypeContext, types::Type}}, identifiers::{BodyIndex, FieldIndex, VariableIndex}, middle::mir::{self, Block, BlockId, Body, BodyKind, BodySource, Constant, Local, LocalKind, Mir, Operand, Place, PlaceProjection, RValue, Stmt, Terminator}};
 
 
 pub struct MirBuild<'a>{
@@ -13,9 +13,21 @@ impl<'a> MirBuild<'a>{
     pub fn new(thir : Thir, context: &'a TypeContext) -> Self{
         Self {  thir, context}
     }
-    pub fn lower(self) -> Mir{
-        let bodies = self.thir.bodies.into_iter().map(|(body,expr)|{
-            BodyBuild::new(self.context,&body).lower_body(expr)
+    pub fn lower(self,body_owners : IndexVec<BodyIndex,BodyOwner>) -> Mir{
+        let bodies = self.thir.bodies.into_iter().zip(body_owners.into_iter()).map(|((body,expr),owner)|{
+            let (id,kind) = match owner{
+                BodyOwner::AnonFunction(id) => {
+                    (id,BodyKind::Anonymous)
+                },
+                BodyOwner::Function(id) => {
+
+                    (id,BodyKind::Function)
+                }
+            };
+            let params = body.params.iter().map(|param| &param.ty).cloned().collect();
+            let return_type = body.exprs[expr].ty.clone();
+            let source = BodySource { id, kind, params, return_type };
+            BodyBuild::new(self.context,&body,source).lower_body(expr)
         }).collect();
         Mir { bodies:  bodies}
     }
@@ -25,25 +37,35 @@ impl<'a> MirBuild<'a>{
 struct BodyBuild<'a>{
     context:&'a TypeContext,
     body: &'a ThirBody,
+    current_block : BlockId,
     result_body : Body,
     var_to_local : IndexMap<VariableIndex,Local>,
-    current_stmts : Vec<Stmt>
 }
 impl<'a> BodyBuild<'a>{
-    fn new(context:&'a TypeContext,body:&'a ThirBody) -> Self{
-        Self{body:&body,context, result_body:Body { locals: IndexVec::new(), blocks:IndexVec::new()},current_stmts:Vec::new(),var_to_local:IndexMap::new()}
+    fn new(context:&'a TypeContext,body:&'a ThirBody,source:BodySource) -> Self{
+        Self{body:&body,context,current_block:BlockId::new(0), result_body:Body { 
+                locals: IndexVec::new(),
+                blocks:IndexVec::new(),
+                source
+            },var_to_local:IndexMap::new()
+        }
     }
-    fn lower_as_place(&mut self,expr:&Expr) -> Place{
-        match &expr.kind{
+    fn new_block(&mut self) -> BlockId{
+        self.result_body.blocks.push(Block { stmts: Vec::new(), terminator: None })
+    }
+    fn terminate(&mut self, terminator: Terminator) {
+        self.result_body.blocks[self.current_block].terminator = Some(terminator);
+    }
+    fn lower_as_place(&mut self,expr:ExprId) -> Place{
+        match &self.body.exprs[expr].kind{
             ExprKind::Variable(variable) => self.var_to_local[variable].into(),
             &ExprKind::Field(base,field) => {
-                let base = &self.body.exprs[base];
                 let place = self.lower_as_place(base);
                 place.project(PlaceProjection::Field(field))
             },
             ExprKind::Index(array,index) => {
-                let array = self.lower_as_place(&self.body.exprs[*array]);
-                let index = self.lower_as_place(&self.body.exprs[*index]);
+                let array = self.lower_as_place(*array);
+                let index = self.lower_as_place(*index);
                 let index = if index.projections.is_empty(){
                     index.local
                 } else {
@@ -54,94 +76,93 @@ impl<'a> BodyBuild<'a>{
                 array.project(PlaceProjection::Index(index))
             }   
             _ => {
-                let temp: Place = self.new_temporary().into();
-                self.lower_into_place(temp.clone(), expr);
-                temp
+                self.lower_as_temp(expr).into()
             }
         }
     }
-    fn lower_as_operand(&mut self,expr:&Expr) -> Operand{
-        match &expr.kind{
+    
+    fn lower_as_operand(&mut self,expr:ExprId) -> Operand{
+        match &self.body.exprs[expr].kind{
             ExprKind::Literal(literal) => {
-                Operand::Constant(match *literal {
-                    hir::LiteralKind::Bool(bool) =>  Constant::Bool(bool),
-                    hir::LiteralKind::Float(_) => todo!("Floats"),
-                    hir::LiteralKind::Int(int) => Constant::Int(int),
-                    hir::LiteralKind::String(string) => Constant::String(string)
+                let ty = self.body.exprs[expr].ty.clone();
+                Operand::Constant(mir::Constant{
+                    ty,
+                    kind:match *literal {
+                        hir::LiteralKind::Bool(bool) =>  mir::ConstantKind::Bool(bool),
+                        hir::LiteralKind::Float(_) => todo!("Floats"),
+                        hir::LiteralKind::Int(int) => mir::ConstantKind::Int(int),
+                        hir::LiteralKind::String(string) => mir::ConstantKind::String(string)
+                    }
                 })
             },
             ExprKind::Tuple(elements) if elements.is_empty() => {
-                Operand::Constant(mir::Constant::ZeroSized(expr.ty.clone()))
-            },
-            ExprKind::Block(id) => {
-                self.lower_block(&self.body.blocks[*id]).unwrap_or_else(|| Operand::Constant(mir::Constant::ZeroSized(Type::new_unit())))
+                let ty = self.body.exprs[expr].ty.clone();
+                Operand::Constant(mir::Constant{
+                    ty,
+                    kind : mir::ConstantKind::ZeroSized
+                })
             },
             ExprKind::Function(function) => {
+                let ty = self.body.exprs[expr].ty.clone();
                 let kind = match function.kind{
-                    thir::FunctionKind::Anon => mir::FunctionKind::Anon,
-                    _ => mir::FunctionKind::Normal 
+                    thir::FunctionKind::Anon => mir::FunctionKind::Anon(function.id),
+                    _ => mir::FunctionKind::Normal(function.id) 
                 };
-                Operand::Constant(Constant::Function(function.id, kind,function.generic_args.clone()))
+                Operand::Constant(mir::Constant{
+                    ty,
+                    kind : mir::ConstantKind::Function(kind, function.generic_args.clone())
+                })
             },
-            ExprKind::Assign(lvalue,rvalue) => {
-                
-                let lvalue = &self.body.exprs[*lvalue];
-                let rvalue = &self.body.exprs[*rvalue];
-                let lvaule = self.lower_as_place(lvalue);
-                self.lower_into_place(lvaule.clone(), rvalue);
-                Operand::Constant(mir::Constant::ZeroSized(expr.ty.clone()))
-            }
+            ExprKind::Builtin(generic_args,kind) => {
+                let ty = self.body.exprs[expr].ty.clone();
+                let kind = mir::FunctionKind::Builtin(*kind);
+                Operand::Constant(mir::Constant{
+                    ty,
+                    kind : mir::ConstantKind::Function(kind, generic_args.clone())
+                })
+            },
             _ => Operand::Load(self.lower_as_place(expr)),
         }
     }
-    fn lower_block(&mut self,block:&thir::Block) -> Option<Operand>{
-        for &stmt in &block.stmts{
-            self.lower_stmt(&self.body.stmts[stmt]);
-        }
-        block.expr.map(|expr| &self.body.exprs[expr]).map(|expr|{
-            self.lower_as_operand(expr)
-        })
-    }
-    fn lower_as_rvalue(&mut self,expr:&Expr) -> RValue{
+    fn lower_as_rvalue(&mut self,expr_id:ExprId) -> RValue{
+        let expr = &self.body.exprs[expr_id];
         match &expr.kind{
-            ExprKind::Binary(op,left,right) => {
-                let left = &self.body.exprs[*left];
-                let right = &self.body.exprs[*right];
+            &ExprKind::Binary(op,left,right) => {
                 let left = self.lower_as_operand(left);
                 let right = self.lower_as_operand(right);
-                RValue::Binary(*op, Box::new((left,right)))
+                RValue::Binary(op, Box::new((left,right)))
             },
-            ExprKind::Unary(op,operand) => {
-                let operand = self.lower_as_operand(&self.body.exprs[*operand]);
-                RValue::Unary(*op, operand)
+            &ExprKind::Unary(op,operand) => {
+                let operand = self.lower_as_operand(operand);
+                RValue::Unary(op, operand)
             },
             ExprKind::Tuple(elements) if !elements.is_empty() => {
-                let operands = elements.iter().copied().map(|element| self.lower_as_operand(&self.body.exprs[element])).collect();
+                let operands = elements.iter().copied().map(|element| self.lower_as_operand(element)).collect();
                 RValue::Tuple(operands)
             },
             ExprKind::Call(callee,args) => {
-                let callee = self.lower_as_operand(&self.body.exprs[*callee]);
-                let args = args.iter().map(|arg| self.lower_as_operand(&self.body.exprs[*arg])).collect();
+                let callee = self.lower_as_operand(*callee);
+                let args = args.iter().map(|arg| self.lower_as_operand(*arg)).collect();
                 RValue::Call(callee, args)
             },
             ExprKind::Array(elements) => {
-                let elements = elements.iter().copied().map(|element| self.lower_as_operand(&self.body.exprs[element])).collect();
+                let elements = elements.iter().copied().map(|element| self.lower_as_operand(element)).collect();
                 RValue::Array(elements)
             },
             ExprKind::StructLiteral(struct_literal) => {
                 let field_map = struct_literal.fields.iter().map(|field_expr| (field_expr.field,field_expr.expr)).collect::<FxHashMap<_,_>>();
                 let fields = (0..struct_literal.fields.len() as u32).map(|field|{
                     let expr = field_map[&FieldIndex::new(field)];
-                    let expr = &self.body.exprs[expr];
                     self.lower_as_operand(expr)
                 }).collect();
                 RValue::Adt(Box::new((struct_literal.id,struct_literal.generic_args.clone(),struct_literal.variant)), fields)
             },
-            ExprKind::Block(_) | ExprKind::Field(_,_) | 
+            ExprKind::Literal(_) | ExprKind::Block(_) | ExprKind::If(_, _, _)|
+            ExprKind::Field(_,_) | 
             ExprKind::Variable(_) | ExprKind::Index(_,_) | 
-            ExprKind::Literal(_) | ExprKind::Assign(_,_) |
+            ExprKind::Assign(_,_) |
             ExprKind::Function(_)
-            => RValue::Use(self.lower_as_operand(expr)),
+            => RValue::Use(self.lower_as_operand(expr_id)),
             _ => todo!("The rest {:?}",expr)
         }
     }
@@ -179,34 +200,47 @@ impl<'a> BodyBuild<'a>{
         self.result_body.locals.push(kind)
     }
     fn assign_stmt(&mut self,lvalue: Place, rvalue : RValue ){
-        self.current_stmts.push(Stmt::Assign(lvalue,rvalue));
+        self.result_body.blocks[self.current_block].stmts.push(Stmt::Assign(lvalue,rvalue));
+    }
+    fn assign_constant(&mut self, place: Place, constant: Constant){
+        self.assign_stmt(place, RValue::Use(Operand::Constant(constant)));
+    }
+    fn assign_unit(&mut self, place: Place){
+        self.assign_constant(place, Constant { ty: Type::new_unit(), kind: mir::ConstantKind::ZeroSized });
+    }
+    fn lower_stmt_expr(&mut self, expr: ExprId){
+        match &self.body.exprs[expr].kind{
+            &ExprKind::Assign(lvalue,rvalue) => {
+                let lvaule = self.lower_as_place(lvalue);
+                self.lower_into_place(lvaule, rvalue);
+            },
+            &ExprKind::Return(expr) => {
+                if let Some(expr) = expr{
+                    self.lower_into_place(Local::RETURN_PLACE.into(), expr);
+                }
+                else{
+                    self.assign_unit(Local::RETURN_PLACE.into());
+                }
+            },
+            _ => {
+                let temp = self.new_temporary();
+                self.lower_into_place(temp.into(),expr);
+            }
+        }
     }
     fn lower_stmt(&mut self,stmt:&thir::Stmt){
         match &stmt.kind{
-            StmtKind::Expr (expr) => {
-                let expr = &self.body.exprs[*expr];
-                match &expr.kind{
-                    ExprKind::Assign(lvalue,rvalue) => {
-                        let lvalue = &self.body.exprs[*lvalue];
-                        let rvalue = &self.body.exprs[*rvalue];
-                        let lvaule = self.lower_as_place(lvalue);
-                        self.lower_into_place(lvaule, rvalue);
-                    },
-                    _ => {
-                        let temp = self.new_temporary();
-                        self.lower_into_place(temp.into(),expr);
-                    }
-                }
+            &StmtKind::Expr (expr) => {
+                self.lower_stmt_expr(expr);
             },
-            StmtKind::Let(pattern,expr) => {
+            &StmtKind::Let(ref pattern,expr) => {
                 match &pattern.kind{
                     &PatternKind::Binding(_,variable, None) => {
                         let local = self.new_local_for_variable(variable);
-                        let rvalue = self.lower_as_rvalue(&self.body.exprs[*expr]);
-                        self.assign_stmt(local.into(),rvalue);
+                        self.lower_into_place(local.into(), expr);
                     },
                     _ => {
-                        let place = self.lower_as_place(&self.body.exprs[*expr]);
+                        let place = self.lower_as_place(expr);
                         self.lower_let(pattern, place);
                     }
                 }
@@ -214,14 +248,133 @@ impl<'a> BodyBuild<'a>{
         }
 
     }
-    fn lower_into_place(&mut self, place: Place, expr: &Expr){
-        let rvalue = self.lower_as_rvalue(expr);
-        self.assign_stmt(place, rvalue);
+    fn lower_as_temp(&mut self, expr: ExprId) -> Local{
+        let local = self.new_temporary();
+        self.lower_into_place(local.into(), expr);
+        local
+    }
+    fn lower_into_place(&mut self, place: Place, expr: ExprId){
+        let ref kind = self.body.exprs[expr].kind;
+        let ref ty = self.body.exprs[expr].ty;
+        match kind{
+            ExprKind::Block(id) => {
+                let block = &self.body.blocks[*id];   
+                for &stmt in &block.stmts{
+                    self.lower_stmt(&self.body.stmts[stmt]);
+                }
+                if let Some(expr) = block.expr{
+                    self.lower_into_place(place, expr);
+                }
+            },
+            &ExprKind::If(condition,then_branch,else_branch) => {
+                let condition = self.lower_as_operand(condition);
+                let then_block = self.new_block();
+                let else_block = self.new_block();
+                let merge_block = self.new_block();
+                self.terminate(Terminator::Switch(condition, Box::new([(0,else_block)]), then_block));
+                self.current_block = then_block;
+                self.lower_into_place(place.clone(), then_branch);
+                self.terminate(Terminator::Goto(merge_block));
+                self.current_block = else_block;
+                if let Some(else_branch) = else_branch{
+                    self.lower_into_place(place, else_branch);
+                }
+                else{
+                    self.assign_unit(place);
+                }
+                self.terminate(Terminator::Goto(merge_block));
+                self.current_block = merge_block;
+
+            },
+            &ExprKind::Logical(op,left,right) => {
+                let left = self.lower_as_operand(left);
+                let then_block = self.new_block();
+                let else_block = self.new_block();
+                let merge_block = self.new_block();
+
+                self.terminate(Terminator::Switch(left, Box::new([(0,else_block)]), then_block));
+                let (right_block,const_block,constant) = match op{
+                    hir::LogicalOp::And => (then_block,else_block,false),
+                    hir::LogicalOp::Or => (else_block,then_block,true)
+                };
+                self.current_block = right_block;
+                self.lower_into_place(place.clone(), right);
+                self.terminate(Terminator::Goto(merge_block));
+                self.current_block = const_block;
+                self.assign_constant(place, Constant::from(constant));
+                self.terminate(Terminator::Goto(merge_block));
+                self.current_block = merge_block;
+            },
+            &ExprKind::Return(expr) => {
+                if let Some(expr) = expr{
+                    self.lower_into_place(Local::RETURN_PLACE.into(), expr);
+                }
+                else{
+                    self.assign_unit(Local::RETURN_PLACE.into());
+                }
+                self.terminate(Terminator::Return);
+                let next_block = self.new_block();
+                self.current_block = next_block;
+            },
+            &ExprKind::NeverCast(expr) => {
+                self.lower_as_temp(expr);
+                if !matches!(self.body.exprs[expr].kind,ExprKind::Call{..}) {
+                    self.terminate(Terminator::Unreachable);
+                    let next_block = self.new_block();
+                    self.current_block = next_block;
+                }
+            },
+            ExprKind::Call(_, _) if !self.context.is_type_inhabited(&self.body.exprs[expr].ty) => {
+                //Can't use lower_as_temp as that causes a stack overflow
+                let rvalue = self.lower_as_rvalue(expr);
+                self.assign_stmt(place, rvalue);
+                self.terminate(Terminator::Unreachable);
+                let next_block = self.new_block();
+                self.current_block = next_block;
+            },
+            ExprKind::Binary(_,_,_) | 
+            ExprKind::Array(_) | 
+            ExprKind::StructLiteral(_) | 
+            ExprKind::Unary(_,_) |
+            ExprKind::Literal(_) |
+            ExprKind::Tuple(_) |
+            ExprKind::Variable(_) |
+            ExprKind::Function(_) |
+            ExprKind::Call(_,_) |
+            ExprKind::Index(_, _) |
+            ExprKind::Builtin(_,_) => {
+                let rvalue = self.lower_as_rvalue(expr);
+                self.assign_stmt(place, rvalue);
+                
+            },
+            _ => todo!("The rest {:?}",&self.body.exprs[expr])
+        }
+    }
+    fn declare_bindings(&mut self, pattern:&Pattern){
+        match &pattern.kind{
+            &PatternKind::Binding(name,variable,None) => {
+                self.new_local_for_variable(variable);
+            },
+            _ => todo!("Other bindings")
+        }
     }
     fn lower_body(mut self, expr: ExprId) -> Body{
+        self.current_block = self.result_body.blocks.push(Block { stmts: Vec::new(), terminator: None });
         let return_local = self.new_local(LocalKind::Return);
-        self.lower_into_place(return_local.into(),&self.body.exprs[expr]);
-        self.result_body.blocks.push(Block { stmts: self.current_stmts, terminator: mir::Terminator::Return });
+        let _ = self.body.params.iter().map(|param|{
+            match &param.pattern.kind{
+                PatternKind::Binding(_,name,None) => {
+                    let local = self.new_local(LocalKind::Argument(Some(*name)));
+                    self.var_to_local.insert(*name, local);
+                    local
+                },
+                _ => {
+                    self.new_local(LocalKind::Argument(None))
+                }
+            }
+        }).collect::<Vec<_>>();
+        self.lower_into_place(return_local.into(),expr);
+        self.terminate(Terminator::Return);
         self.result_body
     }
 }

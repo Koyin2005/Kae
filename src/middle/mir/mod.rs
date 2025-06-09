@@ -1,24 +1,38 @@
 use std::fmt::Display;
 
-use crate::{data_structures::IndexVec, define_id, frontend::{ast_lowering::hir::{BinaryOp, DefId, UnaryOp}, typechecking::types::{generics::GenericArgs, Type}}, identifiers::{BodyIndex, FieldIndex, SymbolIndex, VariableIndex, VariantIndex}};
+use crate::{data_structures::{IndexVec, IntoIndex}, define_id, frontend::{ast_lowering::hir::{BinaryOp, BuiltinKind, DefId, UnaryOp}, typechecking::types::{generics::GenericArgs, Type}}, identifiers::{BodyIndex, FieldIndex, SymbolIndex, VariableIndex, VariantIndex}};
 
 pub mod debug;
 
 pub enum FunctionKind {
-    Anon,
-    Normal
+    Anon(DefId),
+    Normal(DefId),
+    Builtin(BuiltinKind)
 }
-pub enum Constant {
+pub enum ConstantKind {
     Int(i64),
     Bool(bool),
     String(SymbolIndex),
-    ZeroSized(Type),
-    Function(DefId,FunctionKind,GenericArgs)
+    ZeroSized,
+    Function(FunctionKind,GenericArgs),
 }
-
+pub struct  Constant {
+    pub ty : Type,
+    pub kind : ConstantKind
+}
+impl From<bool> for Constant{
+    fn from(value: bool) -> Self {
+        Constant { ty: Type::Bool, kind: ConstantKind::Bool(value) }
+    }
+}
 pub struct Block {
     pub stmts : Vec<Stmt>,
-    pub terminator : Terminator
+    pub terminator : Option<Terminator>
+}
+impl Block{
+    pub fn expect_terminator(&self) -> &Terminator{
+        self.terminator.as_ref().expect("The terminator should be assigned")
+    }
 }
 #[derive(Clone)]
 pub enum PlaceProjection {
@@ -62,6 +76,9 @@ pub enum Terminator {
 
 define_id!(Local);
 define_id!(BlockId);
+impl Local{
+    pub const RETURN_PLACE : Local = Local::new(0);
+}
 impl From<Local> for Place{
     fn from(value: Local) -> Self {
         Place { local: value, projections: Box::new([]) }
@@ -74,10 +91,23 @@ impl Display for BlockId{
 }
 pub enum LocalKind {
     Variable(VariableIndex),
+    Argument(Option<VariableIndex>),
     Temporary,
     Return
 }
+pub enum BodyKind {
+    Anonymous,
+    Function,
+    Constructor
+}
+pub struct BodySource{
+    pub id : DefId,
+    pub kind : BodyKind,
+    pub params : Vec<Type>,
+    pub return_type : Type
+}
 pub struct Body{
+    pub source : BodySource,
     pub locals : IndexVec<Local,LocalKind>,
     pub blocks : IndexVec<BlockId,Block>
 }

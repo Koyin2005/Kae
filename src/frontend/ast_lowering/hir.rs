@@ -485,10 +485,15 @@ pub struct Body{
     pub params : Vec<Param>,
     pub value : Expr
 }
+pub enum BodyOwner {
+    Function(DefId),
+    AnonFunction(DefId),
+}
 pub struct Hir{
     pub items : IndexVec<ItemIndex,Item>,
     pub defs_to_items : DefIdMap<ItemIndex>,
-    pub body_owners : DefIdMap<BodyIndex>,
+    pub owner_to_bodies : DefIdMap<BodyIndex>,
+    pub body_owners : IndexVec<BodyIndex,BodyOwner>,
     pub bodies : IndexVec<BodyIndex,Body>
 }
 

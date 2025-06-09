@@ -77,25 +77,6 @@ impl Pattern{
     }
 }
 
-fn is_inhabited(context:&TypeContext,ty:&Type) -> bool{
-    match ty{
-        Type::Bool|Type::Error|Type::Float|Type::Int|Type::Param(_,_) |Type::String => true,
-        Type::Function(_,_) => true,
-        Type::Never => false,
-        Type::Array(element_type) => is_inhabited(context,element_type),
-        Type::Tuple(elements) => elements.iter().all(|element| is_inhabited(context,element)),
-        Type::Adt(args,id,kind) => match kind{
-            AdtKind::Enum => {
-                let variants = context.expect_variants_for(*id);
-                if variants.is_empty() { false } else { 
-                    variants.iter().any(|&variant| context.get_variant_by_index(*id, variant).fields.iter().all(|field| 
-                        is_inhabited(context,&TypeSubst::new(args).instantiate_type(field))))
-                    }
-            },
-            AdtKind::Struct => context.expect_struct(*id).fields.iter().all(|field| is_inhabited(context,&TypeSubst::new(args).instantiate_type(&field.ty)))
-        }
-    }
-}
 #[derive(Debug)]
 pub enum ConstructorSet {
     Infinite,
@@ -134,7 +115,7 @@ impl ConstructorSet{
                     if was_seen{
                         seen.push(Constructor::Variant(variant));
                     }
-                    else if checker.fields(ty, Constructor::Variant(variant)).iter().all(|ty| is_inhabited(checker.context, ty)) {
+                    else if checker.fields(ty, Constructor::Variant(variant)).iter().all(|ty| checker.context.is_type_inhabited(ty)) {
                         missing.push(Constructor::Variant(variant));
                     }
                 } 
@@ -143,7 +124,7 @@ impl ConstructorSet{
                 if !seen_constructors.is_empty(){
                     seen.push(Constructor::Struct);
                 }
-                else if checker.fields(ty, Constructor::Struct).iter().all(|ty| is_inhabited(checker.context, ty)){
+                else if checker.fields(ty, Constructor::Struct).iter().all(|ty| checker.context.is_type_inhabited(ty)){
                     missing.push(Constructor::Missing);
                 }
             },
