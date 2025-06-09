@@ -378,7 +378,8 @@ impl<'a> BodyBuild<'a>{
                 self.assign_stmt(place, rvalue);
                 
             },
-            _ => todo!("The rest {:?}",&self.body.exprs[expr])
+            ExprKind::Cast(_) => todo!("Add non never casts"),
+            ExprKind::Match(_,_) => todo!("Hope you like matrixes!")
         }
     }
     fn declare_bindings(&mut self, pattern:&Pattern){
