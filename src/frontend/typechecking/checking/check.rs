@@ -7,7 +7,7 @@ use crate::{
         typechecking::{context::{FuncSig, TypeContext, TypeMember}, error::TypeError, items::item_check::ItemCheck, types::{format::TypeFormatter, generics::GenericArgs, lowering::TypeLower, subst::{Subst, TypeSubst}, AdtKind, Type}}
     }, identifiers::{BodyIndex, FieldIndex, GlobalSymbols, SymbolIndex, SymbolInterner, VariableIndex}
 };
-use super::{env::{SelfType, TypeEnv}, Expectation, TypeCheckResults};
+use super::{env::{SelfType, TypeEnv}, Coercion, Expectation, TypeCheckResults};
 struct FuncContext{
     return_type : Type
 }
@@ -279,16 +279,19 @@ impl<'a> TypeChecker<'a>{
             true
         }
     }
-    fn coerces(&self, from: &Type, _: &Type) -> bool{
-        from.is_never() || from.is_error()
+    fn coercion_for(&self, from: &Type, to: &Type) -> Option<Coercion>{
+        match (from,to){
+            (Type::Never,to) => Some(Coercion::NeverToAny(to.clone())),
+            (_,_) => None
+        }
     }
-    fn check_type_coerces_to(&self,from: &Type,to: &Type,span:SourceLocation) -> bool{
-        if self.coerces(from,to){
-            true
+    fn check_type_coerces_to(&self,from: &Type,to: &Type,span:SourceLocation,on_error:impl FnOnce() -> String) -> Option<Coercion>{
+        if let Some(coercion) = self.coercion_for(from, to){
+            Some(coercion)
         }
         else{
-            self.error(format!("Expected '{}' got '{}'.",self.format_type(to),self.format_type(from)), span);
-            false
+            self.error(on_error(), span);
+            None
         }
     }
     fn check_array_expr(&mut self,span:SourceLocation,elements:&[hir::Expr],expected:Expectation) -> Type{
@@ -314,11 +317,11 @@ impl<'a> TypeChecker<'a>{
             if let Some(element_type) = all_element_type{
                 for (ty,id,span) in element_types{
                     if ty != element_type{
-                        if !self.coerces(&ty, &element_type){
-                            self.error(format!("Expected '{}' for array element got '{}'.",self.format_type(&element_type),self.format_type(&ty)), span);
+                        if let Some(coercion) = self.coercion_for(&ty, &element_type){
+                            self.results.borrow_mut().coercions.insert(id,coercion);
                         }
-                        else{
-                            self.results.borrow_mut().coercions.insert(id, element_type.clone());
+                        else if !ty.has_error() && !element_type.has_error(){
+                            self.error(format!("Expected '{}' for array element got '{}'.",self.format_type(&element_type),self.format_type(&ty)), span);
                         }
                     }
 
@@ -368,11 +371,11 @@ impl<'a> TypeChecker<'a>{
         });
         for (ty,span,id) in body_types.collect::<Vec<_>>(){
             if result_ty != ty {
-                if !self.coerces(&ty, &result_ty){
-                    self.error(format!("Expected '{}' for match arm got '{}'.",self.format_type(&result_ty),self.format_type(&ty)), span);
+                if let Some(coercion) = self.coercion_for(&ty, &result_ty){
+                    self.results.borrow_mut().coercions.insert(id, coercion);
                 }
-                else{
-                    self.results.borrow_mut().coercions.insert(id, result_ty.clone());
+                else if !ty.has_error() && !result_ty.has_error(){
+                    self.error(format!("Expected '{}' for match arm got '{}'.",self.format_type(&result_ty),self.format_type(&ty)), span);
                 }
             }
         }
@@ -382,18 +385,17 @@ impl<'a> TypeChecker<'a>{
     fn check_if_expr(&mut self,condition:&hir::Expr,then_branch:&hir::Expr,else_branch:Option<&hir::Expr>,expected:Expectation) -> Type{
         self.check_expr(condition, Expectation::CoercesTo(Type::Bool));
         let then_ty = self.check_expr(then_branch, expected.clone());
-
         if let Some(else_branch) = else_branch.as_ref(){
             let else_ty = self.check_expr(else_branch, expected);
             if then_ty == else_ty{
                 then_ty
             }
-            else if self.coerces(&else_ty, &then_ty){
-                self.results.borrow_mut().coercions.insert(else_branch.id, then_ty.clone());
+            else if let Some(coercion) = self.coercion_for(&else_ty, &then_ty){
+                self.results.borrow_mut().coercions.insert(else_branch.id, coercion);
                 then_ty
             }
-            else if self.coerces(&then_ty, &else_ty){
-                self.results.borrow_mut().coercions.insert(then_branch.id, else_ty.clone());
+            else if let Some(coercion) =  self.coercion_for(&then_ty, &else_ty){
+                self.results.borrow_mut().coercions.insert(then_branch.id, coercion);
                 else_ty
             }
             else if then_ty.has_error() || else_ty.has_error(){
@@ -406,8 +408,8 @@ impl<'a> TypeChecker<'a>{
         else if then_ty.is_unit(){
             then_ty
         }
-        else if self.coerces(&then_ty, &Type::new_unit()){
-            self.results.borrow_mut().coercions.insert(then_branch.id, Type::new_unit());
+        else if let Some(coercion) = self.coercion_for(&then_ty, &Type::new_unit()){
+            self.results.borrow_mut().coercions.insert(then_branch.id, coercion);
             Type::new_unit()
         }
         else if then_ty.has_error() {
@@ -812,15 +814,19 @@ impl<'a> TypeChecker<'a>{
                 if ty == expected_type{
                     (ty,expected_type)
                 }
-                else{
-                    if self.check_type_coerces_to(&ty, &expected_type, expr.span){
-                        self.results.borrow_mut().coercions.insert(expr.id, expected_type.clone());
-                        (ty,expected_type)
-                    }
-                    else{
-                        (ty,Type::Error)
-                    }
+                else if ty.is_error() {
+                    (ty,expected_type)
                 }
+                else if let Some(coercion) = self.check_type_coerces_to(&ty, &expected_type, expr.span,
+                        || format!("Expected '{}' got '{}'.",self.format_type(&expected_type),self.format_type(&ty))
+                    ){
+                        self.results.borrow_mut().coercions.insert(expr.id, coercion);
+                        (ty,expected_type)
+                }
+                else{
+                    (ty,Type::Error)
+                }
+                
             }
             Expectation::None => {
                 (ty.clone(),ty)

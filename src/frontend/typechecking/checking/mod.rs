@@ -31,6 +31,9 @@ pub enum InferError{
 
 }
 
+pub enum Coercion {
+    NeverToAny(Type)
+}
 
 pub struct TypeCheckResults{
     pub node_types : FxHashMap<HirId,Type>,
@@ -38,7 +41,7 @@ pub struct TypeCheckResults{
     pub resolutions : FxHashMap<HirId,hir::Resolution>,
     pub fields : FxHashMap<HirId,FieldIndex>,
     pub signatures : FxHashMap<HirId,FuncSig>,
-    pub coercions : FxHashMap<HirId,Type>
+    pub coercions : FxHashMap<HirId,Coercion>
 }
 impl TypeCheckResults{
     pub fn new() -> Self{

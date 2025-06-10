@@ -378,7 +378,6 @@ impl<'a> BodyBuild<'a>{
                 self.assign_stmt(place, rvalue);
                 
             },
-            ExprKind::Cast(_) => todo!("Add non never casts"),
             ExprKind::Match(_,_) => todo!("Hope you like matrixes!")
         }
     }
