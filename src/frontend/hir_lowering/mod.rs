@@ -10,8 +10,8 @@ struct BodyLower<'a>{
     thir : ThirBody
 }
 impl <'a> BodyLower<'a>{
-    fn lower(context:&'a ThirLower<'a>,body:hir::Body) -> (ThirBody,ExprId){
-        let mut lower = Self { 
+    fn new(context:&'a ThirLower<'a>) -> Self{
+        Self { 
             lower_context:context, thir: ThirBody { 
                 params: IndexVec::new(), 
                 exprs: IndexVec::new(), 
@@ -19,13 +19,19 @@ impl <'a> BodyLower<'a>{
                 stmts: IndexVec::new(), 
                 arms: IndexVec::new(),
             } 
-        };
-        for param in body.params{
-            let pattern = lower.lower_pattern(param.pattern);
-            lower.thir.params.push(Param{ty:pattern.ty.clone(),pattern});
         }
-        let id = lower.lower_expr(body.value);
-        (lower.thir,id)
+    }
+    fn lower(mut self,body:hir::Body) -> (ThirBody,ExprId){
+        for param in body.params{
+            let span = param.pattern.span;
+            let pattern = self.lower_pattern(param.pattern);
+            if !PatternChecker::new(self.type_context()).check_exhaustive(vec![lower_to_pattern(&pattern)], &pattern.ty).missing_patterns().is_empty(){
+                self.lower_context.error_reporter.emit(format!("Refutable pattern in function parameter."),span);
+            }
+            self.thir.params.push(Param{ty:pattern.ty.clone(),pattern});
+        }
+        let id = self.lower_expr(body.value);
+        (self.thir,id)
     }
     fn results(&self) -> &TypeCheckResults{
         &self.lower_context.results
@@ -281,7 +287,7 @@ impl<'a> ThirLower<'a>{
     }
     pub fn lower_bodies(mut self,bodies: IndexVec<BodyIndex,hir::Body>,owners:DefIdMap<BodyIndex>) -> Result<Thir,ThirLoweringErr>{
         self.bodies = bodies.into_iter().map(|body|{
-            BodyLower::lower(&self,body)
+            BodyLower::new(&self).lower(body)
         }).collect();
         if self.error_reporter.error_occurred(){
             return Err(ThirLoweringErr);
