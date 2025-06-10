@@ -418,7 +418,7 @@ impl<'a> BodyBuild<'a>{
         for (i,param) in self.body.params.iter().enumerate(){
             match param.pattern.kind{
                 PatternKind::Binding(_, id, None) => {
-                    self.var_to_local.insert(id,Local::new(i as u32));
+                    self.var_to_local.insert(id,Local::new(i as u32 + 1));
                 },
                 _ => self.declare_bindings(&param.pattern),
             }
