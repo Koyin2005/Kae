@@ -416,11 +416,15 @@ impl<'a> BodyBuild<'a>{
             self.new_local(LocalInfo{ty:param.ty.clone()});
         }
         for (i,param) in self.body.params.iter().enumerate(){
+            let param_local = Local::new(i as u32 + 1);
             match param.pattern.kind{
                 PatternKind::Binding(_, id, None) => {
-                    self.var_to_local.insert(id,Local::new(i as u32 + 1));
+                    self.var_to_local.insert(id,param_local);
                 },
-                _ => self.declare_bindings(&param.pattern),
+                _ => {
+                    self.declare_bindings(&param.pattern);
+                    self.lower_let(&param.pattern, param_local.into());
+                }
             }
         }
         self.lower_into_place(return_local.into(),expr);
