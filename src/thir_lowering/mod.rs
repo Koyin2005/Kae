@@ -187,11 +187,7 @@ impl<'a> BodyBuild<'a>{
                     self.lower_let(pattern, place.clone().project(PlaceProjection::Field(field)));
                 }
             },
-            PatternKind::Wildcard => {
-                let local = self.new_temporary(pattern.ty.clone());
-                self.assign_stmt(local.into(), RValue::Use(Operand::Load(place)));
-            },
-            PatternKind::Constant(_) => (),
+            PatternKind::Wildcard | PatternKind::Constant(_) => (),
             PatternKind::Variant(enum_id,_,variant,fields) => {
                 let id = self.context.get_variant_by_index(*enum_id, *variant).id;
                 let place = place.project(PlaceProjection::Variant(self.context.ident(id).index, *variant));
