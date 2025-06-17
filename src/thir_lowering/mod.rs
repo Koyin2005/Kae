@@ -2,9 +2,12 @@ use fxhash::FxHashMap;
 use indexmap::IndexMap;
 
 use crate::{data_structures::{IndexVec, IntoIndex}, frontend::{ast_lowering::hir::{self, BodyOwner}, thir::{self, ExprId, ExprKind, FieldPattern, Pattern, PatternKind, StmtKind, Thir, ThirBody}, 
-typechecking::{context::TypeContext, types::Type}}, identifiers::{BodyIndex, FieldIndex, VariableIndex}, middle::mir::{self, Block, BlockId, Body, BodyKind, BodySource, Constant, Local, LocalInfo, Mir, Operand, Place, PlaceProjection, RValue, Stmt, Terminator}};
+typechecking::{context::TypeContext, types::Type}}, 
+identifiers::{BodyIndex, FieldIndex, VariableIndex}, 
+middle::mir::{self, Block, BlockId, Body, BodyKind, BodySource, Constant, Local, LocalInfo, Mir, Operand, Place, PlaceProjection, RValue, Stmt, Terminator}
+};
 
-
+mod matches;
 pub struct MirBuild<'a>{
     thir : Thir,
     context:&'a TypeContext
@@ -34,12 +37,11 @@ impl<'a> MirBuild<'a>{
     }
 }
 
-
 struct BodyBuild<'a>{
-    context:&'a TypeContext,
-    body: &'a ThirBody,
-    current_block : BlockId,
-    result_body : Body,
+    pub context:&'a TypeContext,
+    pub body: &'a ThirBody,
+    pub current_block : BlockId,
+    pub result_body : Body,
     var_to_local : IndexMap<VariableIndex,Local>,
 }
 impl<'a> BodyBuild<'a>{
@@ -51,124 +53,13 @@ impl<'a> BodyBuild<'a>{
             },var_to_local:IndexMap::new()
         }
     }
-    fn new_block(&mut self) -> BlockId{
+    pub fn new_block(&mut self) -> BlockId{
         self.result_body.blocks.push(Block { stmts: Vec::new(), terminator: None })
     }
-    fn terminate(&mut self, terminator: Terminator) {
+    pub fn terminate(&mut self, terminator: Terminator) {
         self.result_body.blocks[self.current_block].terminator = Some(terminator);
     }
-    fn lower_as_place(&mut self,expr:ExprId) -> Place{
-        match &self.body.exprs[expr].kind{
-            ExprKind::Variable(variable) => self.var_to_local[variable].into(),
-            &ExprKind::Field(base,field) => {
-                let place = self.lower_as_place(base);
-                place.project(PlaceProjection::Field(field))
-            },
-            ExprKind::Index(array,index) => {
-                let array = self.lower_as_place(*array);
-                let index_place = self.lower_as_place(*index);
-                let index = if index_place.projections.is_empty(){
-                    index_place.local
-                } else {
-                    let temp = self.new_temporary(self.body.exprs[*index].ty.clone());
-                    self.assign_stmt(temp.into(), RValue::Use(Operand::Load(index_place)));
-                    temp
-                };
-                array.project(PlaceProjection::Index(index))
-            }   
-            _ => {
-                self.lower_as_temp(expr).into()
-            }
-        }
-    }
-    
-    fn lower_as_operand(&mut self,expr:ExprId) -> Operand{
-        match &self.body.exprs[expr].kind{
-            ExprKind::Literal(literal) => {
-                let ty = self.body.exprs[expr].ty.clone();
-                Operand::Constant(mir::Constant{
-                    ty,
-                    kind:match *literal {
-                        hir::LiteralKind::Bool(bool) =>  mir::ConstantKind::Bool(bool),
-                        hir::LiteralKind::Float(_) => todo!("Floats"),
-                        hir::LiteralKind::Int(int) => mir::ConstantKind::Int(int),
-                        hir::LiteralKind::String(string) => mir::ConstantKind::String(string)
-                    }
-                })
-            },
-            ExprKind::Tuple(elements) if elements.is_empty() => {
-                let ty = self.body.exprs[expr].ty.clone();
-                Operand::Constant(mir::Constant{
-                    ty,
-                    kind : mir::ConstantKind::ZeroSized
-                })
-            },
-            ExprKind::Function(function) => {
-                let ty = self.body.exprs[expr].ty.clone();
-                let kind = match function.kind{
-                    thir::FunctionKind::Anon => mir::FunctionKind::Anon(function.id),
-                    thir::FunctionKind::Variant => mir::FunctionKind::Variant(function.id),
-                    _ => mir::FunctionKind::Normal(function.id) 
-                };
-                Operand::Constant(mir::Constant{
-                    ty,
-                    kind : mir::ConstantKind::Function(kind, function.generic_args.clone())
-                })
-            },
-            ExprKind::Builtin(generic_args,kind) => {
-                let ty = self.body.exprs[expr].ty.clone();
-                let kind = mir::FunctionKind::Builtin(*kind);
-                Operand::Constant(mir::Constant{
-                    ty,
-                    kind : mir::ConstantKind::Function(kind, generic_args.clone())
-                })
-            },
-            _ => Operand::Load(self.lower_as_place(expr)),
-        }
-    }
-    fn lower_as_rvalue(&mut self,expr_id:ExprId) -> RValue{
-        let expr = &self.body.exprs[expr_id];
-        match &expr.kind{
-            &ExprKind::Binary(op,left,right) => {
-                let left = self.lower_as_operand(left);
-                let right = self.lower_as_operand(right);
-                RValue::Binary(op, Box::new((left,right)))
-            },
-            &ExprKind::Unary(op,operand) => {
-                let operand = self.lower_as_operand(operand);
-                RValue::Unary(op, operand)
-            },
-            ExprKind::Tuple(elements) if !elements.is_empty() => {
-                let operands = elements.iter().copied().map(|element| self.lower_as_operand(element)).collect();
-                RValue::Tuple(operands)
-            },
-            ExprKind::Call(callee,args) => {
-                let callee = self.lower_as_operand(*callee);
-                let args = args.iter().map(|arg| self.lower_as_operand(*arg)).collect();
-                RValue::Call(callee, args)
-            },
-            ExprKind::Array(elements) => {
-                let elements = elements.iter().copied().map(|element| self.lower_as_operand(element)).collect();
-                RValue::Array(elements)
-            },
-            ExprKind::StructLiteral(struct_literal) => {
-                let field_map = struct_literal.fields.iter().map(|field_expr| (field_expr.field,field_expr.expr)).collect::<FxHashMap<_,_>>();
-                let fields = (0..struct_literal.fields.len() as u32).map(|field|{
-                    let expr = field_map[&FieldIndex::new(field)];
-                    self.lower_as_operand(expr)
-                }).collect();
-                RValue::Adt(Box::new((struct_literal.id,struct_literal.generic_args.clone(),struct_literal.variant)), fields)
-            },
-            ExprKind::Literal(_) | ExprKind::Block(_) | ExprKind::If(_, _, _)|
-            ExprKind::Field(_,_) | 
-            ExprKind::Variable(_) | ExprKind::Index(_,_) | 
-            ExprKind::Assign(_,_) |
-            ExprKind::Function(_)
-            => RValue::Use(self.lower_as_operand(expr_id)),
-            _ => todo!("The rest {:?}",expr)
-        }
-    }
-    fn lower_let(&mut self,pattern:&Pattern, place: Place){
+    pub fn lower_let(&mut self,pattern:&Pattern, place: Place){
         match &pattern.kind{
             &PatternKind::Binding(_,variable,ref sub_pattern) => {
                 let local = *self.var_to_local.get(&variable).expect("There should be a variable");
@@ -206,24 +97,104 @@ impl<'a> BodyBuild<'a>{
     fn push_stmt(&mut self, stmt: Stmt){
         self.result_body.blocks[self.current_block].stmts.push(stmt);
     }
-    fn assign_stmt(&mut self,lvalue: Place, rvalue : RValue ){
+    pub fn assign_stmt(&mut self,lvalue: Place, rvalue : RValue ){
         self.push_stmt(Stmt::Assign(lvalue,rvalue));
     }
     fn assign_constant(&mut self, place: Place, constant: Constant){
         self.assign_stmt(place, RValue::Use(Operand::Constant(constant)));
     }
-    fn assign_unit(&mut self, place: Place){
+    pub fn assign_unit(&mut self, place: Place){
         self.assign_constant(place, Constant { ty: Type::new_unit(), kind: mir::ConstantKind::ZeroSized });
     }
-    fn lower_stmt_expr(&mut self, expr: ExprId){
+    pub fn new_temporary_for(&mut self, expr: ExprId) -> Local{
+        let ty = self.body.exprs[expr].ty.clone();
+        self.new_temporary(ty)
+    }
+    pub fn lower_as_place(&mut self, expr: ExprId) -> Place{
+        match &self.body.exprs[expr].kind{
+            &thir::ExprKind::Variable(variable) => {
+                self.var_to_local[&variable].into()
+            },
+            &thir::ExprKind::Field(base,field) => {
+                let place = self.lower_as_place(base);
+                place.project(PlaceProjection::Field(field))
+            },
+            &thir::ExprKind::Index(array,index) => {
+                let array_place = self.lower_as_place(array);
+                let index_place = self.lower_as_place(index);
+                let index = if index_place.projections.is_empty(){
+                    index_place.local
+                }
+                else{
+                    let index_local = self.new_temporary_for(index);
+                    let rvalue = RValue::Use(Operand::Load(index_place));
+                    self.assign_stmt(index_local.into(), rvalue);
+                    index_local
+                };
+                array_place.project(PlaceProjection::Index(index.into()))
+            },
+            _ => {
+                let temp = self.new_temporary_for(expr);
+                self.lower_expr(expr, Some(temp.into()));
+                temp.into()
+            }
+        }
+    }
+    fn lower_as_operand(&mut self, expr: ExprId) -> Operand{
+        let constant = match &self.body.exprs[expr].kind{
+            &thir::ExprKind::Literal(literal) => {
+                let kind = match literal{
+                    hir::LiteralKind::Bool(value) => mir::ConstantKind::Bool(value),
+                    hir::LiteralKind::Float(_) => todo!("Floats"),
+                    hir::LiteralKind::Int(value) => mir::ConstantKind::Int(value),
+                    hir::LiteralKind::String(string) => mir::ConstantKind::String(string)    
+                };
+                Some(Constant { ty:self.body.exprs[expr].ty.clone(), kind })
+            },
+            thir::ExprKind::Function(function) => {
+                let kind = match function.kind {
+                    thir::FunctionKind::Anon => mir::FunctionKind::Anon(function.id),
+                    thir::FunctionKind::Method => mir::FunctionKind::Normal(function.id),
+                    thir::FunctionKind::Normal => mir::FunctionKind::Normal(function.id),
+                    thir::FunctionKind::Variant => mir::FunctionKind::Variant(function.id)
+                };
+                Some(Constant { ty: self.body.exprs[expr].ty.clone(), kind: mir::ConstantKind::Function(kind, function.generic_args.clone()) })
+            },
+            thir::ExprKind::Tuple(elements) if elements.is_empty() => {
+                Some(Constant { ty: self.body.exprs[expr].ty.clone(), kind: mir::ConstantKind::ZeroSized })
+            },
+            &thir::ExprKind::Builtin(ref args,kind) => {
+                Some(Constant { ty: self.body.exprs[expr].ty.clone(), kind: mir::ConstantKind::Function(mir::FunctionKind::Builtin(kind),args.clone()) })
+            }
+            _ => None
+        };
+        if let Some(constant) = constant{
+            Operand::Constant(constant)
+        }
+        else{
+            Operand::Load(self.lower_as_place(expr))
+        }
+    }
+    fn lower_match_expr(&mut self, place : Option<Place>, _: ExprId, scrutinee : ExprId, arms : &[thir::ArmId]){
+        let arms = arms.iter().copied().map(|arm| &self.body.arms[arm]);
+        let scrutinee_place = self.lower_as_place(scrutinee);
+        self.lower_match(place,scrutinee_place, &self.body.exprs[scrutinee].ty,arms);
+    }
+    pub fn lower_expr(&mut self, expr: ExprId, place: Option<Place>){
+        fn place_or_temporary(this:&mut BodyBuild,place: Option<Place>,expr: ExprId) -> Place{
+            place.unwrap_or_else(|| this.new_temporary_for(expr).into())
+        }
         match &self.body.exprs[expr].kind{
             &ExprKind::Assign(lvalue,rvalue) => {
                 let lvaule = self.lower_as_place(lvalue);
-                self.lower_into_place(lvaule, rvalue);
+                self.lower_expr(rvalue, Some(lvaule));
+                if let Some(place) = place{
+                    self.assign_unit(place);
+                }
             },
             &ExprKind::Return(expr) => {
                 if let Some(expr) = expr{
-                    self.lower_into_place(Local::RETURN_PLACE.into(), expr);
+                    self.lower_expr(expr,Some(Local::RETURN_PLACE.into()));
                 }
                 else{
                     self.assign_unit(Local::RETURN_PLACE.into());
@@ -235,6 +206,9 @@ impl<'a> BodyBuild<'a>{
             ExprKind::Print(args) => {
                 let operands = args.iter().map(|arg| self.lower_as_operand(*arg)).collect();
                 self.push_stmt(Stmt::Print(operands));
+                if let Some(place) = place{
+                    self.assign_unit(place);
+                }
             },
             &ExprKind::While(condition,body) => {
                 let condition_block = self.new_block();
@@ -245,55 +219,30 @@ impl<'a> BodyBuild<'a>{
                 let rest_block = self.new_block();
                 self.terminate(Terminator::Switch(condition, Box::new([(0,rest_block)]), body_block));
                 self.current_block = body_block;
-                self.lower_as_temp(body);
+                self.lower_expr(body,None);
                 self.terminate(Terminator::Goto(condition_block));
                 self.current_block = rest_block;
-            },
-            _ => {
-                let temp = self.new_temporary(self.body.exprs[expr].ty.clone());
-                self.lower_into_place(temp.into(),expr);
-            }
-        }
-    }
-    fn lower_stmt(&mut self,stmt:&thir::Stmt){
-        match &stmt.kind{
-            &StmtKind::Expr (expr) => {
-                self.lower_stmt_expr(expr);
-            },
-            &StmtKind::Let(ref pattern,expr) => {
-                self.declare_bindings(&pattern);
-                match &pattern.kind{
-                    &PatternKind::Binding(_,variable, None) => {
-                        let local = self.var_to_local[&variable];
-                        self.lower_into_place(local.into(), expr);
-                    },
-                    _ => {
-                        let place = self.lower_as_place(expr);
-                        self.lower_let(pattern, place);
-                    }
+                if let Some(place) = place{
+                    self.assign_unit(place);
                 }
-            }
-        }
-
-    }
-    fn lower_as_temp(&mut self, expr: ExprId) -> Local{
-        let local = self.new_temporary(self.body.exprs[expr].ty.clone());
-        self.lower_into_place(local.into(), expr);
-        local
-    }
-    fn lower_into_place(&mut self, place: Place, expr: ExprId){
-        let ref kind = self.body.exprs[expr].kind;
-        match kind{
+            },
             ExprKind::Block(id) => {
                 let block = &self.body.blocks[*id];   
                 for &stmt in &block.stmts{
                     self.lower_stmt(&self.body.stmts[stmt]);
                 }
-                if let Some(expr) = block.expr{
-                    self.lower_into_place(place, expr);
-                }
-                else{
-                    self.assign_unit(place);
+                match (block.expr,place){
+                    (Some(expr),Some(place)) => {
+                        self.lower_expr(expr, Some(place));
+                    },
+                    (None,Some(place)) => {
+                        self.assign_unit(place);
+                    },
+                    (Some(expr),None) => {
+                        let temporary = self.new_temporary(self.body.exprs[expr].ty.clone());
+                        self.assign_unit(temporary.into());
+                    },
+                    (None,None) => ()
                 }
             },
             &ExprKind::If(condition,then_branch,else_branch) => {
@@ -303,13 +252,13 @@ impl<'a> BodyBuild<'a>{
                 let merge_block = self.new_block();
                 self.terminate(Terminator::Switch(condition, Box::new([(0,else_block)]), then_block));
                 self.current_block = then_block;
-                self.lower_into_place(place.clone(), then_branch);
+                self.lower_expr(then_branch,place.clone());
                 self.terminate(Terminator::Goto(merge_block));
                 self.current_block = else_block;
                 if let Some(else_branch) = else_branch{
-                    self.lower_into_place(place, else_branch);
+                    self.lower_expr(else_branch,place);
                 }
-                else{
+                else if let Some(place) = place{
                     self.assign_unit(place);
                 }
                 self.terminate(Terminator::Goto(merge_block));
@@ -317,6 +266,7 @@ impl<'a> BodyBuild<'a>{
 
             },
             &ExprKind::Logical(op,left,right) => {
+                let place = place_or_temporary(self,place,right);
                 let left = self.lower_as_operand(left);
                 let then_block = self.new_block();
                 let else_block = self.new_block();
@@ -328,54 +278,112 @@ impl<'a> BodyBuild<'a>{
                     hir::LogicalOp::Or => (else_block,then_block,true)
                 };
                 self.current_block = right_block;
-                self.lower_into_place(place.clone(), right);
+                self.lower_expr(right,Some(place.clone()));
                 self.terminate(Terminator::Goto(merge_block));
                 self.current_block = const_block;
                 self.assign_constant(place, Constant::from(constant));
                 self.terminate(Terminator::Goto(merge_block));
                 self.current_block = merge_block;
             },
-            &ExprKind::Return(_) => {
-                self.lower_stmt_expr(expr);
-            }, 
-            &ExprKind::While(_,_)| ExprKind::Print(_) | ExprKind::Assign(_,_) =>{
-                self.lower_stmt_expr(expr);
-                self.assign_unit(place);
-            }
             &ExprKind::NeverCast(expr) => {
-                self.lower_as_temp(expr);
+                let place = self.new_temporary_for(expr).into();
+                self.lower_expr(expr, Some(place));
                 if !matches!(self.body.exprs[expr].kind,ExprKind::Call{..}) {
                     self.terminate(Terminator::Unreachable);
                     let next_block = self.new_block();
                     self.current_block = next_block;
                 }
             },
-            ExprKind::Call(_, _) if !self.context.is_type_inhabited(&self.body.exprs[expr].ty) => {
-                //Can't use lower_as_temp as that causes a stack overflow
-                let rvalue = self.lower_as_rvalue(expr);
-                self.assign_stmt(place, rvalue);
-                self.terminate(Terminator::Unreachable);
-                let next_block = self.new_block();
-                self.current_block = next_block;
+            &ExprKind::Binary(op,left,right) => {
+                let place = place_or_temporary(self, place, expr);
+                let left = self.lower_as_operand(left);
+                let right = self.lower_as_operand(right);
+                self.assign_stmt(place, RValue::Binary(op, Box::new((left,right))));
             },
-            ExprKind::Binary(_,_,_) | 
-            ExprKind::Array(_) | 
-            ExprKind::StructLiteral(_) | 
-            ExprKind::Unary(_,_) |
-            ExprKind::Literal(_) |
-            ExprKind::Tuple(_) |
-            ExprKind::Variable(_) |
-            ExprKind::Function(_) |
-            ExprKind::Call(_,_) |
-            ExprKind::Index(_, _) |
-            ExprKind::Field(_,_) |
-            ExprKind::Builtin(_,_) => {
-                let rvalue = self.lower_as_rvalue(expr);
-                self.assign_stmt(place, rvalue);
-                
+            ExprKind::Variable(_) | 
+            ExprKind::Literal(_) | 
+            ExprKind::Function(_) | 
+            ExprKind::Field(_,_) | 
+            ExprKind::Index(_,_) | 
+            ExprKind::Builtin(_,_)=> {
+                let place = place_or_temporary(self, place, expr);
+                let operand = self.lower_as_operand(expr);
+                self.assign_stmt(place, RValue::Use(operand));
             },
-            ExprKind::Match(_,_) => todo!("Hope you like matrixes!")
+            ExprKind::Tuple(elements) => {
+                if elements.is_empty(){
+                    if let Some(place) = place{
+                        self.assign_unit(place);
+                    }
+                }
+                else{
+                    let place = place_or_temporary(self, place, expr);
+                    let operands = elements.iter().copied().map(|element| self.lower_as_operand(element)).collect();
+                    self.assign_stmt(place, RValue::Tuple(operands));
+                }
+            }
+            &ExprKind::Call(callee,ref args) => {
+                let inhabited = self.context.is_type_inhabited(&self.body.exprs[expr].ty);
+                let place = if !inhabited { 
+                    self.new_temporary(self.body.exprs[expr].ty.clone()).into()
+                } else{ 
+                    place_or_temporary(self, place, expr)
+                };
+                let callee = self.lower_as_operand(callee);
+                let args = args.iter().copied().map(|arg| self.lower_as_operand(arg)).collect();
+                self.assign_stmt(place, RValue::Call(callee, args));
+                if !inhabited{
+                    self.terminate(Terminator::Unreachable);
+                    self.current_block = self.new_block();
+                }
+            },
+            ExprKind::StructLiteral(struct_literal) => {
+                let &thir::StructLiteral{id,kind:_,ref generic_args,variant,ref fields} = struct_literal.as_ref();
+                let place = place_or_temporary(self, place, expr);
+                let mut fields = fields.iter().map(|field|{
+                    (field.field,self.lower_as_operand(field.expr))
+                }).collect::<FxHashMap<_,_>>();
+                let fields = (0..fields.len()).map(|field| fields.remove(&FieldIndex::new(field as u32)).expect("There should be an operand for each field")).collect();
+                self.assign_stmt(place, RValue::Adt(Box::new((id,generic_args.clone(),variant)), fields));
+            },
+            ExprKind::Array(elements) => {
+                let place = place_or_temporary(self, place, expr);
+                let elements = elements.iter().copied().map(|element| {
+                    self.lower_as_operand(element)
+                }).collect();
+                self.assign_stmt(place, RValue::Array(elements));
+            },
+            &ExprKind::Unary(op,operand) => {
+                let place = place_or_temporary(self, place, expr);
+                let operand = self.lower_as_operand(operand);
+                self.assign_stmt(place, RValue::Unary(op,operand));
+            },
+            &ExprKind::Match(operand,ref arms) => {
+                self.lower_match_expr(place,expr,operand,arms);
+            }
+
         }
+    }
+    fn lower_stmt(&mut self,stmt:&thir::Stmt){
+        match &stmt.kind{
+            &StmtKind::Expr (expr) => {
+                self.lower_expr(expr, None);
+            },
+            &StmtKind::Let(ref pattern,expr) => {
+                self.declare_bindings(&pattern);
+                match &pattern.kind{
+                    &PatternKind::Binding(_,variable, None) => {
+                        let local = self.var_to_local[&variable];
+                        self.lower_expr(expr,Some(local.into()));
+                    },
+                    _ => {
+                        let place = self.lower_as_place(expr);
+                        self.lower_let(pattern, place);
+                    }
+                }
+            }
+        }
+
     }
     fn declare_bindings(&mut self, pattern:&Pattern){
         match &pattern.kind{
@@ -423,7 +431,7 @@ impl<'a> BodyBuild<'a>{
                 }
             }
         }
-        self.lower_into_place(return_local.into(),expr);
+        self.lower_expr(expr,Some(return_local.into()));
         self.terminate(Terminator::Return);
         self.result_body
     }

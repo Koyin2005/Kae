@@ -238,6 +238,9 @@ impl TypeContext{
     pub fn get_variant_by_index(&self, enum_id: DefId, index: VariantIndex) -> &VariantDef{
         &self.enums[enum_id].variants[index.as_index() as usize]
     }
+    pub fn expect_variants(&self, enum_id: DefId) -> impl Iterator<Item = &VariantDef> + ExactSizeIterator{
+        self.enums[enum_id].variants.iter()
+    }
     pub fn expect_variants_for(&self, enum_id: DefId) -> Vec<VariantIndex>{
         (0..self.enums[enum_id].variants.len()).map(|variant| VariantIndex::new(variant as u32)).collect()
     }

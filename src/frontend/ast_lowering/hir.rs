@@ -118,7 +118,7 @@ pub struct Expr{
     pub span : SourceLocation,
     pub kind : ExprKind
 }
-#[derive(Clone,Copy,Debug)]
+#[derive(Clone,Copy,Debug,PartialEq)]
 pub enum LiteralKind {
     Int(i64),
     Float(f64),

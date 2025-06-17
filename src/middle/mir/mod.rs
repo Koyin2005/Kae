@@ -36,13 +36,13 @@ impl Block{
         self.terminator.as_ref().expect("The terminator should be assigned")
     }
 }
-#[derive(Clone)]
+#[derive(Clone,PartialEq,Debug)]
 pub enum PlaceProjection {
     Field(FieldIndex),
     Variant(SymbolIndex,VariantIndex),
     Index(Local)
 }
-#[derive(Clone)]
+#[derive(Clone,PartialEq,Debug)]
 pub struct Place{
     pub local : Local,
     pub projections : Box<[PlaceProjection]>
@@ -60,6 +60,7 @@ pub enum RValue {
     Array(Box<[Operand]>),
     Adt(Box<(DefId,GenericArgs,Option<VariantIndex>)>,IndexVec<FieldIndex,Operand>),
     Tuple(Box<[Operand]>),
+    Tag(Place)
 }
 pub enum Operand {
     Constant(Constant),

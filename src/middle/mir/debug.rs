@@ -80,6 +80,7 @@ impl<'a> DebugMir<'a>{
     fn debug_rvalue(&self, rvalue: &RValue) -> String{
         match rvalue{
             RValue::Use(operand) => self.debug_operand(operand),
+            RValue::Tag(operand) => format!("tag {}",self.debug_lvalue(operand)),
             RValue::Call(callee,args) => {
                 let mut output = self.debug_operand(callee);
                 output.push('(');
