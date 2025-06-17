@@ -83,6 +83,15 @@ impl <'a> BodyLower<'a>{
                 thir::PatternKind::Variant(type_id,generic_args,self.type_context().get_variant_index(id).expect("There should be a variant index"),fields.into_iter().map(|field_pattern|{
                         self.lower_pattern(field_pattern)
                 }).collect())  
+            },
+            hir::PatternKind::Path(_) => {
+                let id = match self.results().resolutions[&pattern.id]{
+                    hir::Resolution::Definition(hir::DefKind::Variant,id) => id,
+                    res => unreachable!("Unknown resolution {:?} found for pattern",res)
+                };
+                let type_id = self.lower_context.context.expect_owner_of(id);
+                let generic_args = self.results().generic_args[&pattern.id].clone();
+                thir::PatternKind::Variant(type_id,generic_args,self.type_context().get_variant_index(id).expect("There should be a variant index"),Box::new([]))  
             }
         };
         thir::Pattern { ty, span: pattern.span, kind }

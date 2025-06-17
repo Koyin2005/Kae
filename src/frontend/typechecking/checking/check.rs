@@ -210,6 +210,26 @@ impl<'a> TypeChecker<'a>{
                     AdtKind::Struct => Type::new_struct(generic_args, type_id)
                 }
             },
+            hir::PatternKind::Path(path) => {
+                let (generic_args,kind_and_id) = self.get_constructor_of_path(path);
+                let Ok(kind_and_id) = kind_and_id else {
+                    return;
+                };
+                let Some((constructor_kind,id)) = kind_and_id else{
+                    self.error(format!("Cannot use '{}' as constructor.",path.format(self.ident_interner)),pattern.span);
+                    return;
+                };
+                let type_id = match constructor_kind{
+                    AdtKind::Enum => self.context.expect_owner_of(id),
+                    AdtKind::Struct => {
+                        self.error(format!("Cannot intitialize struct {} without fields.",self.ident_interner.get(self.context.ident(id).index)),path.span());
+                        return;
+                    }
+                };
+                self.store_generic_args(pattern.id, generic_args.clone());
+                self.store_resolution(pattern.id, Resolution::Definition(hir::DefKind::Variant, id));
+                Type::new_enum(generic_args,type_id)
+            }
             hir::PatternKind::Struct(path, fields) => {
                 let (generic_args,kind_and_id) = self.get_constructor_with_generic_args(path,Some(&expected_type));
                 let Ok(kind_and_id) = kind_and_id else {
@@ -555,6 +575,19 @@ impl<'a> TypeChecker<'a>{
         }
         method_sig.return_type
     }
+    fn get_constructor_of_path(&self, path: &hir::QualifiedPath) -> (GenericArgs,Result<Option<(AdtKind,DefId)>,TypeError>){
+        let Ok((generic_args,res)) = self.resolve_path(path) else {
+            return (GenericArgs::new_empty(),Err(TypeError));
+        };
+        match res{
+            hir::Resolution::Definition(hir::DefKind::Struct,id) => (generic_args,Ok(Some((AdtKind::Struct,id)))),
+            hir::Resolution::Definition(hir::DefKind::Variant,id) => (generic_args,Ok(Some((AdtKind::Enum,id)))),
+            _ =>{
+                (generic_args,Ok(None))
+            } 
+        }
+
+    }
     fn get_constructor_with_generic_args(&self, path: &hir::InferOrPath, expected_type: Option<&Type>) -> (GenericArgs,Result<Option<(AdtKind,DefId)>,TypeError>){
         match path{
             &hir::InferOrPath::Infer(_,name) => {
@@ -579,16 +612,7 @@ impl<'a> TypeChecker<'a>{
                 (generic_args,Ok(Some(kind_and_id)))
             },
             hir::InferOrPath::Path(path) => {
-                let Ok((generic_args,res)) = self.resolve_path(path) else {
-                    return (GenericArgs::new_empty(),Err(TypeError));
-                };
-                match res{
-                    hir::Resolution::Definition(hir::DefKind::Struct,id) => (generic_args,Ok(Some((AdtKind::Struct,id)))),
-                    hir::Resolution::Definition(hir::DefKind::Variant,id) => (generic_args,Ok(Some((AdtKind::Enum,id)))),
-                    _ =>{
-                        (generic_args,Ok(None))
-                    } 
-                }
+                self.get_constructor_of_path(path)
             }
         }
     }

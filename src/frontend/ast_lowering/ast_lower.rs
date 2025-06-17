@@ -295,7 +295,7 @@ impl<'a> AstLowerer<'a>{
             },
             ast::ParsedPatternNodeKind::Path(path) => {
                 let path = self.lower_path(&path);
-                (PatternKind::Struct(hir::InferOrPath::Path(path?), vec![]),span)
+                (PatternKind::Path(path?),span)
             },
             ast::ParsedPatternNodeKind::Tuple(elements) => {
                 let elements:Vec<_> = elements.into_iter().map(|element|{

@@ -265,6 +265,7 @@ pub enum PatternKind {
     Literal(LiteralKind),
     Variant(InferOrPath,Vec<Pattern>),
     Struct(InferOrPath,Vec<FieldPattern>),
+    Path(QualifiedPath),
     Wildcard
 }
 #[derive(Clone,Debug)]
