@@ -227,7 +227,8 @@ impl <'a> BodyBuild<'a>{
         if branches[0].tests.is_empty(){
             println!("The rest {}",start_block);
             branches[0].success = Some(start_block);
-            self.build_match(depth, branches.split_off(1),start_block)
+            let otherwise_block = self.new_block();
+            self.build_match(depth, branches.split_off(1),otherwise_block)
         }
         else{
             let (place,test) = self.pick_test(&mut branches);

@@ -324,11 +324,7 @@ impl<'a> BodyBuild<'a>{
             }
             &ExprKind::Call(callee,ref args) => {
                 let inhabited = self.context.is_type_inhabited(&self.body.exprs[expr].ty);
-                let place = if !inhabited { 
-                    self.new_temporary(self.body.exprs[expr].ty.clone()).into()
-                } else{ 
-                    place_or_temporary(self, place, expr)
-                };
+                let place =  place_or_temporary(self, place, expr);
                 let callee = self.lower_as_operand(callee);
                 let args = args.iter().copied().map(|arg| self.lower_as_operand(arg)).collect();
                 self.assign_stmt(place, RValue::Call(callee, args));
