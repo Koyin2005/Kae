@@ -380,6 +380,7 @@ impl<'b,'a:'b> NameFinder<'b>{
             self.find_names_in_item(item);
         }
         if self.error_reporter.error_occurred(){
+            self.error_reporter.emit_all();
             return Err(());
         }
         Ok((self.info,NameScopes{
