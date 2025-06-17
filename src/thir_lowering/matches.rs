@@ -1,9 +1,7 @@
-use std::{hash::Hash, vec};
-
-use fxhash::FxHashMap;
+use std::hash::Hash;
 use indexmap::IndexMap;
 
-use crate::{data_structures::IntoIndex, frontend::{ast_lowering::hir::{DefId, LiteralKind}, thir::{self, ExprId, ThirBody}, typechecking::{context::TypeContext, types::Type}}, identifiers::{FieldIndex, SymbolIndex, VariantIndex}, middle::mir::{self, BlockId, Place}, thir_lowering::BodyBuild};
+use crate::{data_structures::IntoIndex, frontend::{ast_lowering::hir::{DefId, LiteralKind}, thir, typechecking::{context::TypeContext, types::Type}}, identifiers::{FieldIndex, SymbolIndex, VariantIndex}, middle::mir::{self, BlockId, Place}, thir_lowering::BodyBuild};
 
 #[derive(Debug,Clone, Copy,PartialEq)]
 enum TestResult{
@@ -59,7 +57,6 @@ impl Hash for TestCase{
 }
 #[derive(Debug,Clone)]
 struct PlaceTest{
-    ty : Type,
     place : Place,
     test : TestCase
 }
@@ -75,14 +72,6 @@ struct MatchBranch{
     tests : Vec<TestTree>,
     success : Option<BlockId>
 }
-
-struct MatchTree{
-    target : BlockId,
-    place : Place,
-    test : Test,
-    sub_matches : Vec<MatchTree>,
-    
-}
 fn test_trees_from(context:&TypeContext,pattern:&thir::Pattern, place: Place, tests: &mut Vec<TestTree>){
     let mut subtests = Vec::new();
     let base_test = match &pattern.kind {
@@ -93,10 +82,10 @@ fn test_trees_from(context:&TypeContext,pattern:&thir::Pattern, place: Place, te
             None
         },
         &thir::PatternKind::Constant(literal) => match literal{
-            LiteralKind::Bool(value) => Some(PlaceTest{place,ty:Type::Bool,test:TestCase::Bool(value)}),
-            LiteralKind::Float(value) => Some(PlaceTest { place,ty:Type::Float, test: TestCase::Float(value) }),
-            LiteralKind::Int(value) => Some(PlaceTest { place,ty:Type::Int, test: TestCase::Int(value) }),
-            LiteralKind::String(value) => Some(PlaceTest { place,ty:Type::String, test: TestCase::String(value) })
+            LiteralKind::Bool(value) => Some(PlaceTest{place,test:TestCase::Bool(value)}),
+            LiteralKind::Float(value) => Some(PlaceTest { place, test: TestCase::Float(value) }),
+            LiteralKind::Int(value) => Some(PlaceTest { place, test: TestCase::Int(value) }),
+            LiteralKind::String(value) => Some(PlaceTest { place, test: TestCase::String(value) })
         },
         thir::PatternKind::Tuple(fields) => {
             for (i,field) in fields.iter().enumerate(){
@@ -110,12 +99,12 @@ fn test_trees_from(context:&TypeContext,pattern:&thir::Pattern, place: Place, te
             }
             None
         },
-        &thir::PatternKind::Variant(id,ref args,variant,ref fields) => {
+        &thir::PatternKind::Variant(id,_,variant,ref fields) => {
                 let projected_place = place.clone().project(mir::PlaceProjection::Variant(context.get_variant_by_index(id, variant).name.index, variant));
             for (i,field) in fields.iter().enumerate(){
                 test_trees_from(context,field, projected_place.clone().project(mir::PlaceProjection::Field(FieldIndex::new(i as u32))), &mut subtests);
             }
-            Some(PlaceTest { place: place,ty:Type::new_enum(args.clone(), id), test: TestCase::Variant(id, variant) })
+            Some(PlaceTest { place: place, test: TestCase::Variant(id, variant) })
         }
         thir::PatternKind::Wildcard => None
     };
@@ -228,7 +217,7 @@ impl <'a> BodyBuild<'a>{
         }
     }
     fn build_match(&mut self,depth:usize,mut branches : Vec<&mut MatchBranch>, start_block : BlockId) -> BlockId{
-        for i in 0..depth{
+        for _ in 0..depth{
             print!(" ");
         }
         if branches.is_empty(){
