@@ -1,4 +1,4 @@
-use crate::{data_structures::IntoIndex, frontend::{ast_lowering::hir::{self, DefId, DefIdMap, Ident}, tokenizing::SourceLocation}, identifiers::{SymbolIndex, VariantIndex}, GlobalSymbols};
+use crate::{data_structures::IntoIndex, frontend::{ast_lowering::hir::{self, DefId, DefIdMap, DefKind, Ident}, tokenizing::SourceLocation, typechecking::types::format::TypeFormatter}, identifiers::{SymbolIndex, VariantIndex}, GlobalSymbols};
 
 use super::{ types::{generics::GenericArgs, subst::{Subst, TypeSubst}, AdtKind, Type}};
 
@@ -85,6 +85,7 @@ pub struct TypeContext{
     pub(super) signatures : DefIdMap<FuncSig>,
     pub(super) type_ids_to_method_impls : DefIdMap<Vec<DefId>>,
     pub(super) has_receiver : DefIdMap<bool>,
+    pub(super) kinds : DefIdMap<DefKind>
 }
 impl TypeContext{
     pub fn new() -> Self{
@@ -99,7 +100,8 @@ impl TypeContext{
             impl_ids : Vec::new(),
             signatures : DefIdMap::new(),
             type_ids_to_method_impls : DefIdMap::new(),
-            has_receiver : DefIdMap::new()
+            has_receiver : DefIdMap::new(),
+            kinds : DefIdMap::new()
         }
     }
     pub fn get_member_ids(&self, ty: &Type, name : SymbolIndex) -> Vec<(hir::DefKind,DefId)>{
@@ -247,4 +249,26 @@ impl TypeContext{
     pub fn field_defs(&self, struct_id: DefId) -> &[FieldDef]{
         &self.structs[struct_id].fields
     }
+
+
+    pub fn format_full_path(&self, id: DefId, interner:&crate::SymbolInterner) -> String{
+        match self.kinds[id]{
+            DefKind::AnonFunction => format!("anonymous"),
+            DefKind::Struct | 
+            DefKind::Function | 
+            DefKind::Enum |
+            DefKind::Param  => format!("{}",interner.get(self.ident(id).index)),
+            DefKind::Method => {
+                let impl_id = self.expect_owner_of(id);
+                let ty = &self.impls[impl_id].ty;
+                format!("{}::{}",TypeFormatter::new(interner, self).format_type(ty),interner.get(self.ident(id).index))
+            },
+            DefKind::Variant => {
+                let enum_id = self.expect_owner_of(id);
+                format!("{}::{}",interner.get(self.ident(enum_id).index),interner.get(self.ident(id).index))
+            }
+        }
+    }
 }
+
+

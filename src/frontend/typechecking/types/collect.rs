@@ -1,5 +1,5 @@
 use crate::{data_structures::IndexVec, errors::ErrorReporter, frontend::{
-        ast_lowering::hir::{self, DefId, Hir, Ident, Item}, 
+        ast_lowering::hir::{self, DefId, DefKind, Hir, Ident, Item}, 
         typechecking::context::{EnumDef, FieldDef, Generics, Impl, StructDef, TypeContext, VariantDef}}, identifiers::ItemIndex, GlobalSymbols, SymbolInterner};
 
 use super::{ lowering::TypeLower, Type};
@@ -32,6 +32,9 @@ impl<'a> ItemCollector<'a>{
     fn lowerer_with_self(&self, ty: Type) -> TypeLower{
         TypeLower::new(self.interner, &self.context, Some(ty), &self.error_reporter)
     }
+    fn add_kind(&mut self, id: DefId, kind: DefKind){
+        self.context.kinds.insert(id, kind);
+    }
     fn add_name(&mut self, id: DefId, name: Ident){
         self.context.name_map.insert(id, name);
     }
@@ -44,6 +47,7 @@ impl<'a> ItemCollector<'a>{
         for param in generics.params.iter(){
             self.add_name(param.1, param.0);
             self.add_child_for(owner, param.1);
+            self.add_kind(param.1, DefKind::Param);
             self.context.params_to_indexes.insert(param.1, self.next_param_index);
             self.next_param_index+=1;
             param_names.push(param.0);
@@ -56,18 +60,22 @@ impl<'a> ItemCollector<'a>{
         match item{
             Item::Struct(struct_def) => {
                 self.add_name(struct_def.id, struct_def.name);
+                self.add_kind(struct_def.id, DefKind::Struct);
                 self.collect_names_for_generics(struct_def.id, &struct_def.generics);
             },
             Item::Enum(enum_def) => {
                 self.add_name(enum_def.id, enum_def.name);
+                self.add_kind(enum_def.id, DefKind::Enum);
                 self.collect_names_for_generics(enum_def.id, &enum_def.generics);
                 for variant in &enum_def.variants{
                     self.add_name(variant.id,variant.name);
+                    self.add_kind(variant.id, DefKind::Variant);
                     self.add_child_for(enum_def.id,variant.id);
                 }
             },
             Item::Function(function_def) => {
                 self.add_name(function_def.id, function_def.name);
+                self.add_kind(function_def.id, DefKind::Function);
                 self.collect_names_for_generics(function_def.id, &function_def.generics);
             },
             Item::Impl(impl_) => {
@@ -80,6 +88,7 @@ impl<'a> ItemCollector<'a>{
                 for method in &impl_.methods{
                     self.add_name(method.id, method.name);
                     self.add_child_for(impl_.id, method.id);
+                    self.add_kind(method.id, DefKind::Method);
                     self.collect_names_for_generics(method.id, &method.generics);
                     self.context.type_ids_to_method_impls.entry(type_id).or_default().push(method.id);
                     self.context.has_receiver.insert(method.id,self.hir.bodies[self.hir.owner_to_bodies[method.id]].params.first().is_some_and(|param|{

@@ -217,15 +217,10 @@ impl <'a> BodyBuild<'a>{
         }
     }
     fn build_match(&mut self,depth:usize,mut branches : Vec<&mut MatchBranch>, start_block : BlockId) -> BlockId{
-        for _ in 0..depth{
-            print!(" ");
-        }
         if branches.is_empty(){
-            println!("Done {}",start_block);
             return start_block;
         }
         if branches[0].tests.is_empty(){
-            println!("The rest {}",start_block);
             branches[0].success = Some(start_block);
             let otherwise_block = self.new_block();
             self.build_match(depth, branches.split_off(1),otherwise_block)
@@ -234,14 +229,8 @@ impl <'a> BodyBuild<'a>{
             let (place,test) = self.pick_test(&mut branches);
             let (branches,remaining,_) = self.group_branches(&place,&test,branches);
             let otherwise_block = self.new_block();
-            println!("{:?} {:?} {} {}",place,test,start_block,otherwise_block);
             let targets : IndexMap<_,_> = branches.into_iter().map(|(test,branch)|{
-                
-                for _ in 0..depth+1{
-                    print!(" ");
-                }
                 let branch_block = self.new_block();
-                println!("{:?} {}",test,branch_block);
                 let branch_otherwise = self.build_match(depth+2, branch,branch_block);
                 self.current_block = branch_otherwise;
                 self.terminate(mir::Terminator::Goto(otherwise_block));

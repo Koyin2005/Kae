@@ -466,6 +466,7 @@ impl<'a> TypeChecker<'a>{
                                         }));
                                         self.store_generic_args(callee.id, generic_args.clone());
                                         self.store_resolution(callee.id, Resolution::Definition(hir::DefKind::Variant,variant.id));
+                                        self.results.borrow_mut().signatures.insert(callee.id, FuncSig { params: params.clone(), return_type: ty.clone() });
                                         Type::new_function(params, ty.clone())
                                     })
 

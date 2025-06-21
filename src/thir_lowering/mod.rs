@@ -337,9 +337,12 @@ impl<'a> BodyBuild<'a>{
                 let &thir::StructLiteral{id,kind:_,ref generic_args,variant,ref fields} = struct_literal.as_ref();
                 let place = place_or_temporary(self, place, expr);
                 let mut fields = fields.iter().map(|field|{
-                    (field.field,self.lower_as_operand(field.expr))
+                    (field.field,Some(self.lower_as_operand(field.expr)))
                 }).collect::<FxHashMap<_,_>>();
-                let fields = (0..fields.len()).map(|field| fields.remove(&FieldIndex::new(field as u32)).expect("There should be an operand for each field")).collect();
+                let fields = (0..fields.len()).map(|field| {
+                    let field = FieldIndex::new(field as u32);
+                    fields.get_mut(&field).expect("There should be an operand in the fields list").take().expect("There should be an operand")
+                }).collect();
                 self.assign_stmt(place, RValue::Adt(Box::new((id,generic_args.clone(),variant)), fields));
             },
             ExprKind::Array(elements) => {

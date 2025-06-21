@@ -409,6 +409,7 @@ impl<'a> Parser<'a>{
         matches!(self.current_token.kind,TokenKind::Float|TokenKind::Int|TokenKind::True|TokenKind::False
                 |TokenKind::While|TokenKind::If| TokenKind::Print| TokenKind::Return|
                 TokenKind::Identifier|TokenKind::LeftParen| TokenKind::LeftBracket | TokenKind::Dot | TokenKind::Wildcard | 
+                TokenKind::LowerSelf |
                 TokenKind::Bang| TokenKind::Minus | TokenKind::Fun)
     }
     fn parse_function_param(&mut self)->Result<ParsedParam,ParsingFailed>{

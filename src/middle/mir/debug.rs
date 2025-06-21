@@ -1,6 +1,6 @@
 use crate::{data_structures::IntoIndex, frontend::{ast_lowering::hir, typechecking::{context::TypeContext, types::{format::TypeFormatter, AdtKind, Type}}}, SymbolInterner};
 
-use super::{Block, BlockId, Body, BodyKind, ConstantKind, FunctionKind, Mir, Operand, Place, PlaceProjection, RValue, Stmt, Terminator};
+use super::{Block, BlockId, Body, ConstantKind, FunctionKind, Mir, Operand, Place, PlaceProjection, RValue, Stmt, Terminator};
 
 
 pub struct DebugMir<'a>{
@@ -239,11 +239,7 @@ impl<'a> DebugMir<'a>{
         self.decrease_indent_level();
     }
     fn format_body(&mut self,body:&Body){
-        let name = match body.source.kind{
-            BodyKind::Anonymous => "anonymous".to_string(),
-            BodyKind::Function => self.symbol_interner.get(self.context.ident(body.source.id).index).to_string(),
-            BodyKind::Constructor =>  self.symbol_interner.get(self.context.ident(body.source.id).index).to_string()
-        };
+        let name = self.context.format_full_path(body.source.id, self.symbol_interner);
         let mut first_line = format!("fun {}(",name);
         let mut first = true;
         for (i,ty) in body.source.params.iter().enumerate(){
