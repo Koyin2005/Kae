@@ -1,7 +1,7 @@
 use std::hash::Hash;
 use indexmap::IndexMap;
 
-use crate::{data_structures::IntoIndex, frontend::{ast_lowering::hir::{DefId, LiteralKind}, thir, typechecking::{context::TypeContext, types::Type}}, identifiers::{FieldIndex, SymbolIndex, VariantIndex}, middle::mir::{self, BlockId, Place}, thir_lowering::BodyBuild};
+use crate::{data_structures::IntoIndex, frontend::{ast_lowering::hir::{self, DefId, LiteralKind}, thir, typechecking::{context::TypeContext, types::Type}}, identifiers::{FieldIndex, SymbolIndex, VariantIndex}, middle::mir::{self, BlockId, Constant, Operand, Place}, thir_lowering::BodyBuild};
 
 #[derive(Debug,Clone, Copy,PartialEq)]
 enum TestResult{
@@ -195,11 +195,45 @@ impl <'a> BodyBuild<'a>{
                 self.terminate(mir::Terminator::Switch(mir::Operand::Load(place),Box::new([(0,get_target(TestResult::Failure))]), get_target(TestResult::Success)));
             },
             Test::SwitchInt => {
-                
-                todo!("Handle test for switch int")
+                let targets = targets.iter().filter_map(|(result,&target)|{
+                    match result{
+                        &TestResult::Int(value) => Some((value,target)),
+                        _ => None
+                    }
+                }).map(|(value,block)|{
+                    let value = if value < 0{
+                        u64::from_ne_bytes(value.to_ne_bytes()) as u128
+                    }
+                    else{
+                        value as u128
+                    };
+                    (value,block)
+                }).collect();
+                self.terminate(mir::Terminator::Switch(mir::Operand::Load(place),targets, otherwise_block));
             },
             Test::Eq => {
-                todo!("Handle test for eq")
+                let values_with_targets : Box<[_]> = targets.iter().filter_map(|(&result,&target)|{
+                    match result {
+                        TestResult::String(string) => Some((Constant{ty:Type::String,kind:mir::ConstantKind::String(string)},target)),
+                        TestResult::Float(value) => Some((Constant{ty:Type::Float,kind:mir::ConstantKind::Float(value)},target)),
+                        _ => None
+                    }
+                }).collect();
+                let old_block = self.current_block;
+                for (i,(value,target)) in values_with_targets.iter().cloned().enumerate(){
+                    let condition = self.new_temporary(Type::Bool);
+                    self.assign_stmt(condition.into(), mir::RValue::Binary(hir::BinaryOp::Equals, Box::new((Operand::Load(place.clone()),Operand::Constant(value)))));
+                    let false_target = if values_with_targets.get(i+1).is_some() { 
+                        let new_block = self.new_block();
+                        Some(new_block)
+                    } else { None};
+                    self.terminate(mir::Terminator::Switch(mir::Operand::Load(condition.into()),Box::new([(0,false_target.unwrap_or(otherwise_block))]), target));
+                    if let Some(target) = false_target{
+                        self.current_block = target;
+                    }
+
+                }
+                self.current_block = old_block;
             },
             &Test::SwitchVariant(id) => {
                 let discriminant = self.new_temporary(Type::Int);

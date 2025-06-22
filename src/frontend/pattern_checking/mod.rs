@@ -260,6 +260,7 @@ impl<'a> PatternChecker<'a>{
             (Constructor::Float(_),_) => vec![],
             (Constructor::Int(_),_) => vec![],
             (Constructor::Missing,_) => vec![],
+            (Constructor::String(_),_) => vec![],
             (Constructor::NonExhaustive|Constructor::Wildcard,_) => vec![],
             (Constructor::Struct,Type::Tuple(fields)) => fields.clone(),
             (Constructor::Struct,&Type::Adt(ref args, id, AdtKind::Struct)) => self.context.field_defs(id).iter().map(|field_def| TypeSubst::new(args).instantiate_type(&field_def.ty)).collect(),

@@ -166,7 +166,7 @@ impl<'a> BodyBuild<'a>{
             &thir::ExprKind::Literal(literal) => {
                 let kind = match literal{
                     hir::LiteralKind::Bool(value) => mir::ConstantKind::Bool(value),
-                    hir::LiteralKind::Float(_) => todo!("Floats"),
+                    hir::LiteralKind::Float(value) => mir::ConstantKind::Float(value),
                     hir::LiteralKind::Int(value) => mir::ConstantKind::Int(value),
                     hir::LiteralKind::String(string) => mir::ConstantKind::String(string)    
                 };

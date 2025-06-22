@@ -18,6 +18,7 @@ pub enum ConstantKind {
     Bool(bool),
     String(SymbolIndex),
     ZeroSized,
+    Float(f64),
     Function(FunctionKind,GenericArgs),
 }
 #[derive(Clone)]

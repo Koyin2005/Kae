@@ -53,6 +53,7 @@ impl<'a> DebugMir<'a>{
                 match &constant.kind{
                     ConstantKind::Bool(value) => value.to_string(),
                     ConstantKind::Int(value) => value.to_string(),
+                    ConstantKind::Float(value) => value.to_string(),
                     ConstantKind::String(index) => format!("\"{}\"",self.symbol_interner.get(*index)),
                     ConstantKind::ZeroSized => TypeFormatter::new(self.symbol_interner, self.context).format_type(&constant.ty),
                     ConstantKind::Function(kind,generic_args) => {
