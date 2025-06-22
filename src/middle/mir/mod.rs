@@ -60,6 +60,7 @@ pub enum RValue {
     Array(Box<[Operand]>),
     Adt(Box<(DefId,GenericArgs,Option<VariantIndex>)>,IndexVec<FieldIndex,Operand>),
     Tuple(Box<[Operand]>),
+    Len(Operand),
     Tag(Place)
 }
 pub enum Operand {
@@ -71,9 +72,13 @@ pub enum Stmt{
     Print(Box<[Operand]>),
     Nop
 }
+pub enum AssertKind {
+    ArrayBoundsCheck(Operand,Operand),
+}
 pub enum Terminator {
     Goto(BlockId),
     Switch(Operand,Box<[(u128,BlockId)]>,BlockId),
+    Assert(Operand,AssertKind,BlockId),
     Return,
     Unreachable
 }
