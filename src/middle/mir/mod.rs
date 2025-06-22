@@ -5,12 +5,14 @@ use crate::{data_structures::IndexVec, define_id, frontend::{ast_lowering::hir::
 
 pub mod debug;
 
+#[derive(Clone)]
 pub enum FunctionKind {
     Anon(DefId),
     Normal(DefId),
     Variant(DefId),
     Builtin(BuiltinKind)
 }
+#[derive(Clone)]
 pub enum ConstantKind {
     Int(i64),
     Bool(bool),
@@ -18,6 +20,7 @@ pub enum ConstantKind {
     ZeroSized,
     Function(FunctionKind,GenericArgs),
 }
+#[derive(Clone)]
 pub struct  Constant {
     pub ty : Type,
     pub kind : ConstantKind
@@ -60,9 +63,10 @@ pub enum RValue {
     Array(Box<[Operand]>),
     Adt(Box<(DefId,GenericArgs,Option<VariantIndex>)>,IndexVec<FieldIndex,Operand>),
     Tuple(Box<[Operand]>),
-    Len(Operand),
+    Len(Place),
     Tag(Place)
 }
+#[derive(Clone)]
 pub enum Operand {
     Constant(Constant),
     Load(Place)

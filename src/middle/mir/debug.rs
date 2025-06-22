@@ -80,7 +80,7 @@ impl<'a> DebugMir<'a>{
     fn debug_rvalue(&self, rvalue: &RValue) -> String{
         match rvalue{
             RValue::Use(operand) => self.debug_operand(operand),
-            RValue::Len(operand) => format!("len {}",self.debug_operand(operand)),
+            RValue::Len(operand) => format!("len {}",self.debug_lvalue(operand)),
             RValue::Tag(operand) => format!("tag {}",self.debug_lvalue(operand)),
             RValue::Call(callee,args) => {
                 let mut output = self.debug_operand(callee);
@@ -236,9 +236,9 @@ impl<'a> DebugMir<'a>{
                     self.push_next_line(&format!("goto -> {}",block));
                 },
                 Terminator::Assert(operand,kind,next) => {
-                    self.push_next_line(&format!("assert {}, {} -> {}",self.debug_operand(operand),match kind{
+                    self.push_next_line(&format!("assert({}, {}) -> {}",self.debug_operand(operand),match kind{
                         AssertKind::ArrayBoundsCheck(index,len) => {
-                           format!("Index out of range, index was {} but len was {}.",self.debug_operand(index),self.debug_operand(len))
+                           format!("\"Index out of range, index was {{}} but len was {{}}\". {}, {}",self.debug_operand(index),self.debug_operand(len))
                         }
                     },next));
                 }

@@ -131,6 +131,27 @@ impl<'a> BodyBuild<'a>{
                     self.assign_stmt(index_local.into(), rvalue);
                     index_local
                 };
+                let len_local = self.new_temporary(Type::Int);
+                self.assign_stmt(len_local.into(), RValue::Len(array_place.clone()));
+
+                let is_lesser = self.new_temporary(Type::Bool);
+                let index_operand = Operand::Load(index.into());
+                let len_operand = Operand::Load(len_local.into());
+                self.assign_stmt(is_lesser.into(), RValue::Binary(hir::BinaryOp::Lesser, Box::new((index_operand.clone(),len_operand.clone()))));
+
+                let new_block = self.new_block();
+                self.terminate(Terminator::Assert(Operand::Load(is_lesser.into()), mir::AssertKind::ArrayBoundsCheck(index_operand.clone(),len_operand.clone()), new_block));
+                self.current_block = new_block;
+                
+                
+                let is_non_negative = self.new_temporary(Type::Bool);
+                self.assign_stmt(is_non_negative.into(), RValue::Binary(hir::BinaryOp::GreaterEquals, Box::new((index_operand.clone(),Operand::Constant(Constant { ty: Type::Int, kind: mir::ConstantKind::Int(0) })))));
+
+                let new_block = self.new_block();
+                self.terminate(Terminator::Assert(Operand::Load(is_non_negative.into()), mir::AssertKind::ArrayBoundsCheck(index_operand,len_operand), new_block));
+                self.current_block = new_block;
+                
+
                 array_place.project(PlaceProjection::Index(index.into()))
             },
             _ => {
