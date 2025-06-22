@@ -226,13 +226,15 @@ impl <'a> BodyLower<'a>{
             }),
             hir::ExprKind::MethodCall(receiver,method,args) =>{
                 let expr_id = expr.id;
-                let receiver = self.lower_expr(*receiver);
-                let args = self.lower_exprs(args.into_iter());
-                let callee = if let Some(kind) = self.lower_expr_as_path(expr_id){
-                    self.thir.exprs.push(Expr { ty: self.results().signatures[&expr.id].as_type(), kind, span: method.ident.span })
+                let (callee,args) = if let Some(kind) = self.lower_expr_as_path(expr_id){
+                    let args = self.lower_exprs(std::iter::once(*receiver).chain(args.into_iter()));
+                    (self.thir.exprs.push(Expr { ty: self.results().signatures[&expr.id].as_type(), kind, span: method.ident.span }),args)
                 }
                 else{
-                    self.thir.exprs.push(Expr { ty: self.results().signatures[&expr.id].as_type(), kind : thir::ExprKind::Field(receiver, self.results().fields[&expr.id]), span: method.ident.span })
+                    
+                    let receiver = self.lower_expr(*receiver);
+                    (self.thir.exprs.push(Expr { ty: self.results().signatures[&expr.id].as_type(), kind : thir::ExprKind::Field(receiver, self.results().fields[&expr.id]), span: method.ident.span }),
+                     self.lower_exprs(args.into_iter()))
 
                 };
                 thir::ExprKind::Call(callee, args)

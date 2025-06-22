@@ -253,7 +253,7 @@ impl TypeContext{
 
     pub fn format_full_path(&self, id: DefId, interner:&crate::SymbolInterner) -> String{
         match self.kinds[id]{
-            DefKind::AnonFunction => format!("anonymous"),
+            DefKind::AnonFunction => format!("<anonymous>"),
             DefKind::Struct | 
             DefKind::Function | 
             DefKind::Enum |
@@ -271,7 +271,7 @@ impl TypeContext{
     }
     pub fn format_value_path(&self, id: DefId,generic_args:&GenericArgs, interner:&crate::SymbolInterner) -> String{
         match self.kinds[id]{
-            DefKind::AnonFunction => format!("anonymous"),
+            DefKind::AnonFunction => format!("<anonymous>"),
             DefKind::Struct | 
             DefKind::Function | 
             DefKind::Enum |

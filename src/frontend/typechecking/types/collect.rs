@@ -1,5 +1,5 @@
 use crate::{data_structures::IndexVec, errors::ErrorReporter, frontend::{
-        ast_lowering::hir::{self, DefId, DefKind, Hir, Ident, Item}, 
+        ast_lowering::hir::{self, BodyOwner, DefId, DefKind, Hir, Ident, Item}, 
         typechecking::context::{EnumDef, FieldDef, Generics, Impl, StructDef, TypeContext, VariantDef}}, identifiers::ItemIndex, GlobalSymbols, SymbolInterner};
 
 use super::{ lowering::TypeLower, Type};
@@ -161,6 +161,11 @@ impl<'a> ItemCollector<'a>{
         /*Define all items*/
         for item in self.items.iter(){
             self.collect_definitions_for_items(item);
+        }
+        for owner in self.hir.body_owners.iter(){
+            if let BodyOwner::AnonFunction(id) = owner{
+                self.add_kind(*id, DefKind::AnonFunction);
+            }
         }
         (self.context,self.error_reporter)
     }
