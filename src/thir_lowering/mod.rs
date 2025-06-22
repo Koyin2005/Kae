@@ -286,8 +286,7 @@ impl<'a> BodyBuild<'a>{
                 self.current_block = merge_block;
             },
             &ExprKind::NeverCast(expr) => {
-                let place = self.new_temporary_for(expr).into();
-                self.lower_expr(expr, Some(place));
+                self.lower_expr(expr, None);
                 if !matches!(self.body.exprs[expr].kind,ExprKind::Call{..}) {
                     self.terminate(Terminator::Unreachable);
                     let next_block = self.new_block();
@@ -323,12 +322,11 @@ impl<'a> BodyBuild<'a>{
                 }
             }
             &ExprKind::Call(callee,ref args) => {
-                let inhabited = self.context.is_type_inhabited(&self.body.exprs[expr].ty);
                 let place =  place_or_temporary(self, place, expr);
                 let callee = self.lower_as_operand(callee);
                 let args = args.iter().copied().map(|arg| self.lower_as_operand(arg)).collect();
                 self.assign_stmt(place, RValue::Call(callee, args));
-                if !inhabited{
+                if !self.context.is_type_inhabited(&self.body.exprs[expr].ty){
                     self.terminate(Terminator::Unreachable);
                     self.current_block = self.new_block();
                 }
