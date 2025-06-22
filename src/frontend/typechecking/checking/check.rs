@@ -564,7 +564,8 @@ impl<'a> TypeChecker<'a>{
             return Type::new_error();
         }
         
-        let method_sig =  TypeSubst::new(&generic_args.rebase(&base_generic_args)).instantiate_signature(&sig);
+        let generic_args = generic_args.rebase(&base_generic_args);
+        let method_sig =  TypeSubst::new(&generic_args).instantiate_signature(&sig);
         if method_sig.params.len() != args.len(){
             self.error(format!("Expected {} arg{} got {}.",method_sig.params.len(),if method_sig.params.len() == 1 { ""} else {"s"},args.len()), name.span);
             return method_sig.return_type;

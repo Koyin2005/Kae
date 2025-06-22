@@ -269,6 +269,24 @@ impl TypeContext{
             }
         }
     }
+    pub fn format_value_path(&self, id: DefId,generic_args:&GenericArgs, interner:&crate::SymbolInterner) -> String{
+        match self.kinds[id]{
+            DefKind::AnonFunction => format!("anonymous"),
+            DefKind::Struct | 
+            DefKind::Function | 
+            DefKind::Enum |
+            DefKind::Param  => format!("{}",interner.get(self.ident(id).index)),
+            DefKind::Method => {
+                let impl_id = self.expect_owner_of(id);
+                let ty = TypeSubst::new(generic_args).instantiate_type(&self.impls[impl_id].ty);
+                format!("{}::{}",TypeFormatter::new(interner, self).format_type(&ty),interner.get(self.ident(id).index))
+            },
+            DefKind::Variant => {
+                let enum_id = self.expect_owner_of(id);
+                format!("{}{}::{}",interner.get(self.ident(enum_id).index),if generic_args.is_empty() {"".to_string() } else {TypeFormatter::new(interner, self).format_generic_args(generic_args)},interner.get(self.ident(id).index))
+            }
+        }
+    }
 }
 
 

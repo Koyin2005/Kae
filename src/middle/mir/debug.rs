@@ -56,18 +56,13 @@ impl<'a> DebugMir<'a>{
                     ConstantKind::String(index) => format!("\"{}\"",self.symbol_interner.get(*index)),
                     ConstantKind::ZeroSized => TypeFormatter::new(self.symbol_interner, self.context).format_type(&constant.ty),
                     ConstantKind::Function(kind,generic_args) => {
-                        let name = match kind {
+                        match kind {
                             FunctionKind::Anon(_) => "anonymous".to_string(),
-                            FunctionKind::Normal(id) => self.symbol_interner.get(self.context.ident(*id).index).to_string(),
-                            FunctionKind::Variant(id) => {
-                                let base = self.symbol_interner.get(self.context.ident(self.context.expect_owner_of(*id)).index);
-                                format!("{}::{}",base, self.symbol_interner.get(self.context.ident(*id).index))
-                            },
+                            FunctionKind::Normal(id) | FunctionKind::Variant(id) => self.context.format_value_path(*id, generic_args,self.symbol_interner),
                             FunctionKind::Builtin(builtin) => match builtin{
                                 hir::BuiltinKind::Panic => "panic"
                             }.to_string()
-                        };
-                        format!("{}{}",name,TypeFormatter::new(self.symbol_interner, self.context).format_generic_args(generic_args))
+                        }
                         
                     }
                 }
