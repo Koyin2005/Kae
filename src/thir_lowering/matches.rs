@@ -1,60 +1,31 @@
 use std::hash::Hash;
 use indexmap::IndexMap;
 
-use crate::{data_structures::IntoIndex, frontend::{ast_lowering::hir::{self, DefId, LiteralKind}, thir, typechecking::{context::TypeContext, types::Type}}, identifiers::{FieldIndex, SymbolIndex, VariantIndex}, middle::mir::{self, BlockId, Constant, Operand, Place}, thir_lowering::BodyBuild};
+use crate::{data_structures::IntoIndex, frontend::{ast_lowering::hir::{ self, DefId, LiteralKind}, thir, typechecking::{context::TypeContext, types::Type}}, identifiers::{FieldIndex, VariantIndex}, middle::mir::{self, BlockId, Constant, Operand, Place}, thir_lowering::BodyBuild};
 
-#[derive(Debug,Clone, Copy,PartialEq)]
+#[derive(Debug,Clone,Hash,PartialEq)]
 enum TestResult{
     Success,
-    Int(i64),
-    String(SymbolIndex),
-    Float(f64),
+    Constant(Constant),
     Variant(DefId,VariantIndex),
     Failure
 }
 impl Eq for TestResult{}
-impl Hash for TestResult{
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        match *self {
-            Self::Success => state.write_i8(0 as i8),
-            Self::Failure => state.write_i8(1 as i8),
-            Self::Int(value) => state.write_i64(value),
-            Self::String(index) => state.write_u32(index.as_index()),
-            Self::Variant(id,index) => {state.write_u32(id.as_index());state.write_u32(index.as_index());},
-            Self::Float(value) => state.write_u64(value.to_bits()),
-
-        }
-    }
-}
-#[derive(Debug,Clone, Copy,PartialEq, Eq,Hash)]
+#[derive(Debug,Clone ,PartialEq,Hash)]
 enum Test {
     SwitchVariant(DefId),
     If,
-    Eq,
+    Eq(Constant),
     SwitchInt
 }
 
-#[derive(Debug,Clone, Copy,PartialEq)]
+#[derive(Debug,Clone,PartialEq,Hash)]
 enum TestCase{
-    Bool(bool),
-    Int(i64),
-    String(SymbolIndex),
-    Float(f64),
+    Constant(Constant),
     Variant(DefId,VariantIndex),
 
 }
 impl Eq for TestCase{}
-impl Hash for TestCase{
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        match *self {
-            Self::Bool(value) => state.write_i8(value as i8),
-            Self::Int(value) => state.write_i64(value),
-            Self::String(index) => state.write_u32(index.as_index()),
-            Self::Variant(id,index) => {state.write_u32(id.as_index());state.write_u32(index.as_index());},
-            Self::Float(value) => state.write_u64(value.to_bits()),
-        }
-    }
-}
 #[derive(Debug,Clone)]
 struct PlaceTest{
     place : Place,
@@ -81,11 +52,14 @@ fn test_trees_from(context:&TypeContext,pattern:&thir::Pattern, place: Place, te
             }
             None
         },
-        &thir::PatternKind::Constant(literal) => match literal{
-            LiteralKind::Bool(value) => Some(PlaceTest{place,test:TestCase::Bool(value)}),
-            LiteralKind::Float(value) => Some(PlaceTest { place, test: TestCase::Float(value) }),
-            LiteralKind::Int(value) => Some(PlaceTest { place, test: TestCase::Int(value) }),
-            LiteralKind::String(value) => Some(PlaceTest { place, test: TestCase::String(value) })
+        &thir::PatternKind::Constant(literal) => {
+            let (ty,constant) = match literal{
+                LiteralKind::Bool(value) => (Type::Bool,mir::ConstantKind::Bool(value)),
+                LiteralKind::Float(value) => (Type::Float,mir::ConstantKind::Float(value)),
+                LiteralKind::Int(value) => (Type::Int,mir::ConstantKind::Int(value)),
+                LiteralKind::String(value) => (Type::String,mir::ConstantKind::String(value))
+            };
+            Some(PlaceTest { place, test: TestCase::Constant(Constant { ty,kind:constant }) })
         },
         thir::PatternKind::Tuple(fields) => {
             for (i,field) in fields.iter().enumerate(){
@@ -117,14 +91,14 @@ fn test_trees_from(context:&TypeContext,pattern:&thir::Pattern, place: Place, te
 }
 
 impl <'a> BodyBuild<'a>{
-    fn test_result(place:&Place,test:&Test,branch:&mut MatchBranch) -> Option<(TestResult,bool)>{
+    fn test_result(place:&Place,test:&Test,branch:&mut MatchBranch) -> Option<TestResult>{
         let (index,match_test) = branch.tests.iter().enumerate().find(|(_,branch_test)|{
             &branch_test.base_test.place == place
         })?;
         let mut fully_matched = false;
 
-        let result = match (match_test.base_test.test,test){
-            (TestCase::Bool(value),Test::If) => {
+        let result = match (&match_test.base_test.test,test){
+            (&TestCase::Constant(mir::Constant{ty:_,kind:mir::ConstantKind::Bool(value)}),Test::If) => {
                 fully_matched = true;
                 if value{
                     Some(TestResult::Success)
@@ -133,19 +107,20 @@ impl <'a> BodyBuild<'a>{
                     Some(TestResult::Failure)
                 }
             },
-            (TestCase::Int(value),Test::SwitchInt) => {
+            (&TestCase::Constant(mir::Constant{ty:_,kind:mir::ConstantKind::Int(value)}),Test::SwitchInt) => {
                 fully_matched = true;
-                Some(TestResult::Int(value))
+                Some(TestResult::Constant(Constant { ty: Type::Int, kind: mir::ConstantKind::Int(value) }))
             },
-            (TestCase::String(string),Test::Eq) => {
-                fully_matched = true;
-                Some(TestResult::String(string))
+            (TestCase::Constant(const_val),Test::Eq(test_val))  => {
+                if const_val == test_val{
+                    fully_matched = true;
+                    Some(TestResult::Success)
+                }
+                else{
+                    Some(TestResult::Failure)
+                }
             },
-            (TestCase::Float(float),Test::Eq) => {
-                fully_matched = true;
-                Some(TestResult::Float(float))
-            },
-            (TestCase::Variant(id,variant),Test::SwitchVariant(other_id)) if *other_id == id => {
+            (&TestCase::Variant(id,variant),Test::SwitchVariant(other_id)) if *other_id == id => {
                 fully_matched = true;
                 Some(TestResult::Variant(id, variant))
             },
@@ -155,40 +130,35 @@ impl <'a> BodyBuild<'a>{
             let match_test = branch.tests.remove(index);
             branch.tests.extend(match_test.subtests);
         }
-        Some((result,true))
+        Some(result)
     }
     fn select_test(&mut self,test_case:&TestCase) -> Test{
         match test_case{
-            TestCase::Bool(_) => Test::If,
-            TestCase::Float(_)|TestCase::String(_) => Test::Eq,
-            TestCase::Int(_) => Test::SwitchInt,
+            TestCase::Constant(Constant { ty:_, kind:mir::ConstantKind::Bool(_) }) => Test::If,
+            TestCase::Constant(Constant { ty:_, kind:mir::ConstantKind::Int(_) }) => Test::SwitchInt,
+            TestCase::Constant(constant) => Test::Eq(constant.clone()),
             &TestCase::Variant(id,_) => Test::SwitchVariant(id),
         }
     }
-    fn group_branches<'b>(&mut self,place: &Place, test: &Test, branches : Vec<&'b mut MatchBranch>) -> (IndexMap<TestResult,Vec<&'b mut MatchBranch>>,Vec<&'b mut MatchBranch>,bool){
-
-        let mut grouped_branches: IndexMap<TestResult, Vec<&'b mut _>> = IndexMap::new();
-        let mut remaining = Vec::new();
-        let mut explicit_fail = false;
-        for branch in branches{
-            let Some((result,explicit)) = Self::test_result(place, test, branch) else {
-                remaining.push(branch);
-                continue;
+    fn group_branches<'b,'c>(&mut self,place: &Place, test: &Test, mut branches : &'b mut [&'c mut MatchBranch]) -> (IndexMap<TestResult,Vec<&'b mut MatchBranch>>,&'b mut [&'c mut MatchBranch]){
+        let mut grouped_branches: IndexMap<TestResult, Vec<&mut _>> = IndexMap::new();
+        while let Some(branch) = branches.first_mut() {
+            let Some(result) = Self::test_result(place, test, branch) else {
+                break;
             };
-            grouped_branches.entry(result).or_default().push(branch);
-            if result == TestResult::Failure && explicit{
-                explicit_fail = true;
-            }
+            let (branch,rest) = branches.split_first_mut().unwrap();
+            grouped_branches.entry(result).or_default().push(&mut **branch);
+            branches = rest;
+
         }
-        (grouped_branches,remaining,explicit_fail)
+        (grouped_branches,branches)
     }
     fn pick_test(&mut self,branches:&mut [&mut MatchBranch]) -> (Place,Test){
         let first_branch = &mut branches[0];
-
         let test = &first_branch.tests[0].base_test;
         (test.place.clone(),self.select_test(&test.test))
     } 
-    fn perform_test(&mut self,place: Place, test: &Test, targets: IndexMap<TestResult,BlockId>,otherwise_block:BlockId){
+    fn perform_test(&mut self,place: Place, test: Test, targets: IndexMap<TestResult,BlockId>,otherwise_block:BlockId){
         let get_target = |result:TestResult| targets.get(&result).copied().unwrap_or(otherwise_block);
         match test{
             Test::If => {
@@ -197,7 +167,7 @@ impl <'a> BodyBuild<'a>{
             Test::SwitchInt => {
                 let targets = targets.iter().filter_map(|(result,&target)|{
                     match result{
-                        &TestResult::Int(value) => Some((value,target)),
+                        &TestResult::Constant(Constant { ty:_, kind:mir::ConstantKind::Int(value) }) => Some((value,target)),
                         _ => None
                     }
                 }).map(|(value,block)|{
@@ -211,31 +181,15 @@ impl <'a> BodyBuild<'a>{
                 }).collect();
                 self.terminate(mir::Terminator::Switch(mir::Operand::Load(place),targets, otherwise_block));
             },
-            Test::Eq => {
-                let values_with_targets : Box<[_]> = targets.iter().filter_map(|(&result,&target)|{
-                    match result {
-                        TestResult::String(string) => Some((Constant{ty:Type::String,kind:mir::ConstantKind::String(string)},target)),
-                        TestResult::Float(value) => Some((Constant{ty:Type::Float,kind:mir::ConstantKind::Float(value)},target)),
-                        _ => None
-                    }
-                }).collect();
-                let old_block = self.current_block;
-                for (i,(value,target)) in values_with_targets.iter().cloned().enumerate(){
-                    let condition = self.new_temporary(Type::Bool);
-                    self.assign_stmt(condition.into(), mir::RValue::Binary(hir::BinaryOp::Equals, Box::new((Operand::Load(place.clone()),Operand::Constant(value)))));
-                    let false_target = if values_with_targets.get(i+1).is_some() { 
-                        let new_block = self.new_block();
-                        Some(new_block)
-                    } else { None};
-                    self.terminate(mir::Terminator::Switch(mir::Operand::Load(condition.into()),Box::new([(0,false_target.unwrap_or(otherwise_block))]), target));
-                    if let Some(target) = false_target{
-                        self.current_block = target;
-                    }
-
-                }
-                self.current_block = old_block;
+            Test::Eq(constant) => {
+                let success_block = get_target(TestResult::Success);
+                let fail_block = get_target(TestResult::Failure);
+                let is_equal = self.new_temporary(Type::Bool);
+                self.assign_stmt(is_equal.into(), mir::RValue::Binary(hir::BinaryOp::Equals,Box::new((Operand::Load(place),Operand::Constant(constant)))));
+                self.terminate(mir::Terminator::Switch(mir::Operand::Load(is_equal.into()), Box::new([(0,fail_block)]), success_block));
+                self.current_block = fail_block;
             },
-            &Test::SwitchVariant(id) => {
+            Test::SwitchVariant(id) => {
                 let discriminant = self.new_temporary(Type::Int);
                 self.assign_stmt(discriminant.into(),mir::RValue::Tag(place));
                 let targets = (0..self.context.expect_variants(id).len()).map(|i| VariantIndex::new(i as u32)).filter_map(|variant|{
@@ -250,32 +204,34 @@ impl <'a> BodyBuild<'a>{
             }
         }
     }
-    fn build_match(&mut self,depth:usize,mut branches : Vec<&mut MatchBranch>, start_block : BlockId) -> BlockId{
-        if branches.is_empty(){
-            return start_block;
-        }
-        if branches[0].tests.is_empty(){
-            branches[0].success = Some(start_block);
-            let otherwise_block = self.new_block();
-            self.build_match(depth, branches.split_off(1),otherwise_block)
-        }
-        else{
-            let (place,test) = self.pick_test(&mut branches);
-            let (branches,remaining,_) = self.group_branches(&place,&test,branches);
-            let otherwise_block = self.new_block();
-            let targets : IndexMap<_,_> = branches.into_iter().map(|(test,branch)|{
-                let branch_block = self.new_block();
-                let branch_otherwise = self.build_match(depth+2, branch,branch_block);
-                self.current_block = branch_otherwise;
-                self.terminate(mir::Terminator::Goto(otherwise_block));
-                (test,branch_block)
-            }).collect();
-            self.current_block = start_block;
-            self.perform_test(place, &test, targets, otherwise_block);
-            self.current_block = otherwise_block;
-            self.build_match(depth, remaining,otherwise_block)
-        }
+    fn build_match(&mut self,depth:usize,branches : &mut [&mut MatchBranch], start_block : BlockId) -> BlockId{
+        let (remaining,otherwise_block) = match branches{
+            [] => return start_block,
+            [first_branch,rest @ ..] if first_branch.tests.is_empty() => {
+                first_branch.success = Some(start_block);
+                let otherwise_block = self.new_block();
+                (rest,otherwise_block)
+                
+            },
+            branches => {
+                let (place,test) = self.pick_test(branches);
+                let (branches,remaining) = self.group_branches(&place,&test,branches);
+                let otherwise_block = self.new_block();
+                let targets : IndexMap<_,_> = branches.into_iter().map(|(test,mut branch)|{
+                    let branch_block = self.new_block();
+                    let branch_otherwise = self.build_match(depth+2, &mut branch,branch_block);
+                    self.current_block = branch_otherwise;
+                    self.terminate(mir::Terminator::Goto(otherwise_block));
+                    (test,branch_block)
+                }).collect();
+                self.current_block = start_block;
+                self.perform_test(place, test, targets, otherwise_block);
+                self.current_block = otherwise_block;
+                (remaining,otherwise_block)
 
+            }
+        };
+        self.build_match(depth, remaining,otherwise_block)
     }
     pub fn lower_match<'b>(&mut self,place : Option<Place>,scrutinee: Place, _: &Type,arms: impl Iterator<Item = &'b thir::Arm>){
 
@@ -288,7 +244,7 @@ impl <'a> BodyBuild<'a>{
         let mut branches = tests.into_iter().map(|tests|{
             MatchBranch{tests,success:None}
         }).collect::<Vec<_>>();
-        let otherwise_block = self.build_match(0,branches.iter_mut().collect(),self.current_block);
+        let otherwise_block = self.build_match(0,&mut branches.iter_mut().collect::<Box<[_]>>(),self.current_block);
         self.current_block = otherwise_block;
         self.terminate(mir::Terminator::Unreachable);
         let blocks =  branches.into_iter().zip(bodies).map(|(branch,(body,pat))|{

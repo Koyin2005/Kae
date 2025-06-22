@@ -1,18 +1,18 @@
-use std::fmt::Display;
+use std::{fmt::Display, hash::Hash};
 
 use crate::{data_structures::IndexVec, define_id, frontend::{ast_lowering::hir::{BinaryOp, BuiltinKind, DefId, UnaryOp}, typechecking::types::{generics::GenericArgs, Type}}, 
     identifiers::{BodyIndex, FieldIndex, SymbolIndex, VariantIndex}};
 
 pub mod debug;
 
-#[derive(Clone)]
+#[derive(Clone,Debug,PartialEq,Hash)]
 pub enum FunctionKind {
     Anon(DefId),
     Normal(DefId),
     Variant(DefId),
     Builtin(BuiltinKind)
 }
-#[derive(Clone)]
+#[derive(Clone,Debug,PartialEq)]
 pub enum ConstantKind {
     Int(i64),
     Bool(bool),
@@ -21,7 +21,25 @@ pub enum ConstantKind {
     Float(f64),
     Function(FunctionKind,GenericArgs),
 }
-#[derive(Clone)]
+impl Hash for ConstantKind{
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self{
+            Self::Bool(value) => {
+                0.hash(state);
+                value.hash(state)
+            },
+            Self::Float(value) => {
+                1.hash(state);
+                value.to_bits().hash(state)
+            },
+            Self::Function(kind,args) => { 2.hash(state); kind.hash(state);args.hash(state);},
+            Self::Int(value) => {3.hash(state);value.hash(state)},
+            Self::String(index) => {4.hash(state);index.hash(state)},
+            Self::ZeroSized => 5.hash(state),
+        }
+    }
+}
+#[derive(Clone,Debug,PartialEq,Hash)]
 pub struct  Constant {
     pub ty : Type,
     pub kind : ConstantKind
