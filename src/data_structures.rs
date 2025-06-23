@@ -43,11 +43,25 @@ impl<Index:IntoIndex,Value> IndexVec<Index,Value>{
     pub fn get_mut(&mut self,index:Index) -> Option<&mut Value>{
         self.data.get_mut(index.as_index() as usize)
     }
+    pub fn retain_mut(&mut self,mut f:impl FnMut(Index,&mut Value) -> bool){
+        let mut index:u32 = 0;
+        self.data.retain_mut(|val|{
+            let should_retain = f(Index::new(index),val);
+            index += 1;
+            should_retain
+        });
+    }
     pub fn index_value_iter(&self)->impl '_ + std::iter::Iterator<Item = (Index,&'_ Value)>{
         self.data.iter().enumerate().map(|(i,value)| (Index::new(i as u32),value))
     }
+    pub fn index_value_iter_mut(&mut self)->impl '_ + std::iter::Iterator<Item = (Index,&'_ mut Value)>{
+        self.data.iter_mut().enumerate().map(|(i,value)| (Index::new(i as u32),value))
+    }
     pub fn iter(&self)->IndexVecIter<'_,Index,Value>{
         IndexVecIter { iter : self.data.iter(),phantom:PhantomData}
+    }
+    pub fn indices(&self) -> impl Iterator<Item = Index>{
+        (0..self.len()).map(|i| Index::new(i as u32))
     }
     pub fn is_empty(&self) -> bool{ self.data.is_empty() }
     pub fn len(&self)->usize{

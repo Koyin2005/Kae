@@ -4,7 +4,8 @@ use crate::{data_structures::IndexVec, define_id, frontend::{ast_lowering::hir::
     identifiers::{BodyIndex, FieldIndex, SymbolIndex, VariantIndex}};
 
 pub mod debug;
-
+pub mod passes;
+pub mod basic_blocks;
 #[derive(Clone,Debug,PartialEq,Hash)]
 pub enum FunctionKind {
     Anon(DefId),
@@ -57,6 +58,9 @@ impl Block{
     pub fn expect_terminator(&self) -> &Terminator{
         self.terminator.as_ref().expect("The terminator should be assigned")
     }
+    pub fn expect_terminator_mut(&mut self) -> &mut Terminator{
+        self.terminator.as_mut().expect("The terminator should be assigned")
+    }
 }
 #[derive(Clone,PartialEq,Debug)]
 pub enum PlaceProjection {
@@ -105,7 +109,17 @@ pub enum Terminator {
     Return,
     Unreachable
 }
-
+impl Terminator{
+    fn blocks_mut<'a>(&'a mut self) -> Box<[&'a mut BlockId]>{
+        match self{
+            Self::Assert(_,_, block_id) | Self::Goto(block_id) => Box::new([block_id]),
+            Self::Return | Self::Unreachable => Box::new([]),
+            Self::Switch(_,targets,default) => {
+                targets.iter_mut().map(|(_,target)| target).chain(std::iter::once(default)).collect()
+            }
+        }
+    }
+}
 define_id!(Local);
 define_id!(BlockId);
 impl Local{
