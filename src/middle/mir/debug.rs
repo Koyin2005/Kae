@@ -1,4 +1,4 @@
-use crate::{data_structures::IntoIndex, frontend::{ast_lowering::hir, typechecking::{context::TypeContext, types::{format::TypeFormatter, AdtKind, Type}}}, middle::mir::AssertKind, SymbolInterner};
+use crate::{ data_structures::IntoIndex, frontend::{ast_lowering::hir, typechecking::{context::TypeContext, types::{format::TypeFormatter, AdtKind, Type}}}, middle::mir::{AggregrateConstant, AssertKind, Constant}, SymbolInterner};
 
 use super::{Block, BlockId, Body, ConstantKind, FunctionKind, Mir, Operand, Place, PlaceProjection, RValue, Stmt, Terminator};
 
@@ -42,31 +42,58 @@ impl<'a> DebugMir<'a>{
                 },
                 PlaceProjection::Index(local) => {
                     output.push_str(&format!("[_{}]",local.as_index()));
+                },
+                PlaceProjection::ConstantIndex(value) =>{
+                    output.push_str(&format!("[{}]",value));
+
                 }
             }
         }
         output
     }
+    fn debug_constant(&self, constant: &Constant) -> String{
+        match &constant.kind{
+            ConstantKind::Bool(value) => value.to_string(),
+            ConstantKind::Int(value) => value.to_string(),
+            ConstantKind::Float(value) => value.to_string(),
+            ConstantKind::String(index) => format!("\"{}\"",self.symbol_interner.get(*index)),
+            ConstantKind::ZeroSized => TypeFormatter::new(self.symbol_interner, self.context).format_type(&constant.ty),
+            ConstantKind::Function(kind,generic_args) => {
+                match kind {
+                    FunctionKind::Anon(_) => "anonymous".to_string(),
+                    FunctionKind::Normal(id) | FunctionKind::Variant(id) => self.context.format_value_path(*id, generic_args,self.symbol_interner),
+                    FunctionKind::Builtin(builtin) => match builtin{
+                        hir::BuiltinKind::Panic => "panic"
+                    }.to_string()
+                }
+                
+            },
+            ConstantKind::Aggregrate(aggregate) => {
+                let mut output = String::new();
+                let mut is_first = true;
+                for field in aggregate.fields(){
+                    if !is_first{
+                        output.push(',');
+                    }
+                    output.push_str(&self.debug_constant(field));
+                    is_first = false;
+                }
+                match aggregate{
+                    AggregrateConstant::Array(_) => {
+                        format!("[{}]",output)
+                    },
+                    AggregrateConstant::Tuple(_) => {
+                        format!("({})",output)
+                    }
+                }
+            }
+        }
+
+    }
     fn debug_operand(&self, operand: &Operand) -> String{
         match operand{
             Operand::Constant(constant) => {
-                match &constant.kind{
-                    ConstantKind::Bool(value) => value.to_string(),
-                    ConstantKind::Int(value) => value.to_string(),
-                    ConstantKind::Float(value) => value.to_string(),
-                    ConstantKind::String(index) => format!("\"{}\"",self.symbol_interner.get(*index)),
-                    ConstantKind::ZeroSized => TypeFormatter::new(self.symbol_interner, self.context).format_type(&constant.ty),
-                    ConstantKind::Function(kind,generic_args) => {
-                        match kind {
-                            FunctionKind::Anon(_) => "anonymous".to_string(),
-                            FunctionKind::Normal(id) | FunctionKind::Variant(id) => self.context.format_value_path(*id, generic_args,self.symbol_interner),
-                            FunctionKind::Builtin(builtin) => match builtin{
-                                hir::BuiltinKind::Panic => "panic"
-                            }.to_string()
-                        }
-                        
-                    }
-                }
+                self.debug_constant(constant)
             },
             Operand::Load(place) => {
                 format!("load {}",self.debug_lvalue(place))
@@ -140,7 +167,7 @@ impl<'a> DebugMir<'a>{
                     }
                 }
             },
-            RValue::Array(elements) => {
+            RValue::Array(_,elements) => {
                 if elements.is_empty(){
                     "[]".to_string()
                 }
@@ -235,6 +262,9 @@ impl<'a> DebugMir<'a>{
                     self.push_next_line(&format!("assert({}, {}) -> {}",self.debug_operand(operand),match kind{
                         AssertKind::ArrayBoundsCheck(index,len) => {
                            format!("\"Index out of range, index was {{}} but len was {{}}\". {}, {}",self.debug_operand(index),self.debug_operand(len))
+                        },
+                        AssertKind::DivisionByZero(left) => {
+                           format!("\"Attempted to divide {{}} by '0'\". {}",self.debug_operand(left))
                         }
                     },next));
                 }

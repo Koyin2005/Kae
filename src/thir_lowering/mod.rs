@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 use crate::{data_structures::{IndexVec, IntoIndex}, frontend::{ast_lowering::hir::{self, BodyOwner}, thir::{self, ExprId, ExprKind, FieldPattern, Pattern, PatternKind, StmtKind, Thir, ThirBody}, 
 typechecking::{context::TypeContext, types::Type}}, 
 identifiers::{BodyIndex, FieldIndex, VariableIndex}, 
-middle::mir::{self, Block, BlockId, Body, BodyKind, BodySource, Constant, Local, LocalInfo, Mir, Operand, Place, PlaceProjection, RValue, Stmt, Terminator}
+middle::mir::{self, Block, BlockId, Body, BodyKind, BodySource, Constant, ConstantNumber, Local, LocalInfo, Mir, Operand, Place, PlaceProjection, RValue, Stmt, Terminator}
 };
 
 mod matches;
@@ -261,7 +261,7 @@ impl<'a> BodyBuild<'a>{
                     },
                     (Some(expr),None) => {
                         let temporary = self.new_temporary(self.body.exprs[expr].ty.clone());
-                        self.assign_unit(temporary.into());
+                        self.lower_expr(expr, Some(temporary.into()));
                     },
                     (None,None) => ()
                 }
@@ -318,7 +318,18 @@ impl<'a> BodyBuild<'a>{
                 let place = place_or_temporary(self, place, expr);
                 let left = self.lower_as_operand(left);
                 let right = self.lower_as_operand(right);
-                self.assign_stmt(place, RValue::Binary(op, Box::new((left,right))));
+                match op{
+                    hir::BinaryOp::Divide => {
+                        let non_zero_block = self.new_block();
+                        let is_zero = self.new_temporary(Type::Bool);
+                        self.assign_stmt(is_zero.into(), RValue::Binary(hir::BinaryOp::NotEquals, Box::new((right.clone(),Operand::Constant(ConstantNumber::Int(0).into())))));
+                        self.terminate(mir::Terminator::Assert(Operand::Load(is_zero.into()), mir::AssertKind::DivisionByZero(left.clone()), non_zero_block));
+                        self.current_block = non_zero_block;
+                        self.assign_stmt(place, RValue::Binary(op, Box::new((left,right))));
+
+                    },
+                    _ => self.assign_stmt(place, RValue::Binary(op, Box::new((left,right))))
+                }
             },
             ExprKind::Variable(_) | 
             ExprKind::Literal(_) | 
@@ -365,11 +376,12 @@ impl<'a> BodyBuild<'a>{
                 self.assign_stmt(place, RValue::Adt(Box::new((id,generic_args.clone(),variant)), fields));
             },
             ExprKind::Array(elements) => {
+                let ty = self.body.exprs[expr].ty.index_of().expect("This should be indexable");
                 let place = place_or_temporary(self, place, expr);
                 let elements = elements.iter().copied().map(|element| {
                     self.lower_as_operand(element)
                 }).collect();
-                self.assign_stmt(place, RValue::Array(elements));
+                self.assign_stmt(place, RValue::Array(ty,elements));
             },
             &ExprKind::Unary(op,operand) => {
                 let place = place_or_temporary(self, place, expr);

@@ -19,6 +19,9 @@ impl<Index:IntoIndex,Value> IndexVec<Index,Value>{
     pub fn new()->Self{
         Self::with_capacity(0)
     }
+    pub fn from(value:Value, len: usize) -> Self where Value:Clone{
+        Self { data: vec![value;len], _phantom: PhantomData }
+    }
     pub fn last(&self) -> Option<&Value>{
         self.data.last()
     }
@@ -59,6 +62,9 @@ impl<Index:IntoIndex,Value> IndexVec<Index,Value>{
     }
     pub fn iter(&self)->IndexVecIter<'_,Index,Value>{
         IndexVecIter { iter : self.data.iter(),phantom:PhantomData}
+    }
+    pub fn iter_mut(&mut self)->IndexVecIterMut<'_,Index,Value>{
+        IndexVecIterMut { iter : self.data.iter_mut(),phantom:PhantomData}
     }
     pub fn indices(&self) -> impl Iterator<Item = Index>{
         (0..self.len()).map(|i| Index::new(i as u32))
@@ -101,6 +107,30 @@ pub struct IndexVecIter<'a,I:IntoIndex,V>{
     iter : std::slice::Iter<'a,V>,
     phantom : PhantomData<I>
 }
+
+pub struct IndexVecIterMut<'a,I:IntoIndex,V>{
+    iter : std::slice::IterMut<'a,V>,
+    phantom : PhantomData<I>
+}
+
+impl<I:IntoIndex,T> ExactSizeIterator for IndexVecIterMut<'_,I,T>{
+    
+}
+impl<'a,Index:IntoIndex,Value> Iterator for IndexVecIterMut<'a,Index,Value>{
+    type Item =  &'a mut Value;
+    fn next(&mut self)->Option<Self::Item>{
+        self.iter.next()
+    }
+    fn size_hint(&self) -> (usize,Option<usize>){
+        self.iter.size_hint()
+    }
+} 
+impl<'a,Index:IntoIndex,Value> DoubleEndedIterator for IndexVecIterMut<'a,Index,Value>{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.iter.next_back()
+    }
+}
+
 impl<I:IntoIndex,T> ExactSizeIterator for IndexVecIter<'_,I,T>{
     
 }

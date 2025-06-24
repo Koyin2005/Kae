@@ -4,7 +4,7 @@ use fxhash::FxBuildHasher;
 use generics::GenericArgs;
 use indexmap::IndexMap;
 
-use crate::{frontend::ast_lowering::hir::DefId, identifiers::SymbolIndex};
+use crate::{data_structures::IntoIndex, frontend::{ast_lowering::hir::DefId, typechecking::{context::TypeContext, types::subst::{Subst, TypeSubst}}}, identifiers::{FieldIndex, SymbolIndex}};
 
 
 pub mod lowering;
@@ -157,6 +157,27 @@ impl Type{
     }
     pub fn is_unit(&self) -> bool{
         matches!(&self,Type::Tuple(elements) if elements.is_empty())
+    }
+    pub fn index_of(&self) -> Option<Type>{
+        match self{
+            Self::Array(element_type) => Some(*element_type.clone()),
+            _ => None
+        }
+    }
+    pub fn def_id(&self) -> Option<DefId>{
+        match self{
+            Self::Adt(_,id,_) => Some(*id),
+            _ => None
+        }
+    }
+    pub fn field(&self, ctxt: &TypeContext, field_index : FieldIndex) -> Option<Type>{
+        match self{
+            Self::Adt(args,id,AdtKind::Struct) => {
+                Some(TypeSubst::new(args).instantiate_type(&ctxt.field_defs(*id)[field_index.as_index() as usize].ty))
+            },
+            Self::Tuple(elements) => elements.get(field_index.as_index() as usize).cloned(),
+            _ => None
+        }
     }
 }
 

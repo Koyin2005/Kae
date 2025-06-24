@@ -2,7 +2,8 @@ use std::io::Write;
 
 use pl4::{
     backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{ast_lowering::{ast_lower::AstLowerer, hir::DefIdProvider,name_finding::NameFinder}, hir_lowering::ThirLower, 
-    parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::{checking::check::TypeChecker, items::item_check::ItemCheck, types::collect::ItemCollector}}, middle::mir::{debug::DebugMir, passes::{remove_unreachable::RemoveUnreachable, simplify_cfg::SimplifyCfg}, 
+    parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::{checking::check::TypeChecker, items::item_check::ItemCheck, types::collect::ItemCollector}}, 
+    middle::mir::{debug::DebugMir, passes::{const_branch::ConstBranch, const_prop::ConstProp, remove_unreachable_branches::RemoveUnreachableBranches, simplify_cfg::SimplifyCfg, MirPass}, 
         }, thir_lowering::MirBuild, GlobalSymbols, SymbolInterner
 };
 
@@ -29,10 +30,17 @@ fn compile(source:&str)->Option<Program>{
     let thir = ThirLower::new(type_check_results,&context,&interner).lower_bodies(hir.bodies,hir.owner_to_bodies).ok()?;
     let mut mir = MirBuild::new(thir,&context).lower(hir.body_owners);
 
-    
+    let passes: &[&dyn MirPass] = [
+        &SimplifyCfg as &dyn MirPass,
+        &RemoveUnreachableBranches,
+        &ConstProp,
+        &ConstBranch,
+        &SimplifyCfg,
+    ].as_slice();
     for (_,body) in mir.bodies.index_value_iter_mut(){
-        RemoveUnreachable.run_pass(body);
-        SimplifyCfg.run_pass(body);
+        for &pass in passes{
+            pass.run_pass(&context, body);
+        }
     }
     println!("{}",DebugMir::new(&mir, &context, &interner).debug());
     let Ok(code) = Compiler::new().compile() else {
