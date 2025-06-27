@@ -3,7 +3,7 @@ use std::io::Write;
 use pl4::{
     backend::{compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{ast_lowering::{ast_lower::AstLowerer, hir::DefIdProvider,name_finding::NameFinder}, hir_lowering::ThirLower, 
     parsing::parser::Parser, tokenizing::scanner::Scanner, typechecking::{checking::check::TypeChecker, items::item_check::ItemCheck, types::collect::ItemCollector}}, 
-    middle::mir::{debug::DebugMir, passes::{const_branch::ConstBranch, const_prop::ConstProp, remove_unreachable_branches::RemoveUnreachableBranches, simplify_cfg::SimplifyCfg, MirPass}, 
+    middle::mir::{basic_blocks::BasicBlockInfo, debug::DebugMir, dominator::dominators, passes::{const_branch::ConstBranch, const_prop::ConstProp, remove_unreachable_branches::RemoveUnreachableBranches, simplify_cfg::SimplifyCfg, MirPass}, traversal::reversed_postorder 
         }, thir_lowering::MirBuild, GlobalSymbols, SymbolInterner
 };
 
@@ -30,19 +30,25 @@ fn compile(source:&str)->Option<Program>{
     let thir = ThirLower::new(type_check_results,&context,&interner).lower_bodies(hir.bodies,hir.owner_to_bodies).ok()?;
     let mut mir = MirBuild::new(thir,&context).lower(hir.body_owners);
 
-    let passes: &[&dyn MirPass] = [
+    let passes: &[&dyn MirPass] = &[&ConstProp];&[
         &SimplifyCfg as &dyn MirPass,
         &RemoveUnreachableBranches,
         &ConstProp,
         &ConstBranch,
         &SimplifyCfg,
     ].as_slice();
+    
+    
     for (_,body) in mir.bodies.index_value_iter_mut(){
         for &pass in passes{
+            println!("Before {}",pass.name());
+            println!("{}",DebugMir::new(&context, &interner).debug_body(&body));
             pass.run_pass(&context, body);
+            println!("After {}",pass.name());
+            println!("{}",DebugMir::new(&context, &interner).debug_body(&body));
         }
     }
-    println!("{}",DebugMir::new(&mir, &context, &interner).debug());
+    println!("Final mir\n{}",DebugMir::new(&context, &interner).debug(mir.bodies.iter()));
     let Ok(code) = Compiler::new().compile() else {
         return None;
     };

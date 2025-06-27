@@ -8,6 +8,7 @@ pub mod passes;
 pub mod basic_blocks;
 pub mod traversal;
 pub mod visitor;
+pub mod dominator;
 #[derive(Clone,Debug,PartialEq,Hash)]
 pub enum FunctionKind {
     Anon(DefId),
@@ -104,6 +105,10 @@ impl From<bool> for Constant{
         Constant { ty: Type::Bool, kind: ConstantKind::Bool(value) }
     }
 }
+pub enum StatementOrTerminator<'a>{
+    Statement(&'a Stmt),
+    Terminator(&'a Terminator)
+}
 pub struct Block {
     pub stmts : Vec<Stmt>,
     pub terminator : Option<Terminator>
@@ -114,6 +119,19 @@ impl Block{
     }
     pub fn expect_terminator_mut(&mut self) -> &mut Terminator{
         self.terminator.as_mut().expect("The terminator should be assigned")
+    }
+}
+#[derive(Clone, Copy,PartialEq,Eq,PartialOrd,Ord,Hash,Debug)]
+pub struct Location{
+    pub basic_block: BlockId,
+    pub statement_index: usize
+}
+impl Location{
+    pub fn new(block_id: BlockId, statement_index: usize) -> Self{
+        Self { basic_block: block_id, statement_index }
+    }
+    pub fn next(self) -> Self{
+        Self { basic_block: self.basic_block, statement_index: self.statement_index+1 }
     }
 }
 #[derive(Clone,PartialEq,Debug)]
@@ -169,14 +187,28 @@ pub enum RValue {
     Call(Operand,Box<[Operand]>),
     Array(Type,Box<[Operand]>),
     Adt(Box<(DefId,GenericArgs,Option<VariantIndex>)>,IndexVec<FieldIndex,Operand>),
-    Tuple(Box<[Operand]>),
+    Tuple(Box<[Type]>,Box<[Operand]>),
     Len(Place),
     Tag(Place)
 }
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub enum Operand {
     Constant(Constant),
     Load(Place)
+}
+impl Operand{
+    pub fn as_place(&self) -> Option<&Place>{
+        match self{
+            Self::Constant(_) => None,
+            Self::Load(place) => Some(place)
+        }
+    }
+    pub fn as_constant(&self) -> Option<&Constant>{
+        match self{
+            Self::Constant(constant) => Some(constant),
+            Self::Load(_) => None
+        }
+    }
 }
 #[derive(Clone)]
 pub enum Stmt{
@@ -207,18 +239,12 @@ impl Terminator{
             }
         }
     }
-    fn successors<'a>(&'a self) -> Box<[&'a BlockId]>{
-        match self{
-            Self::Assert(_,_, block_id) | Self::Goto(block_id) => Box::new([block_id]),
-            Self::Return | Self::Unreachable => Box::new([]),
-            Self::Switch(_,targets,default) => {
-                targets.iter().map(|(_,target)| target).chain(std::iter::once(default)).collect()
-            }
-        }
-    }
 }
 define_id!(Local);
 define_id!(BlockId);
+impl BlockId{
+    pub const START_BLOCK : BlockId = BlockId(0);
+}
 impl Local{
     pub const RETURN_PLACE : Local = Local(0);
 }
@@ -251,7 +277,17 @@ pub struct Body{
     pub locals : IndexVec<Local,LocalInfo>,
     pub blocks : IndexVec<BlockId,Block>
 }
-
+impl Body{
+    pub fn at_location(&self, location: Location) -> StatementOrTerminator{
+        let block = &self.blocks[location.basic_block];
+        if let Some(stmt) = block.stmts.get(location.statement_index){
+            StatementOrTerminator::Statement(stmt)
+        }
+        else{
+            StatementOrTerminator::Terminator(block.expect_terminator())
+        }
+    }
+}
 
 pub struct Mir{
     pub bodies : IndexVec<BodyIndex,Body>

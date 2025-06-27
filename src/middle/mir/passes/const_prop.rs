@@ -1,260 +1,339 @@
-use fxhash::FxHashMap;
+use std::collections::VecDeque;
 
-use crate::{backend::values, data_structures::{IndexVec, IntoIndex}, frontend::{ast_lowering::hir::BinaryOp, typechecking::{context::TypeContext, types::Type}}, middle::mir::{self, basic_blocks::BasicBlockInfo, passes::MirPass, visitor::{MutVisitor, PlaceContext}, AggregrateConstant, BlockId, Constant, ConstantKind, ConstantNumber, Local, Operand, Place, PlaceProjection, RValue, Stmt}};
+use fxhash::{FxHashMap, FxHashSet};
+use indexmap::{map::Entry, IndexMap};
+
+use crate::{backend::values, data_structures::{IndexVec, IntoIndex}, frontend::{ast_lowering::hir::BinaryOp, typechecking::types::Type}, middle::mir::{self, basic_blocks::BasicBlockInfo, passes::MirPass, traversal::{self, reversed_postorder}, visitor::MutVisitor, AggregrateConstant, BlockId, Constant, ConstantKind, ConstantNumber, Local, Location, Operand, Place, PlaceProjection, RValue, Stmt, Terminator}};
 
 pub struct ConstProp;
 
 impl MirPass for ConstProp{
+    fn name(&self) -> &str {
+        "Constant-Propagation"
+    }
     fn run_pass(&self, _: &crate::frontend::typechecking::context::TypeContext, body:&mut crate::middle::mir::Body) {
-
-        struct ConstPropPerBlock{
-            const_values : IndexVec<Local,Option<Constant>>,
-            blocks_to_locals : FxHashMap<BlockId,IndexVec<Local,Option<Constant>>>,
-            block_info : BasicBlockInfo,
-            locals : usize
+        let mut analysis = Analysis;
+        let results= iterate_to_fixed_point(body,&mut analysis);
+        for (block,mut state) in results.into_iter_enumerated(){
+            for (i,stmt) in body.blocks[block].stmts.iter().enumerate(){
+                analysis.handle_statement(stmt, &mut state);
+                
+            }
         }
-        impl ConstPropPerBlock{
-            
-            fn constant_for(&self, local: Local) -> Option<&Constant>{
-                self.const_values.get(local).and_then(|const_value| const_value.as_ref())
-            }
-            fn as_constant<'a>(&'a self, operand: &'a Operand) -> Option<Constant>{
-                match operand{
-                    Operand::Load(place) => {
-                        self.try_eval_place(place)
-                    },
-                    Operand::Constant(constant_value) => Some(constant_value.clone()),
-                }
-            }
-            fn try_eval_place(&self, place : &Place) -> Option<Constant>{
-                let mut constant_value = self.constant_for(place.local)?.clone();
-                for projection in place.projections.iter(){
-                    let new_value = match projection {
-                        PlaceProjection::Field(field_index) => {
-                            if let Constant { ty:_, kind:ConstantKind::Aggregrate(AggregrateConstant::Tuple(fields)) } = &constant_value{
-                                fields.get(field_index.as_index() as usize).cloned()
-                            }
-                            else{
-                                None
-                            }
+        let mut patch = ConstPatch::new();
+        patch.visit_body(body);
+    }
+}
+fn iterate_to_fixed_point(body:&mir::Body,mut analysis: &mut Analysis) -> (IndexVec<BlockId,IndexMap<Local,Option<Constant>>>){
+    let mut queue = VecDeque::new();
+    let mut visited = FxHashSet::default();
+    let basic_blocks = BasicBlockInfo::new(&body);
+    let mut results: IndexVec<BlockId, _> = IndexVec::from(IndexMap::new(),body.blocks.len());
+    for block in traversal::reversed_postorder(&basic_blocks){
+        queue.push_back(block);
+        visited.insert(block);
+    }
+    fn join(state: &mut IndexMap<Local,Option<Constant>>, next_state: &IndexMap<Local,Option<Constant>>) -> bool{
+        let mut changed = false;
+        for (local,val) in next_state.iter(){
+            match state.entry(*local){
+                Entry::Occupied(mut occupied) => {
+                    let joined = match (occupied.get_mut(),val.as_ref()){
+                        (None,None) | (Some(_),None)  => false,
+                        (Some(old_val),Some(new_val)) if old_val == new_val => {
+                            false
                         },
-                        PlaceProjection::Index(index_local) => {
-                            self.constant_for(*index_local).and_then(|constant|{
-                                constant.as_number()
-                            }).and_then(|constant|{
-                                match constant{
-                                    ConstantNumber::Int(value) => u64::try_from(value).ok(),
-                                    _ => None
-                                }
-                            }).and_then(|constant_index|{
-                                if let Constant { ty:_, kind:ConstantKind::Aggregrate(AggregrateConstant::Array(elements)) } = &constant_value{
-                                    elements.get(constant_index as usize).cloned()
-                                }
-                                else{
-                                    None
-                                }
-                            })
-
-                        },
-                        PlaceProjection::ConstantIndex(index) => {
-                            if let Constant { ty:_, kind:ConstantKind::Aggregrate(AggregrateConstant::Array(elements)) } = &constant_value{
-                                elements.get(*index as usize).cloned()
-                            }
-                            else{
-                                None
-                            }
-                        },
-                        PlaceProjection::Variant(_,_) => None
-                    };
-
-                    constant_value =  new_value?;
-                }
-                Some(constant_value)
-            }
-            fn try_eval_binary(&mut self,op : BinaryOp,left: &mut Operand, right: &mut Operand) -> Option<Constant>{
-                if let (Some(left),Some(right)) = (self.as_constant(&left),self.as_constant(&right)){
-                    if left.is_float() || right.is_float(){
-                        return None;
-                    }
-                    match op{
-                        BinaryOp::Add => {
-                            let (left,right) = (left.as_number().unwrap(),right.as_number().unwrap());
-                            match (left,right){
-                                (ConstantNumber::Int(left),ConstantNumber::Int(right)) => {
-                                    let number = ConstantNumber::Int(left.wrapping_add(right));
-                                    Some(Constant::from(number))
-                                },
-                                (_,_) => None
-                            }
-                        },
-                        BinaryOp::Subtract => {
-                            let (left,right) = (left.as_number().unwrap(),right.as_number().unwrap());
-                            match (left,right){
-                                (ConstantNumber::Int(left),ConstantNumber::Int(right)) => {
-                                    let number = ConstantNumber::Int(left.wrapping_sub(right));
-                                    Some(number.into())
-                                },
-                                (_,_) => None
-                            }
-
-                        },
-                        BinaryOp::Multiply => {
-                            let (left,right) = (left.as_number().unwrap(),right.as_number().unwrap());
-                            match (left,right){
-                                (ConstantNumber::Int(left),ConstantNumber::Int(right))  => {
-                                    let number = ConstantNumber::Int(left.wrapping_mul(right));
-                                    Some(number.into())
-                                },
-                                (_,_) => None
-                            }
-                        },
-                        BinaryOp::Divide => {
-                            let (left,right) = (left.as_number().unwrap(),right.as_number().unwrap());
-                            match (left,right){
-                                (ConstantNumber::Int(left),ConstantNumber::Int(right)) if right != 0 => {
-                                    let number = ConstantNumber::Int(left.wrapping_div(right));
-                                    Some(number.into())
-                                },
-                                (_,_) => None
-                            }
-
-                        },
-                        BinaryOp::NotEquals => {
-                            let is_not_equal = left != right;
-                            Some(is_not_equal.into())
-                        },
-                        BinaryOp::Equals => {
-                            let is_equal = left == right;
-                            Some(is_equal.into())
-                        },
-                        BinaryOp::GreaterEquals => {
-                            let (left,right) = (left.as_number().unwrap(),right.as_number().unwrap());
-                            let is_greater_equal = left >= right;
-                            Some(is_greater_equal.into())
-                        },
-                        BinaryOp::LesserEquals => {
-                            let (left,right) = (left.as_number().unwrap(),right.as_number().unwrap());
-                            let is_lesser_equal = left <= right;
-                            Some(is_lesser_equal.into())
-                        },
-                        BinaryOp::Lesser => {
-                            let (left,right) = (left.as_number().unwrap(),right.as_number().unwrap());
-                            let is_lesser = left < right;
-                            Some(is_lesser.into())
-                        },
-                        BinaryOp::Greater => {
-                            let (left,right) = (left.as_number().unwrap(),right.as_number().unwrap());
-                            let is_greater = left > right;
-                            Some(is_greater.into())
+                        (occupied,_) => {
+                            *occupied = None;
+                            true
                         }
+                    };
+                    changed |= joined;
+                },
+                Entry::Vacant(vacant) => {
+                    vacant.insert(val.clone());
+                    changed |= true;
+                }
+            }
+        }
+        changed
+    }
+    let mut state = IndexMap::new();
+    while let Some(block) = queue.pop_front() {
+        visited.remove(&block);
+        state.clone_from(&results[block]);
+        for (_,stmt) in body.blocks[block].stmts.iter().enumerate(){
+            analysis.handle_statement(stmt, &mut state);
+        }
+        for &succ in basic_blocks.successors(block){
+            if join(&mut results[succ], &state){
+                if visited.insert(succ){
+                    queue.push_back(succ);
+                }
+            }
+        }
+    }
+    results
+}
+struct Analysis;
+impl Analysis{
+    
+    fn try_constant<'a>(&self,local:Local,state:&'a IndexMap<Local,Option<Constant>>) -> Option<&'a Constant>{
+        state.get(&local).and_then(|val| val.as_ref())
+    }
+    fn operand_as_constant<'a>(&'a self, operand:&'a Operand, state:&'a IndexMap<Local,Option<Constant>>)->Option<&'a Constant>{
+        operand.as_constant().or_else(|| operand.as_place().and_then(|place| place.as_local().and_then(|local|{
+            state.get(&local).and_then(|val| val.as_ref())
+        })))
+    }
+    fn handle_rvalue(&mut self,rvalue:&RValue,state:&mut IndexMap<Local,Option<Constant>>) -> Option<Constant>{
+        match rvalue{
+            RValue::Use(Operand::Load(place)) => {
+                match place.projections.as_ref(){
+                    [] => {
+                        self.try_constant(place.local, state).cloned()
+                    },
+                    projections => {
+                        let mut val = self.try_constant(place.local, state).cloned();
+                        for proj in projections{
+                            match proj{
+                                PlaceProjection::ConstantIndex(index) => {
+                                    match val{
+                                        Some(const_val) => {
+                                            match const_val.kind{
+                                                ConstantKind::Aggregrate(AggregrateConstant::Array(ref elements)) => {
+                                                    if let Some(element) = elements.get(*index as usize){
+                                                        val =  Some(element.clone());
+                                                        continue;
+                                                    }
+                                                },
+                                                _ => ()
+                                            }
+                                        },
+                                        None => ()
+                                    }
+                                },
+                                PlaceProjection::Field(field_index) => {
+                                    match val{
+                                        Some(const_val) => {
+                                            match const_val.kind{
+                                                ConstantKind::Aggregrate(AggregrateConstant::Tuple(ref elements)) => {
+                                                    if let Some(element) = elements.get(field_index.as_index()){
+                                                        val =  Some(element.clone());
+                                                        continue;
+                                                    }
+                                                },
+                                                _ => ()
+                                            }
+                                        },
+                                        None => ()
+                                    }
+                                },
+                                _ => ()
+                            }
+                            val = None;
+                            break;
+                        }
+                        val
                     }
+                }
+            },
+            RValue::Use(Operand::Constant(constant)) => {
+                Some(constant.clone())
+            },
+            RValue::Array(ty,elements) => {
+                elements.iter().map(|element|{
+                    match element{
+                        Operand::Load(place) => place.as_local().and_then(|local|{
+                            self.try_constant(local, state).cloned()
+                        }),
+                        Operand::Constant(val) => Some(val.clone())
+                    }
+                }).collect::<Option<Box<[_]>>>().map(|elements|{
+                    Constant{ty:Type::new_array(ty.clone()),kind:ConstantKind::Aggregrate(AggregrateConstant::Array(elements))}
+                })
+            },
+            RValue::Len(place) => {
+                place.as_local().and_then(|local|{
+                    self.try_constant(local, state).and_then(|const_val|{
+                        match const_val.kind{
+                            ConstantKind::Aggregrate(AggregrateConstant::Array(ref elements)) => {
+                                Some(ConstantNumber::Int(elements.len() as i64).into())
+                            },
+                            _ => None
+                        }
+                    })
+                })
+            },
+            RValue::Binary(op,left_and_right) => {
+                let (left,right) = left_and_right.as_ref();
+                self.operand_as_constant(left,&state).and_then(|left|{
+                    self.operand_as_constant(right,&state).map(|right|{
+                        (left,right)
+                    }).and_then(|(left,right)|{
+                        match op{
+                            BinaryOp::Add => {
+                                let (ConstantNumber::Int(left),ConstantNumber::Int(right)) = (left.as_number()?,right.as_number()?) else {
+                                    return None;
+                                };
+                                Some(ConstantNumber::Int(left.wrapping_add(right)).into())
+                            },
+                            BinaryOp::Subtract => {
+                                let (ConstantNumber::Int(left),ConstantNumber::Int(right)) = (left.as_number()?,right.as_number()?) else {
+                                    return None;
+                                };
+                                Some(ConstantNumber::Int(left.wrapping_sub(right)).into())
+                            },
+                            BinaryOp::Multiply => {
+                                let (ConstantNumber::Int(left),ConstantNumber::Int(right)) = (left.as_number()?,right.as_number()?) else {
+                                    return None;
+                                };
+                                Some(ConstantNumber::Int(left.wrapping_mul(right)).into())
+                            },
+                            BinaryOp::Divide => {
+                                let (ConstantNumber::Int(left),ConstantNumber::Int(right @ ((..-1)|(1..)))) = (left.as_number()?,right.as_number()?) else {
+                                    return None;
+                                };
+                                Some(ConstantNumber::Int(left.wrapping_div(right)).into())
+                            },
+                            BinaryOp::Lesser => {
+                                let (ConstantNumber::Int(left),ConstantNumber::Int(right)) = (left.as_number()?,right.as_number()?) else {
+                                    return None;
+                                };
+                                Some((left < right).into())
+                            },
+                            BinaryOp::Greater => {
+                                let (ConstantNumber::Int(left),ConstantNumber::Int(right)) = (left.as_number()?,right.as_number()?) else {
+                                    return None;
+                                };
+                                Some((left > right).into())
+                            },
+                            BinaryOp::LesserEquals => {
+                                let (ConstantNumber::Int(left),ConstantNumber::Int(right)) = (left.as_number()?,right.as_number()?) else {
+                                    return None;
+                                };
+                                Some((left <= right).into())
+                            },
+                            BinaryOp::GreaterEquals => {
+                                let (ConstantNumber::Int(left),ConstantNumber::Int(right)) = (left.as_number()?,right.as_number()?) else {
+                                    return None;
+                                };
+                                Some((left >= right).into())
+                            },
+                            BinaryOp::Equals => {
+                                Some((left == right).into())
+                            },
+                            BinaryOp::NotEquals => {
+                                Some((left != right).into())
+                            }
+                        }
+                    })
+                })
+            },
+            RValue::Tuple(element_types,elements) => {
+                elements.iter().map(|element|{
+                    match element{
+                        Operand::Load(place) => place.as_local().and_then(|local|{
+                            self.try_constant(local, state).cloned()
+                        }),
+                        Operand::Constant(val) => Some(val.clone())
+                    }
+                }).collect::<Option<Box<[_]>>>().map(|elements|{
+                    Constant{ty:Type::new_tuple(element_types.to_vec()),kind:ConstantKind::Aggregrate(AggregrateConstant::Tuple(elements))}
+                })
+            }
+            _ => None
+        }
+    }
+    fn handle_statement(&mut self,stmt:&Stmt,state:&mut IndexMap<Local,Option<Constant>>){
+        match stmt{
+            Stmt::Assign(place,rvalue) => {
+                let Some(local) = place.as_local() else {
+                    return;
+                };
+                let const_val = self.handle_rvalue(rvalue,state);
+                if let Some(const_val) = const_val{
+                    state.insert(local, Some(const_val));
+                }
+
+            },
+            Stmt::Print(_) | Stmt::Nop => {}
+        }
+    }
+    fn handle_terminator(&mut self,block: BlockId, basic_blocks:&BasicBlockInfo, terminator: &Terminator, state:&mut IndexMap<Local,Option<Constant>>) -> Box<[BlockId]>{
+        match terminator{
+            Terminator::Switch(operand,targets,otherwise) => {
+                if 
+                let Some(constant) = self.operand_as_constant(operand, state) && true
+                {
+                }
+            },
+            _ => ()
+        }
+        basic_blocks.successors(block).to_vec().into_boxed_slice()
+    }
+}
+#[derive(Debug)]
+struct ConstPatch{
+    assignments : FxHashMap<Location,(Local,Constant)>,
+    values_in_current_block : FxHashMap<Local,Constant>
+}
+impl ConstPatch{
+    fn new() -> Self{
+        Self {  assignments: FxHashMap::default(), values_in_current_block: FxHashMap::default()}
+    }
+}
+
+impl MutVisitor for ConstPatch{
+    fn visit_block(&mut self, block_id: BlockId, block: &mut mir::Block) {
+        self.values_in_current_block.clear();
+        self.super_visit_block(block_id, block);
+    }
+    
+    fn visit_assign(&mut self, lvalue: &mut Place, rvalue: &mut RValue, location: Location) {
+        self.super_visit_assign(lvalue, rvalue, location);
+    }
+    fn visit_operand(&mut self, operand: &mut Operand, _: Location) {
+        match operand{
+            Operand::Constant(_) => (),
+            Operand::Load(place) => {
+                let Some(local) = place.as_local() else {
+                    return;
+                };
+                if let Some(value) = self.values_in_current_block.get(&local){
+                    *operand = Operand::Constant(value.clone());
+                }
+            }
+        }
+    }
+    fn visit_stmt(&mut self, stmt: &mut Stmt, location: Location) {
+        if let Some((local,val)) = self.assignments.get(&location){
+            self.values_in_current_block.insert(*local, val.clone());
+        }
+        self.super_visit_stmt(stmt, location);   
+    }
+    fn visit_terminator(&mut self, terminator: &mut mir::Terminator, location: Location) {
+        if let Some((local,val)) = self.assignments.get(&location){
+            self.values_in_current_block.insert(*local, val.clone());
+        }
+        self.super_visit_terminator(terminator, location);
+        match terminator{
+            mir::Terminator::Switch(Operand::Constant(const_val),targets,otherwise) => {
+                if let Some((_,target)) = targets.iter().copied().find(|&(target_val,_)| const_val.eval_to_scalar().is_some_and(|val| val == target_val)){
+                    *terminator = mir::Terminator::Goto(target);
                 }
                 else{
-                    None
+                    *terminator = mir::Terminator::Goto(*otherwise);
                 }
-
-            }
-        }
-        impl MutVisitor for ConstPropPerBlock{
-            fn visit_block(&mut self, id: BlockId, block: &mut crate::middle::mir::Block) {
-                let const_values = if self.block_info.predecessors(id).len() <= 1{
-                    self.blocks_to_locals.remove(&id)
-                } else {
-                    None
-                };
-                let old_values = std::mem::replace(&mut self.const_values, const_values.unwrap_or_else(|| IndexVec::from(None, self.locals)));
-                self.blocks_to_locals.insert(id, old_values);
-                self.super_visit_block(block);
-
-            }
-            fn visit_projection(&mut self, projection: &mut crate::middle::mir::PlaceProjection) {
-                match projection{
-                    PlaceProjection::Index(index) => {
-                        if let Some(constant_value) = self.constant_for(*index){
-                            let Some(ConstantNumber::Int(value)) = constant_value.as_number() else {
-                                unreachable!("Got a non int value for a index local")
-                            };
-                            if value >= 0{
-                                *projection = PlaceProjection::ConstantIndex(value as u64);
-                            }
-
-                        }
-                    },
-                    _ => self.super_visit_projection(projection),
-                }
-            }
-            fn visit_operand(&mut self, operand: &mut Operand) {
-                match operand{
-                    Operand::Load(place) if place.projections.is_empty() => {
-                        if let Some(const_value) = self.constant_for(place.local){
-                            *operand = Operand::Constant(const_value.clone());
-                            return;
-                        }
-                    },
-                    _ => (),
-                }
-                self.super_visit_operand(operand)
-            }
-            fn visit_assign(&mut self, lvalue: &mut crate::middle::mir::Place, rvalue: &mut RValue) {
-                if lvalue.projections.is_empty(){
-                    let const_value = match rvalue{
-                        RValue::Use(operand) => {
-                            match operand{
-                                Operand::Constant(constant) => {
-                                    Some(constant.clone())
-                                },
-                                Operand::Load(place) if place.projections.is_empty() => {
-                                    if let Some(const_value) = self.constant_for(place.local){
-                                        Some(const_value.clone())
-                                    }
-                                    else{
-                                        None
-                                    }
-                                }
-                                Operand::Load(place) => {
-                                    self.try_eval_place(place)
-                                }
-                            }
-                        },
-                        RValue::Binary(op,left_and_right) => {
-                            let (left,right) = left_and_right.as_mut();
-                            self.try_eval_binary(*op, left, right)
-                        },
-                        RValue::Array(ty,operands) => {
-                            let const_operands = operands.iter().map(|operand|{
-                                self.as_constant(operand)
-                            }).collect::<Option<Box<[_]>>>();
-                            const_operands.map(|operands|{
-                                Constant { ty:ty.clone(), kind: mir::ConstantKind::Aggregrate(mir::AggregrateConstant::Array(operands)) }
-                            })
-                        },
-                        RValue::Len(place) => {
-                            place.as_local().and_then(|local|{
-                                self.constant_for(local).and_then(|constant|{
-                                    match &constant.kind{
-                                        mir::ConstantKind::Aggregrate(mir::AggregrateConstant::Array(elements)) => {
-                                            Some(ConstantNumber::Int(elements.len() as i64).into())
-                                        },
-                                        _ => unreachable!("Can't take the lenth of non array")
-                                    }
-
-                                })
-                            })
-                        }
-                        _ => None
-                    };
-                    if let Some(const_value) = const_value{
-                        *rvalue = RValue::Use(Operand::Constant(const_value.clone()));
-                        self.const_values[lvalue.local] = Some(const_value);
-                        return;
+            },
+            mir::Terminator::Assert(Operand::Constant(const_val),_,false_branch) => {
+                if let Some(val) = const_val.eval_to_scalar(){
+                    if val != 0{
+                        *terminator = mir::Terminator::Goto(*false_branch);
                     }
                 }
-
-                self.super_visit_assign(lvalue, rvalue);
-                self.const_values[lvalue.local] = None;
             }
+            _ => ()
         }
-
-        ConstPropPerBlock{const_values: IndexVec::from(None, body.locals.len()), locals:body.locals.len(),block_info:BasicBlockInfo::new(&body),blocks_to_locals:FxHashMap::default()}.visit_body(body);
     }
 }

@@ -6,6 +6,7 @@ pub mod const_branch;
 pub mod remove_unreachable_branches;
 pub mod const_prop;
 pub trait MirPass {
+    fn name(&self) -> &str;
     fn run_pass(&self, ctxt: &TypeContext, body:&mut Body);
 }
 pub struct Patch{

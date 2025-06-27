@@ -2,8 +2,8 @@ use std::{marker::PhantomData, ops::{Index, IndexMut}};
 
 
 pub trait IntoIndex : Copy{
-    fn new(index:u32)-> Self;
-    fn as_index(&self) -> u32;
+    fn new(index:usize)-> Self;
+    fn as_index(&self) -> usize;
 }
 #[derive(Debug)]
 pub struct IndexVec<Index,Value> where Index : IntoIndex{
@@ -19,6 +19,9 @@ impl<Index:IntoIndex,Value> IndexVec<Index,Value>{
     pub fn new()->Self{
         Self::with_capacity(0)
     }
+    pub fn from_fn(mut f: impl FnMut(Index) -> Value, len: usize) -> Self where Value:Clone{
+        Self { data: Vec::from_iter((0..len).map(|i| f(Index::new(i )))), _phantom: PhantomData }
+    }
     pub fn from(value:Value, len: usize) -> Self where Value:Clone{
         Self { data: vec![value;len], _phantom: PhantomData }
     }
@@ -29,14 +32,14 @@ impl<Index:IntoIndex,Value> IndexVec<Index,Value>{
         self.data.last_mut()
     }
     pub fn last_index(&self) -> Option<Index>{
-        let last = (self.len() as u32).checked_sub(1)?;
+        let last = self.len().checked_sub(1)?;
         Some(Index::new(last))
     }
     pub fn with_capacity(capacity:usize) -> Self{
         Self { data: Vec::with_capacity(capacity), _phantom: PhantomData }
     }
     pub fn push(&mut self,val:Value)->Index{
-        let index = Index::new(self.data.len() as u32);
+        let index = Index::new(self.data.len());
         self.data.push(val);
         index
     }
@@ -47,7 +50,7 @@ impl<Index:IntoIndex,Value> IndexVec<Index,Value>{
         self.data.get_mut(index.as_index() as usize)
     }
     pub fn retain_mut(&mut self,mut f:impl FnMut(Index,&mut Value) -> bool){
-        let mut index:u32 = 0;
+        let mut index:usize = 0;
         self.data.retain_mut(|val|{
             let should_retain = f(Index::new(index),val);
             index += 1;
@@ -55,10 +58,13 @@ impl<Index:IntoIndex,Value> IndexVec<Index,Value>{
         });
     }
     pub fn index_value_iter(&self)->impl '_ + std::iter::Iterator<Item = (Index,&'_ Value)>{
-        self.data.iter().enumerate().map(|(i,value)| (Index::new(i as u32),value))
+        self.data.iter().enumerate().map(|(i,value)| (Index::new(i),value))
     }
     pub fn index_value_iter_mut(&mut self)->impl '_ + std::iter::Iterator<Item = (Index,&'_ mut Value)>{
-        self.data.iter_mut().enumerate().map(|(i,value)| (Index::new(i as u32),value))
+        self.data.iter_mut().enumerate().map(|(i,value)| (Index::new(i),value))
+    }
+    pub fn into_iter_enumerated(self)-> impl std::iter::Iterator<Item = (Index,Value)>{
+        self.data.into_iter().enumerate().map(|(i,value)| (Index::new(i),value))
     }
     pub fn iter(&self)->IndexVecIter<'_,Index,Value>{
         IndexVecIter { iter : self.data.iter(),phantom:PhantomData}
@@ -66,8 +72,8 @@ impl<Index:IntoIndex,Value> IndexVec<Index,Value>{
     pub fn iter_mut(&mut self)->IndexVecIterMut<'_,Index,Value>{
         IndexVecIterMut { iter : self.data.iter_mut(),phantom:PhantomData}
     }
-    pub fn indices(&self) -> impl Iterator<Item = Index>{
-        (0..self.len()).map(|i| Index::new(i as u32))
+    pub fn indices(&self) -> impl Iterator<Item = Index> + use<'_,Index,Value>{
+        (0..self.len()).map(|i| Index::new(i))
     }
     pub fn is_empty(&self) -> bool{ self.data.is_empty() }
     pub fn len(&self)->usize{
@@ -154,24 +160,26 @@ macro_rules! define_id {
         #[derive(Clone, Copy,PartialEq,Eq,Hash,Debug,Ord,PartialOrd)]
         pub struct $id(u32);
         impl $crate::data_structures::IntoIndex for $id{
-            fn new(index:u32)-> Self{
-                Self(index)
+            fn new(index:usize)-> Self{
+                assert!(index < u32::MAX as usize);
+                Self(index as u32)
             }
-            fn as_index(&self) -> u32 {
-                self.0
+            fn as_index(&self) -> usize {
+                self.0 as usize
             }
         }
     };
     ($id:ident,$comment:meta) => {
         #[$comment]
-        #[derive(Clone, Copy,PartialEq,Eq,Hash,Debug,Ord,PartialOrd)]
+        #[derive(Clone, Copy,PartialEq,Eq,Hash,Debug,Ord,PartialOrd,Step)]
         pub struct $id(u32);
         impl $crate::data_structures::IntoIndex for $id{
-            fn new(index:u32)-> Self{
-                Self(index)
+            fn new(index:usize)-> Self{
+                assert!(index < u32::MAX as usize);
+                Self(index as u32)
             }
-            fn as_index(&self) -> u32 {
-                self.0
+            fn as_index(&self) -> usize {
+                self.0 as usize
             }
         }
     };

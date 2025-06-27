@@ -4,7 +4,6 @@ use super::{Block, BlockId, Body, ConstantKind, FunctionKind, Mir, Operand, Plac
 
 
 pub struct DebugMir<'a>{
-    mir : &'a Mir,
     output : String,
     symbol_interner : &'a SymbolInterner,
     context : &'a TypeContext,
@@ -12,8 +11,8 @@ pub struct DebugMir<'a>{
 }
 
 impl<'a> DebugMir<'a>{
-    pub fn new(mir: &'a Mir, context: &'a TypeContext, symbol_interner: &'a SymbolInterner) -> Self{
-        Self{mir,context,output:String::new(),symbol_interner,indents:0}
+    pub fn new(context: &'a TypeContext, symbol_interner: &'a SymbolInterner) -> Self{
+        Self{context,output:String::new(),symbol_interner,indents:0}
     }
 
     fn push_next_line(&mut self, line: &str){
@@ -185,7 +184,7 @@ impl<'a> DebugMir<'a>{
                     output
                 }
             },
-            RValue::Tuple(elements) => {
+            RValue::Tuple(_,elements) => {
                 if elements.is_empty(){
                     "()".to_string()
                 }
@@ -292,8 +291,12 @@ impl<'a> DebugMir<'a>{
         }
         self.output.push('\n');
     }
-    pub fn debug(mut self) -> String{
-        for body in self.mir.bodies.iter(){
+    pub fn debug_body(mut self, body:&Body) -> String{
+        self.format_body(body);
+        self.output
+    }
+    pub fn debug(mut self, bodies: impl Iterator<Item = &'a Body>) -> String{
+        for body in bodies{
             self.format_body(body);
         }
         self.output

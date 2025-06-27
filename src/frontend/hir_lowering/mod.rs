@@ -1,4 +1,4 @@
-use crate::{data_structures::IndexVec, errors::ErrorReporter, identifiers::BodyIndex, SymbolInterner};
+use crate::{data_structures::{IndexVec, IntoIndex}, errors::ErrorReporter, frontend::thir::FieldExpr, identifiers::{BodyIndex, FieldIndex}, SymbolInterner};
 
 use super::{ast_lowering::hir::{self, DefIdMap}, pattern_checking::{lowering::lower_to_pattern, PatternChecker}, thir::{self, Block, Expr, ExprId, Param, Stmt, StmtId, StmtKind, Thir, ThirBody}, typechecking::{checking::{Coercion, TypeCheckResults}, context::TypeContext, types::{generics::GenericArgs, AdtKind}}};
 
@@ -163,7 +163,35 @@ impl <'a> BodyLower<'a>{
                 thir::ExprKind::Array(self.lower_exprs(elements.into_iter()))
             },
             hir::ExprKind::Call(callee,args) => {
-                thir::ExprKind::Call(self.lower_expr(*callee),self.lower_exprs(args.into_iter()))
+                let callee = *callee;
+                let adt_def = if let hir::ExprKind::Path(_) = callee.kind{
+                    if let hir::Resolution::Definition(hir::DefKind::Variant,id) = self.results().resolutions[&callee.id]{
+                        let generic_args = self.results().generic_args[&callee.id].clone();
+                        let enum_id = self.type_context().expect_owner_of(id);
+                        let variant = self.type_context().get_variant_index(id).expect("Should definitely be a variant");
+                        Some((enum_id,variant,generic_args))
+                    }
+                    else{
+                        None
+                    }
+                }
+                else{
+                    None
+                };
+                if let Some((enum_id,variant_index,generic_args)) = adt_def{
+                    thir::ExprKind::StructLiteral(Box::new(thir::StructLiteral{
+                        kind : AdtKind::Enum,
+                        id : enum_id,
+                        generic_args,
+                        variant : Some(variant_index),
+                        fields : args.into_iter().enumerate().map(|(i,arg)|{
+                            FieldExpr{field:FieldIndex::new(i),expr:self.lower_expr(arg)}
+                        }).collect()
+                    }))
+                }
+                else{
+                    thir::ExprKind::Call(self.lower_expr(callee),self.lower_exprs(args.into_iter()))
+                }
             },
             hir::ExprKind::Field(base,_) => thir::ExprKind::Field(self.lower_expr(*base),self.results().fields[&expr.id]),
             hir::ExprKind::Tuple(elements) => thir::ExprKind::Tuple(self.lower_exprs(elements.into_iter())),

@@ -248,7 +248,7 @@ impl<'a> TypeChecker<'a>{
                 match constructor_kind{
                     AdtKind::Struct => {
                         let field_tys = self.context.structs[id].fields.iter().enumerate().map(|(field_index,field)|{
-                            (field.name.index,(FieldIndex::new(field_index as u32),field.ty.clone()))
+                            (field.name.index,(FieldIndex::new(field_index),field.ty.clone()))
                         }).collect::<FxHashMap<SymbolIndex,(FieldIndex,Type)>>();
                         let mut seen_fields = FxHashSet::default();
                         let mut last_field_span = pattern.span;
@@ -527,12 +527,12 @@ impl<'a> TypeChecker<'a>{
                 None => {
                     let field_ty_and_index = if let &Type::Adt(ref generic_args,id,AdtKind::Struct) = &receiver_ty{
                         self.context.structs[id].fields.iter().enumerate().find_map(|(i,field_def)|{
-                            (field_def.name.index == name.index).then_some((field_def,FieldIndex::new(i as u32)))
+                            (field_def.name.index == name.index).then_some((field_def,FieldIndex::new(i)))
                         }).map(|(field_def,index)| (TypeSubst::new(generic_args).instantiate_type(&field_def.ty),index))
                     }
                     else if let Type::Tuple(elements) = &receiver_ty{
                         self.ident_interner.get(name.index).parse::<usize>().ok().and_then(|index|{
-                            elements.get(index).map(|ty| (ty.clone(),FieldIndex::new(index as u32)))
+                            elements.get(index).map(|ty| (ty.clone(),FieldIndex::new(index)))
                         })
                     }
                     else{
@@ -640,7 +640,7 @@ impl<'a> TypeChecker<'a>{
             AdtKind::Struct => {
                 let field_tys = 
                 self.context.structs[id].fields.iter().enumerate().map(|(field_index,field_def)|{
-                    (field_def.name.index,(field_def.ty.clone(),FieldIndex::new(field_index as u32)))
+                    (field_def.name.index,(field_def.ty.clone(),FieldIndex::new(field_index)))
                 }).collect::<FxHashMap<SymbolIndex,(Type,FieldIndex)>>();
                 
                 let mut seen_fields = FxHashSet::default();
@@ -792,13 +792,13 @@ impl<'a> TypeChecker<'a>{
                 let base_ty = self.check_expr(base, Expectation::None);
                 let (field_ty,index) = if let &Type::Adt(ref generic_args,id,AdtKind::Struct) = &base_ty{
                     self.context.structs[id].fields.iter().enumerate().find_map(|(i,field_def)|{
-                        (field_def.name.index == field.index).then_some((field_def,FieldIndex::new(i as u32)))
+                        (field_def.name.index == field.index).then_some((field_def,FieldIndex::new(i)))
                     }).map(|(field_def,index)| (TypeSubst::new(generic_args).instantiate_type(&field_def.ty),index)).unzip()
                     
                 }
                 else if let Type::Tuple(elements) = &base_ty{
                     self.ident_interner.get(field.index).parse::<usize>().ok().and_then(|index|{
-                        Some((elements.get(index)?.clone(),FieldIndex::new(index as u32)))
+                        Some((elements.get(index)?.clone(),FieldIndex::new(index)))
                     }).unzip()
                 }
                 else if base_ty.has_error(){

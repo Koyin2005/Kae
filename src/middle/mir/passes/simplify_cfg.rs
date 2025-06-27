@@ -1,6 +1,6 @@
 use fxhash::FxHashMap;
 
-use crate::{data_structures::IndexVec, frontend::typechecking::context::TypeContext, middle::mir::{passes::MirPass, traversal::{self, Preorder}, Block, BlockId, Body, Terminator}};
+use crate::{data_structures::IndexVec, frontend::typechecking::context::TypeContext, middle::mir::{basic_blocks::BasicBlockInfo, passes::MirPass, traversal::{self, Preorder}, Block, BlockId, Body, Terminator}};
 
 struct CfgSimplifier<'a>{
     basic_blocks : &'a mut IndexVec<BlockId,Block>,
@@ -10,8 +10,9 @@ impl<'a> CfgSimplifier<'a>{
     pub fn new(body:&'a mut Body) -> Self{
         let mut predecessors = IndexVec::from(0u32, body.blocks.len());
         predecessors[BlockId(0)] = 1;
-        for block in Preorder::new(body){
-            for &succ in body.blocks[block].expect_terminator().successors(){
+        let basic_block_info = BasicBlockInfo::new(&body);
+        for block in Preorder::new(&basic_block_info){
+            for &succ in basic_block_info.successors(block){
                 predecessors[succ] += 1;
             }
         }
@@ -119,9 +120,12 @@ impl<'a> CfgSimplifier<'a>{
 
 pub struct SimplifyCfg;
 impl MirPass for SimplifyCfg{
+    fn name(&self) -> &str {
+        "Simplify-Cfg"
+    }
     fn run_pass(&self, _:&TypeContext, body:&mut Body){
         CfgSimplifier::new(body).simplify();
-        let reachable = traversal::reachable(body);
+        let reachable = traversal::reachable(&BasicBlockInfo::new(body));
         let mut replacements = FxHashMap::default();
         let mut new_id = 0u32;
         body.blocks.retain_mut(|old_block_id,_|{

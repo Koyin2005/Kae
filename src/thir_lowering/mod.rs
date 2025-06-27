@@ -70,7 +70,7 @@ impl<'a> BodyBuild<'a>{
             },
             PatternKind::Tuple(fields) => {
                 for (i,field) in fields.iter().enumerate(){
-                    self.lower_let(field, place.clone().project(PlaceProjection::Field(FieldIndex::new(i as u32))));
+                    self.lower_let(field, place.clone().project(PlaceProjection::Field(FieldIndex::new(i))));
                 }
             },
             PatternKind::Struct(_,_,fields) => {
@@ -83,7 +83,7 @@ impl<'a> BodyBuild<'a>{
                 let id = self.context.get_variant_by_index(*enum_id, *variant).id;
                 let place = place.project(PlaceProjection::Variant(self.context.ident(id).index, *variant));
                 for (i,field) in fields.iter().enumerate(){
-                    self.lower_let(field, place.clone().project(PlaceProjection::Field(FieldIndex::new(i as u32))));
+                    self.lower_let(field, place.clone().project(PlaceProjection::Field(FieldIndex::new(i))));
                 }
             },
         }
@@ -349,8 +349,11 @@ impl<'a> BodyBuild<'a>{
                 }
                 else{
                     let place = place_or_temporary(self, place, expr);
+                    let element_types = elements.iter().map(|&element|{
+                        self.body.exprs[element].ty.clone()
+                    }).collect();
                     let operands = elements.iter().copied().map(|element| self.lower_as_operand(element)).collect();
-                    self.assign_stmt(place, RValue::Tuple(operands));
+                    self.assign_stmt(place, RValue::Tuple(element_types,operands));
                 }
             }
             &ExprKind::Call(callee,ref args) => {
@@ -370,7 +373,7 @@ impl<'a> BodyBuild<'a>{
                     (field.field,Some(self.lower_as_operand(field.expr)))
                 }).collect::<FxHashMap<_,_>>();
                 let fields = (0..fields.len()).map(|field| {
-                    let field = FieldIndex::new(field as u32);
+                    let field = FieldIndex::new(field);
                     fields.get_mut(&field).expect("There should be an operand in the fields list").take().expect("There should be an operand")
                 }).collect();
                 self.assign_stmt(place, RValue::Adt(Box::new((id,generic_args.clone(),variant)), fields));
@@ -450,7 +453,7 @@ impl<'a> BodyBuild<'a>{
             self.new_local(LocalInfo{ty:param.ty.clone()});
         }
         for (i,param) in self.body.params.iter().enumerate(){
-            let param_local = Local::new(i as u32 + 1);
+            let param_local = Local::new(i + 1);
             match param.pattern.kind{
                 PatternKind::Binding(_, id, None) => {
                     self.var_to_local.insert(id,param_local);

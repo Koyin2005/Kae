@@ -150,7 +150,7 @@ impl TypeContext{
     }
     pub fn get_variant_index(&self,variant_id:DefId) -> Option<VariantIndex>{
         self.child_to_owner_map.get(variant_id).copied().and_then(|owner| 
-            self.enums.get(owner)).and_then(|enum_| enum_.variants.iter().position(|variant| variant.id == variant_id).map(|variant_index| VariantIndex::new(variant_index as u32))
+            self.enums.get(owner)).and_then(|enum_| enum_.variants.iter().position(|variant| variant.id == variant_id).map(|variant_index| VariantIndex::new(variant_index))
         )
     }
     pub fn expect_struct(&self, struct_id: DefId) -> &StructDef{
@@ -244,7 +244,7 @@ impl TypeContext{
         self.enums[enum_id].variants.iter()
     }
     pub fn expect_variants_for(&self, enum_id: DefId) -> Vec<VariantIndex>{
-        (0..self.enums[enum_id].variants.len()).map(|variant| VariantIndex::new(variant as u32)).collect()
+        (0..self.enums[enum_id].variants.len()).map(|variant| VariantIndex::new(variant)).collect()
     }
     pub fn field_defs(&self, struct_id: DefId) -> &[FieldDef]{
         &self.structs[struct_id].fields

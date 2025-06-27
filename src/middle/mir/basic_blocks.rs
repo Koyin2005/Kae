@@ -3,7 +3,10 @@ use fxhash::FxHashMap;
 use crate::middle::mir::{BlockId, Body, Terminator};
 
 fn find_successors(basic_block: BlockId, body:&Body) -> Box<[BlockId]>{
-    match body.blocks[basic_block].expect_terminator(){
+    let Some(terminator) = body.blocks[basic_block].terminator.as_ref() else {
+        return Box::new([]);
+    };
+    match terminator{
         Terminator::Assert(_,_, next)|Terminator::Goto(next) => 
             Box::new([*next]),
         Terminator::Return | Terminator::Unreachable => Box::new([]),
@@ -12,6 +15,7 @@ fn find_successors(basic_block: BlockId, body:&Body) -> Box<[BlockId]>{
         }
     }
 }
+
 
 pub struct BasicBlockInfo{
     successors : FxHashMap<BlockId,Box<[BlockId]>>,

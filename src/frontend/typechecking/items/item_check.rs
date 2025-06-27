@@ -123,7 +123,7 @@ impl<'a> ItemCheck<'a>{
                 for (i,variant) in enum_def.variants.iter().enumerate(){
                     let mut is_recursive = false;
                     for (field_def,field_ty) in 
-                        variant.fields.iter().zip(self.context.get_variant_by_index(enum_def.id, VariantIndex::new(i as u32)).fields.iter())
+                        variant.fields.iter().zip(self.context.get_variant_by_index(enum_def.id, VariantIndex::new(i)).fields.iter())
                     {
                         self.check_type(&field_def);
                         if self.context.is_type_recursive(&field_ty, enum_def.id){

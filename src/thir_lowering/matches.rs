@@ -63,7 +63,7 @@ fn test_trees_from(context:&TypeContext,pattern:&thir::Pattern, place: Place, te
         },
         thir::PatternKind::Tuple(fields) => {
             for (i,field) in fields.iter().enumerate(){
-                test_trees_from(context,field, place.clone().project(mir::PlaceProjection::Field(FieldIndex::new(i as u32))), &mut subtests);
+                test_trees_from(context,field, place.clone().project(mir::PlaceProjection::Field(FieldIndex::new(i))), &mut subtests);
             }
             None
         },
@@ -76,7 +76,7 @@ fn test_trees_from(context:&TypeContext,pattern:&thir::Pattern, place: Place, te
         &thir::PatternKind::Variant(id,_,variant,ref fields) => {
                 let projected_place = place.clone().project(mir::PlaceProjection::Variant(context.get_variant_by_index(id, variant).name.index, variant));
             for (i,field) in fields.iter().enumerate(){
-                test_trees_from(context,field, projected_place.clone().project(mir::PlaceProjection::Field(FieldIndex::new(i as u32))), &mut subtests);
+                test_trees_from(context,field, projected_place.clone().project(mir::PlaceProjection::Field(FieldIndex::new(i))), &mut subtests);
             }
             Some(PlaceTest { place: place, test: TestCase::Variant(id, variant) })
         }
@@ -192,7 +192,7 @@ impl <'a> BodyBuild<'a>{
             Test::SwitchVariant(id) => {
                 let discriminant = self.new_temporary(Type::Int);
                 self.assign_stmt(discriminant.into(),mir::RValue::Tag(place));
-                let targets = (0..self.context.expect_variants(id).len()).map(|i| VariantIndex::new(i as u32)).filter_map(|variant|{
+                let targets = (0..self.context.expect_variants(id).len()).map(|i| VariantIndex::new(i)).filter_map(|variant|{
                     if let Some(_) = targets.get(&TestResult::Variant(id, variant)){
                         Some((variant.as_index() as u128,get_target(TestResult::Variant(id, variant))))
                     }

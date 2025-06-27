@@ -2,6 +2,9 @@ use crate::{frontend::typechecking::context::TypeContext, middle::mir::{passes::
 
 pub struct ConstBranch;
 impl MirPass for ConstBranch {
+    fn name(&self) -> &str {
+        "Constant-Branching"
+    }
     fn run_pass(&self, _:&TypeContext, body:&mut Body){
         let mut patch = Patch::new();
         'a : for (block_id,block) in body.blocks.index_value_iter(){

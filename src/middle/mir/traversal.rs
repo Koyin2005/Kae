@@ -1,16 +1,16 @@
 use fxhash::FxHashSet;
 use indexmap::IndexSet;
 
-use crate::middle::mir::{BlockId, Body};
+use crate::middle::mir::{basic_blocks::BasicBlockInfo, BlockId};
 
 pub struct Preorder<'a>{
-    body: &'a Body,
+    blocks: &'a BasicBlockInfo,
     visited : FxHashSet<BlockId>,
     worklist : Vec<BlockId>
 }
 impl<'a> Preorder<'a>{
-    pub fn new(body:&'a Body) -> Self{
-        Self { body,visited: FxHashSet::default(), worklist: vec![BlockId(0)] }
+    pub fn new(blocks: &'a BasicBlockInfo) -> Self{
+        Self { blocks,visited: FxHashSet::default(), worklist: vec![BlockId(0)] }
     } 
 
 
@@ -23,21 +23,56 @@ impl<'a> Iterator for Preorder<'a>{
             if !self.visited.insert(block){
                 continue;
             }
-            if let Some(terminator) = self.body.blocks[block].terminator.as_ref(){
-                self.worklist.extend(terminator.successors());
-            }
+            self.worklist.extend(self.blocks.successors(block));
             return Some(block);
         }
         None
     }
 }
 
-pub fn reachable(body:&Body) -> IndexSet<BlockId>{
-    let mut visited = IndexSet::default();
-    let mut preorder = Preorder::new(body);
-    while let Some(block) = preorder.next(){
-        visited.insert(block);
+pub struct Postorder<'a>{
+    blocks: &'a BasicBlockInfo,
+    visited : FxHashSet<BlockId>,
+    visit_stack : Vec<(BlockId,Vec<BlockId>)>
+}
+impl <'a> Postorder<'a>{
+    pub fn new(blocks: &'a BasicBlockInfo) -> Self{
+        let mut postorder = Self { blocks, visited : FxHashSet::default(), visit_stack: Vec::new() };
+        postorder.visit(BlockId::START_BLOCK);
+        postorder.traverse_succesor();
+        postorder
     }
-    visited
+
+    fn visit(&mut self, block: BlockId){
+        if !self.visited.insert(block){
+            return;
+        }
+        self.visit_stack.push((block,self.blocks.successors(block).to_vec()));
+    }
+
+    fn traverse_succesor(&mut self){
+        while let Some(bb) = self.visit_stack.last_mut().and_then(|(_, succs)| succs.pop()) {
+            self.visit(bb);
+        }
+    }
+}
+impl<'a> Iterator for Postorder<'a>{
+    type Item = BlockId;
+    fn next(&mut self) -> Option<Self::Item> {
+        let (bb,_) = self.visit_stack.pop()?;
+        self.traverse_succesor();
+        Some(bb)
+    }
+}
+pub fn postorder(blocks: &BasicBlockInfo) -> IndexSet<BlockId>{
+    Postorder::new(blocks).collect::<IndexSet<_>>()
+}
+pub fn reversed_postorder(blocks: &BasicBlockInfo) -> IndexSet<BlockId>{
+    let mut traversed = Postorder::new(blocks).collect::<IndexSet<_>>();
+    traversed.reverse();
+    traversed
+}
+pub fn reachable(blocks:&BasicBlockInfo) -> IndexSet<BlockId>{
+    Preorder::new(blocks).collect()
 
 }
