@@ -1,176 +1,243 @@
 use std::{fmt::Display, hash::Hash};
 
-use crate::{data_structures::{IndexVec, IntoIndex}, define_id, frontend::{ast_lowering::hir::{BinaryOp, BuiltinKind, DefId, UnaryOp}, typechecking::{context::TypeContext, types::{generics::GenericArgs, subst::{Subst, TypeSubst}, Type}}}, 
-    identifiers::{BodyIndex, FieldIndex, SymbolIndex, VariantIndex}};
+use crate::{
+    data_structures::{IndexVec, IntoIndex},
+    define_id,
+    frontend::{
+        ast_lowering::hir::{BinaryOp, BuiltinKind, DefId, UnaryOp},
+        typechecking::{
+            context::TypeContext,
+            types::{
+                Type,
+                generics::GenericArgs,
+                subst::{Subst, TypeSubst},
+            },
+        },
+    },
+    identifiers::{BodyIndex, FieldIndex, SymbolIndex, VariantIndex},
+};
 
-pub mod debug;
-pub mod passes;
 pub mod basic_blocks;
+pub mod debug;
+pub mod dominator;
+pub mod passes;
 pub mod traversal;
 pub mod visitor;
-pub mod dominator;
-#[derive(Clone,Debug,PartialEq,Hash)]
+pub mod const_eval;
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub enum FunctionKind {
     Anon(DefId),
     Normal(DefId),
     Variant(DefId),
-    Builtin(BuiltinKind)
+    Builtin(BuiltinKind),
 }
-#[derive(Clone,Debug,PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ConstantKind {
     Int(i64),
     Bool(bool),
     String(SymbolIndex),
     ZeroSized,
     Float(f64),
-    Function(FunctionKind,GenericArgs),
-    Aggregrate(AggregrateConstant)
+    Function(FunctionKind, GenericArgs),
+    Aggregrate(Box<AggregrateConstant>),
 }
-impl Hash for ConstantKind{
+impl Eq for ConstantKind{}
+impl Hash for ConstantKind {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        match self{
+        match self {
             Self::Bool(value) => {
                 0.hash(state);
                 value.hash(state)
-            },
+            }
             Self::Float(value) => {
                 1.hash(state);
                 value.to_bits().hash(state)
-            },
-            Self::Function(kind,args) => { 2.hash(state); kind.hash(state);args.hash(state);},
-            Self::Int(value) => {3.hash(state);value.hash(state)},
-            Self::String(index) => {4.hash(state);index.hash(state)},
+            }
+            Self::Function(kind, args) => {
+                2.hash(state);
+                kind.hash(state);
+                args.hash(state);
+            }
+            Self::Int(value) => {
+                3.hash(state);
+                value.hash(state)
+            }
+            Self::String(index) => {
+                4.hash(state);
+                index.hash(state)
+            }
             Self::ZeroSized => 5.hash(state),
             Self::Aggregrate(aggregate_constant) => {
                 6.hash(state);
-                for constant in aggregate_constant.fields(){
+                for constant in aggregate_constant.fields() {
                     constant.hash(state);
                 }
             }
         }
     }
 }
-#[derive(Clone, Copy,Debug,PartialEq,PartialOrd)]
-pub enum ConstantNumber{
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+pub enum ConstantNumber {
     Float(f64),
-    Int(i64)
+    Int(i64),
 }
-impl From<ConstantNumber> for Constant{
+impl From<ConstantNumber> for Constant {
     fn from(value: ConstantNumber) -> Self {
-        match value{
-            ConstantNumber::Float(value) => Self { ty: Type::Float, kind: ConstantKind::Float(value) },
-            ConstantNumber::Int(value) => Self { ty: Type::Int, kind: ConstantKind::Int(value) }
+        match value {
+            ConstantNumber::Float(value) => Self {
+                ty: Type::Float,
+                kind: ConstantKind::Float(value),
+            },
+            ConstantNumber::Int(value) => Self {
+                ty: Type::Int,
+                kind: ConstantKind::Int(value),
+            },
         }
     }
 }
-#[derive(Clone,Debug,PartialEq,Hash)]
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub enum AggregrateConstant {
     Array(Box<[Constant]>),
-    Tuple(Box<[Constant]>)
+    Tuple(Box<[Constant]>),
+    Adt(DefId,GenericArgs,Option<VariantIndex>,Box<[Constant]>)
 }
-impl AggregrateConstant{
-    fn fields(&self) -> &[Constant]{
-        match self{
-            Self::Array(fields) | Self::Tuple(fields) => &fields
+impl AggregrateConstant {
+    fn fields(&self) -> &[Constant] {
+        match self {
+            Self::Array(fields) | Self::Tuple(fields) => &fields,
+            Self::Adt(_,_,_,fields) => &fields
         }
     }
 }
-#[derive(Clone,Debug,PartialEq,Hash)]
-pub struct  Constant {
-    pub ty : Type,
-    pub kind : ConstantKind
+#[derive(Clone, Debug, PartialEq, Hash,Eq)]
+pub struct Constant {
+    pub ty: Type,
+    pub kind: ConstantKind,
 }
-impl Constant{
-    pub fn is_float(&self) -> bool{
-        matches!(self.kind,ConstantKind::Float(_))
-    }
-    pub fn eval_to_scalar(&self) -> Option<u128>{
+impl Constant {
+    pub fn as_aggregrate(&self) -> Option<&AggregrateConstant>{
         match self.kind{
+            ConstantKind::Aggregrate(ref aggregate) => {
+                Some(aggregate)
+            },
+            _ => None
+        }
+    }
+    pub fn is_float(&self) -> bool {
+        matches!(self.kind, ConstantKind::Float(_))
+    }
+    pub fn eval_to_scalar(&self) -> Option<u128> {
+        match self.kind {
             ConstantKind::Float(value) => Some(value.to_bits() as u128),
             ConstantKind::Bool(value) => Some(value as u128),
             ConstantKind::Int(value) => Some(u64::from_ne_bytes(value.to_ne_bytes()) as u128),
-            _ => None
+            _ => None,
         }
     }
-    pub fn as_number(&self) -> Option<ConstantNumber>{
-        match self.kind{
+    pub fn as_number(&self) -> Option<ConstantNumber> {
+        match self.kind {
             ConstantKind::Float(value) => Some(ConstantNumber::Float(value)),
             ConstantKind::Int(value) => Some(ConstantNumber::Int(value)),
-            _ => None
+            _ => None,
         }
     }
 }
-impl From<bool> for Constant{
+impl From<bool> for Constant {
     fn from(value: bool) -> Self {
-        Constant { ty: Type::Bool, kind: ConstantKind::Bool(value) }
+        Constant {
+            ty: Type::Bool,
+            kind: ConstantKind::Bool(value),
+        }
     }
 }
-pub enum StatementOrTerminator<'a>{
+pub enum StatementOrTerminator<'a> {
     Statement(&'a Stmt),
-    Terminator(&'a Terminator)
+    Terminator(&'a Terminator),
 }
 pub struct Block {
-    pub stmts : Vec<Stmt>,
-    pub terminator : Option<Terminator>
+    pub stmts: Vec<Stmt>,
+    pub terminator: Option<Terminator>,
 }
-impl Block{
-    pub fn expect_terminator(&self) -> &Terminator{
-        self.terminator.as_ref().expect("The terminator should be assigned")
+impl Block {
+    pub fn expect_terminator(&self) -> &Terminator {
+        self.terminator
+            .as_ref()
+            .expect("The terminator should be assigned")
     }
-    pub fn expect_terminator_mut(&mut self) -> &mut Terminator{
-        self.terminator.as_mut().expect("The terminator should be assigned")
+    pub fn expect_terminator_mut(&mut self) -> &mut Terminator {
+        self.terminator
+            .as_mut()
+            .expect("The terminator should be assigned")
     }
 }
-#[derive(Clone, Copy,PartialEq,Eq,PartialOrd,Ord,Hash,Debug)]
-pub struct Location{
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct Location {
     pub basic_block: BlockId,
-    pub statement_index: usize
+    pub statement_index: usize,
 }
-impl Location{
-    pub fn new(block_id: BlockId, statement_index: usize) -> Self{
-        Self { basic_block: block_id, statement_index }
+impl Location {
+    pub fn new(block_id: BlockId, statement_index: usize) -> Self {
+        Self {
+            basic_block: block_id,
+            statement_index,
+        }
     }
-    pub fn next(self) -> Self{
-        Self { basic_block: self.basic_block, statement_index: self.statement_index+1 }
+    pub fn next(self) -> Self {
+        Self {
+            basic_block: self.basic_block,
+            statement_index: self.statement_index + 1,
+        }
     }
 }
-#[derive(Clone,PartialEq,Debug)]
+#[derive(Clone, PartialEq, Debug, Copy)]
 pub enum PlaceProjection {
     Field(FieldIndex),
-    Variant(SymbolIndex,VariantIndex),
+    Variant(SymbolIndex, VariantIndex),
     Index(Local),
-    ConstantIndex(u64)
+    ConstantIndex(u64),
 }
-#[derive(Clone,PartialEq,Debug)]
-pub struct Place{
-    pub local : Local,
-    pub projections : Box<[PlaceProjection]>
+#[derive(Clone, PartialEq, Debug)]
+pub struct Place {
+    pub local: Local,
+    pub projections: Box<[PlaceProjection]>,
 }
-impl Place{
-
-    pub fn as_local(&self) -> Option<Local>{
+impl Place {
+    pub fn as_local(&self) -> Option<Local> {
         self.projections.is_empty().then_some(self.local)
     }
-    pub fn project(self, projection : PlaceProjection) -> Self{
-        Self { local: self.local, projections: self.projections.into_vec().into_iter().chain(std::iter::once(projection)).collect() }
+    pub fn project(self, projection: PlaceProjection) -> Self {
+        Self {
+            local: self.local,
+            projections: self
+                .projections
+                .into_vec()
+                .into_iter()
+                .chain(std::iter::once(projection))
+                .collect(),
+        }
     }
 
-    pub fn type_of(&self,ctxt:&TypeContext,body: &Body) -> Type{
+    pub fn type_of(&self, ctxt: &TypeContext, body: &Body) -> Type {
         let mut ty = body.locals[self.local].ty.clone();
         let mut projection_iter = self.projections.iter().peekable();
-        while let Some(projection) =  projection_iter.next(){
+        while let Some(projection) = projection_iter.next() {
             match projection {
                 &PlaceProjection::Field(field) => {
-                    ty = ty.field(ctxt, field).expect("This type should have a field");
-                    
-                },
-                &PlaceProjection::Variant(_,variant_index) => {
-                    if let Some(&&PlaceProjection::Field(field)) = projection_iter.peek(){
-                        let (generic_args,id,_) = ty.as_adt().expect("There should be a def id for enums");
-                        ty = TypeSubst::new(generic_args).instantiate_type(&ctxt.get_variant_by_index(id, variant_index).fields[field.as_index() as usize]);
+                    ty = ty
+                        .field(ctxt, field)
+                        .expect("This type should have a field");
+                }
+                &PlaceProjection::Variant(_, variant_index) => {
+                    if let Some(&&PlaceProjection::Field(field)) = projection_iter.peek() {
+                        let (generic_args, id, _) =
+                            ty.as_adt().expect("There should be a def id for enums");
+                        ty = TypeSubst::new(generic_args).instantiate_type(
+                            &ctxt.get_variant_by_index(id, variant_index).fields
+                                [field.as_index() as usize],
+                        );
                         projection_iter.next();
                     }
-                },
+                }
                 PlaceProjection::Index(_) | PlaceProjection::ConstantIndex(_) => {
                     ty = ty.index_of().expect("This type should be indexable");
                 }
@@ -182,113 +249,137 @@ impl Place{
 #[derive(Clone)]
 pub enum RValue {
     Use(Operand),
-    Binary(BinaryOp,Box<(Operand,Operand)>),
-    Unary(UnaryOp,Operand),
-    Call(Operand,Box<[Operand]>),
-    Array(Type,Box<[Operand]>),
-    Adt(Box<(DefId,GenericArgs,Option<VariantIndex>)>,IndexVec<FieldIndex,Operand>),
-    Tuple(Box<[Type]>,Box<[Operand]>),
+    Binary(BinaryOp, Box<(Operand, Operand)>),
+    Unary(UnaryOp, Operand),
+    Call(Operand, Box<[Operand]>),
+    Array(Type, Box<[Operand]>),
+    Adt(
+        Box<(DefId, GenericArgs, Option<VariantIndex>)>,
+        IndexVec<FieldIndex, Operand>,
+    ),
+    Tuple(Box<[Type]>, Box<[Operand]>),
     Len(Place),
-    Tag(Place)
+    Tag(Place),
 }
-#[derive(Clone,Debug)]
+#[derive(Clone, Debug)]
 pub enum Operand {
     Constant(Constant),
-    Load(Place)
+    Load(Place),
 }
-impl Operand{
-    pub fn as_place(&self) -> Option<&Place>{
-        match self{
+impl Operand {
+    pub fn as_place(&self) -> Option<&Place> {
+        match self {
             Self::Constant(_) => None,
-            Self::Load(place) => Some(place)
+            Self::Load(place) => Some(place),
         }
     }
-    pub fn as_constant(&self) -> Option<&Constant>{
-        match self{
+    pub fn as_constant(&self) -> Option<&Constant> {
+        match self {
             Self::Constant(constant) => Some(constant),
-            Self::Load(_) => None
+            Self::Load(_) => None,
         }
     }
 }
 #[derive(Clone)]
-pub enum Stmt{
-    Assign(Place,RValue),
+pub enum Stmt {
+    Assign(Place, RValue),
     Print(Box<[Operand]>),
-    Nop
+    Nop,
 }
 #[derive(Clone)]
 pub enum AssertKind {
-    ArrayBoundsCheck(Operand,Operand),
+    ArrayBoundsCheck(Operand, Operand),
     DivisionByZero(Operand),
 }
 #[derive(Clone)]
 pub enum Terminator {
     Goto(BlockId),
-    Switch(Operand,Box<[(u128,BlockId)]>,BlockId),
-    Assert(Operand,AssertKind,BlockId),
+    Switch(Operand, Box<[(u128, BlockId)]>, BlockId),
+    Assert(Operand, AssertKind, BlockId),
     Return,
-    Unreachable
+    Unreachable,
 }
-impl Terminator{
-    fn successors_mut<'a>(&'a mut self) -> Box<[&'a mut BlockId]>{
-        match self{
-            Self::Assert(_,_, block_id) | Self::Goto(block_id) => Box::new([block_id]),
+impl Terminator {
+    fn successors_mut<'a>(&'a mut self) -> Box<[&'a mut BlockId]> {
+        match self {
+            Self::Assert(_, _, block_id) | Self::Goto(block_id) => Box::new([block_id]),
             Self::Return | Self::Unreachable => Box::new([]),
-            Self::Switch(_,targets,default) => {
-                targets.iter_mut().map(|(_,target)| target).chain(std::iter::once(default)).collect()
-            }
+            Self::Switch(_, targets, default) => targets
+                .iter_mut()
+                .map(|(_, target)| target)
+                .chain(std::iter::once(default))
+                .collect(),
+        }
+    }
+    fn successors<'a>(&'a self) -> Box<[BlockId]> {
+        match self {
+            &Self::Assert(_, _, block_id) | &Self::Goto(block_id) => Box::new([block_id]),
+            Self::Return | Self::Unreachable => Box::new([]),
+            &Self::Switch(_, ref targets, default) => targets
+                .iter()
+                .map(|&(_, target)| target)
+                .chain(std::iter::once(default))
+                .collect(),
         }
     }
 }
-define_id!(Local);
-define_id!(BlockId);
-impl BlockId{
-    pub const START_BLOCK : BlockId = BlockId(0);
+define_id!(pub Local);
+define_id!(pub BlockId);
+impl BlockId {
+    pub const START_BLOCK: BlockId = BlockId(0);
 }
-impl Local{
-    pub const RETURN_PLACE : Local = Local(0);
+impl Local {
+    pub const RETURN_PLACE: Local = Local(0);
 }
-impl From<Local> for Place{
+impl From<Local> for Place {
     fn from(value: Local) -> Self {
-        Place { local: value, projections: Box::new([]) }
+        Place {
+            local: value,
+            projections: Box::new([]),
+        }
     }
 }
-impl Display for BlockId{
+impl Display for BlockId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("bb{}",self.0))
+        f.write_fmt(format_args!("bb{}", self.0))
     }
 }
-pub struct LocalInfo{
-    pub ty : Type
+pub struct LocalInfo {
+    pub ty: Type,
 }
 pub enum BodyKind {
     Anonymous,
     Function,
-    Constructor
+    Constructor,
 }
-pub struct BodySource{
-    pub id : DefId,
-    pub kind : BodyKind,
-    pub params : Vec<Type>,
-    pub return_type : Type
+pub struct BodySource {
+    pub id: DefId,
+    pub kind: BodyKind,
+    pub params: Vec<Type>,
+    pub return_type: Type,
 }
-pub struct Body{
-    pub source : BodySource,
-    pub locals : IndexVec<Local,LocalInfo>,
-    pub blocks : IndexVec<BlockId,Block>
+pub struct Body {
+    pub source: BodySource,
+    pub locals: IndexVec<Local, LocalInfo>,
+    pub blocks: IndexVec<BlockId, Block>,
 }
-impl Body{
-    pub fn at_location(&self, location: Location) -> StatementOrTerminator{
+impl Body {
+    pub fn args(&self) -> impl Iterator<Item = Local>{
+        (1..=self.arg_count()).map(Local::new)
+    }
+    pub fn arg_count(&self) -> usize{
+        self.source.params.len()
+    }
+    pub fn at_location(&self, location: Location) -> StatementOrTerminator {
         let block = &self.blocks[location.basic_block];
-        if let Some(stmt) = block.stmts.get(location.statement_index){
+        if let Some(stmt) = block.stmts.get(location.statement_index) {
             StatementOrTerminator::Statement(stmt)
-        }
-        else{
+        } else {
             StatementOrTerminator::Terminator(block.expect_terminator())
         }
     }
 }
 
-pub struct Mir{
-    pub bodies : IndexVec<BodyIndex,Body>
+pub struct Mir {
+    pub bodies: IndexVec<BodyIndex, Body>,
 }

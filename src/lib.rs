@@ -1,9 +1,9 @@
 pub mod backend;
+mod data_structures;
 pub mod frontend;
+mod identifiers;
 pub mod middle;
 pub mod thir_lowering;
-mod data_structures;
-mod identifiers;
-pub use identifiers::SymbolInterner as SymbolInterner;
-pub use identifiers::GlobalSymbols as GlobalSymbols;
+pub use identifiers::GlobalSymbols;
+pub use identifiers::SymbolInterner;
 mod errors;

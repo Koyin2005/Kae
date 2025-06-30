@@ -2,7 +2,7 @@ use std::{fmt::Display, rc::Rc};
 
 use super::values::{Function, NativeFunction};
 
-#[derive(Clone, Copy,Debug,PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Instruction {
     LoadUnit,
     LoadBool(bool),
@@ -16,7 +16,7 @@ pub enum Instruction {
     LoadLocalRef(u16),
 
     StoreLocal(u16),
-    
+
     StoreGlobal(u16),
 
     LoadGlobal(u16),
@@ -27,7 +27,7 @@ pub enum Instruction {
     StoreField(u16),
 
     LoadUpvalue(u16),
-    
+
     StoreUpvalue(u16),
     LoadIndirect,
     StoreIndirect,
@@ -53,7 +53,7 @@ pub enum Instruction {
 
     Equals,
     NotEquals,
-    
+
     Concatenate,
 
     LoadIndex,
@@ -63,7 +63,7 @@ pub enum Instruction {
     BuildArray(usize),
 
     GetArrayLength,
-    
+
     Jump(u16),
     Loop(u16),
 
@@ -71,7 +71,6 @@ pub enum Instruction {
     JumpIfFalse(u16),
     JumpIfTrue(u16),
 
-    
     JumpIfFalseAndPop(u16),
     Rotate(u16),
     Print(u16),
@@ -87,73 +86,67 @@ pub enum Instruction {
     UnpackTuple,
 
     BuildRecord(usize),
-    BuildVariantRecord(usize)
-
+    BuildVariantRecord(usize),
 }
-#[derive(Clone,Debug,PartialEq)]
-pub enum Constant{
+#[derive(Clone, Debug, PartialEq)]
+pub enum Constant {
     String(Rc<str>),
     Float(f64),
     Int(i64),
     Function(Rc<Function>),
     NativeFunction(Rc<NativeFunction>),
-    
 }
-impl Display for Constant{
+impl Display for Constant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Float(float) => {
-                write!(f,"{}",float)
-            },
+                write!(f, "{}", float)
+            }
             Self::Int(int) => {
-                write!(f,"{}",int)
-            },
+                write!(f, "{}", int)
+            }
             Self::Function(function) => {
-                write!(f,"fn<{}>",function.name)
-            },
+                write!(f, "fn<{}>", function.name)
+            }
             Self::NativeFunction(function) => {
-                write!(f,"native<{}>",function.name)
-            },
+                write!(f, "native<{}>", function.name)
+            }
             Self::String(string) => {
-                write!(f,"{:?}",string)
+                write!(f, "{:?}", string)
             }
         }
     }
 }
 
-#[derive(Default,Clone,Debug,PartialEq)]
-pub struct Program{
-    pub constants : Vec<Constant>,
-    pub names : Vec<Rc<str>>,
-    pub metadata : Vec<ProgramMetadata>,
-    pub chunk : Chunk
+#[derive(Default, Clone, Debug, PartialEq)]
+pub struct Program {
+    pub constants: Vec<Constant>,
+    pub names: Vec<Rc<str>>,
+    pub metadata: Vec<ProgramMetadata>,
+    pub chunk: Chunk,
 }
-#[derive(Default,Clone,Debug,PartialEq)]
-pub struct Chunk{
-    pub code : Vec<Instruction>,
-    pub lines : Vec<u32>,
-    pub locals : usize
-
+#[derive(Default, Clone, Debug, PartialEq)]
+pub struct Chunk {
+    pub code: Vec<Instruction>,
+    pub lines: Vec<u32>,
+    pub locals: usize,
 }
 
-
-#[derive(Clone,Debug,PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ProgramMetadata {
     Struct(StructInfo),
-    Variant(VariantInfo)
+    Variant(VariantInfo),
 }
 
-#[derive(Default,Clone,Debug,PartialEq)]
-pub struct StructInfo{
-    pub name : String,
-    pub field_count : usize
+#[derive(Default, Clone, Debug, PartialEq)]
+pub struct StructInfo {
+    pub name: String,
+    pub field_count: usize,
 }
 
-
-
-#[derive(Default,Clone,Debug,PartialEq)]
-pub struct VariantInfo{
-    pub name : String,
-    pub field_count : usize,
-    pub discriminant : usize
+#[derive(Default, Clone, Debug, PartialEq)]
+pub struct VariantInfo {
+    pub name: String,
+    pub field_count: usize,
+    pub discriminant: usize,
 }

@@ -1,11 +1,11 @@
-#[derive(Clone, Copy,Debug)]
-pub struct Token<'a>{
-    pub  lexeme : &'a str,
-    pub  kind : TokenKind,
-    pub line : u32,
+#[derive(Clone, Copy, Debug)]
+pub struct Token<'a> {
+    pub lexeme: &'a str,
+    pub kind: TokenKind,
+    pub line: u32,
 }
-#[derive(PartialEq, Eq,Clone, Copy,Debug)]
-pub enum TokenKind{
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum TokenKind {
     Semicolon,
     Star,
     Slash,
@@ -42,7 +42,7 @@ pub enum TokenKind{
 
     Ref,
     Match,
-    If, 
+    If,
     While,
     And,
     Or,
@@ -59,8 +59,8 @@ pub enum TokenKind{
     LowerSelf,
     UpperSelf,
     Return,
-    
+
     Identifier,
     Wildcard,
-    Eof
+    Eof,
 }
