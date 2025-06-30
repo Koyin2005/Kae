@@ -5,3 +5,4 @@ pub mod natives;
 pub mod objects;
 pub mod values;
 pub mod vm;
+pub mod codegen;

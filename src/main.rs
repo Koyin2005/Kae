@@ -1,9 +1,7 @@
 use std::io::Write;
 
 use pl4::{
-    GlobalSymbols, SymbolInterner,
-    backend::{compiling::compiler::Compiler, instructions::Program, vm::VM},
-    frontend::{
+    backend::{codegen::Codegen, compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{
         ast_lowering::{ast_lower::AstLowerer, hir::DefIdProvider, name_finding::NameFinder},
         hir_lowering::ThirLower,
         parsing::parser::Parser,
@@ -12,15 +10,12 @@ use pl4::{
             checking::check::TypeChecker, items::item_check::ItemCheck,
             types::collect::ItemCollector,
         },
-    },
-    middle::mir::{
+    }, middle::mir::{
         debug::DebugMir,
         passes::{
-            MirPass, const_branch::ConstBranch, const_prop::ConstProp, pass_manager::PassManager,
-            remove_unreachable_branches::RemoveUnreachableBranches, simplify_cfg::SimplifyCfg,
+            const_branch::ConstBranch, const_prop::ConstProp, pass_manager::PassManager, remove_unreachable_branches::RemoveUnreachableBranches, simplify_cfg::SimplifyCfg, MirPass
         },
-    },
-    thir_lowering::MirBuild,
+    }, thir_lowering::MirBuild, GlobalSymbols, SymbolInterner
 };
 
 fn compile(source: &str) -> Option<Program> {
@@ -69,6 +64,7 @@ fn compile(source: &str) -> Option<Program> {
         "Final mir\n{}",
         DebugMir::new(&context, &interner).debug(mir.bodies.iter())
     );
+    Codegen::new(mir).generate();
     let Ok(code) = Compiler::new().compile() else {
         return None;
     };
