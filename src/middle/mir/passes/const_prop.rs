@@ -263,7 +263,7 @@ impl<'a> Analysis for ConstAnalysis<'a>{
     fn initialize_entry_block(&mut self, state: &mut Self::Domain, body: &mir::Body){
         *state = State::new();
         for arg in body.args(){
-            state.insert(self.map.get(&arg.into()).expect("Every arg should have a place"),CompleteSet::Top);
+            self.assign_val(state, self.map.get(&arg.into()).expect("Every arg should have a place"),CompleteSet::Top);
         }
     }
     fn perform_statement_effect(&mut self, stmt: &Stmt, state: &mut Self::Domain) {

@@ -136,7 +136,7 @@ impl<'a> DebugMir<'a> {
         match operand {
             Operand::Constant(constant) => format!("const {}",self.debug_constant(constant)),
             Operand::Load(place) => {
-                format!("load {}", self.debug_lvalue(place))
+                format!("{}", self.debug_lvalue(place))
             }
         }
     }
@@ -356,10 +356,13 @@ impl<'a> DebugMir<'a> {
                 .format_type(&body.source.return_type)
         ));
         self.push_next_line(&first_line);
+        self.increase_indent_level();
+        for (local,info) in body.locals.index_value_iter(){
+            self.push_next_line(&format!("let _{} : {}",local.0,TypeFormatter::new(self.symbol_interner, self.context).format_type(&info.ty)));
+        }
+        self.push_next_line("");
         for (id, block) in body.blocks.index_value_iter() {
-            self.increase_indent_level();
             self.format_block(id, block);
-            self.decrease_indent_level();
         }
         self.output.push('\n');
     }

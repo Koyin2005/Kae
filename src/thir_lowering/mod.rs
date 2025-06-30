@@ -267,19 +267,37 @@ impl<'a> BodyBuild<'a> {
             _ => None,
         }
     }
+    fn lower_return_expr(&mut self, expr: ExprId){
+        match self.body.exprs[expr].kind{
+            ExprKind::Block(block) => {
+                self.lower_block_stmts(block);
+                match self.body.blocks[block].expr{
+                    Some(expr) => {
+                        self.lower_return_expr(expr);
+                    },
+                    None => {
+                        let operand = Operand::Constant(Constant::zero_sized(Type::new_unit()));
+                        self.terminate(mir::Terminator::Return(operand));
+                    }
+                }
+            },
+            ExprKind::While(_,_) | ExprKind::Print(_) => { 
+                self.lower_expr(expr, None); 
+                let operand = Operand::Constant(Constant::zero_sized(Type::new_unit()));
+                self.terminate(mir::Terminator::Return(operand))
+            }
+            _ => {
+                let operand = self.lower_as_operand(expr);
+                self.terminate(mir::Terminator::Return(operand));
+            }
+        }
+    }
     fn lower_as_operand(&mut self, expr: ExprId) -> Operand {
         let constant = self.lower_as_constant(expr);
         if let Some(constant) = constant {
             Operand::Constant(constant)
         }
-        else if let ExprKind::Block(block) = self.body.exprs[expr].kind{
-            self.lower_block_stmts(block);
-            match self.body.blocks[block].expr{
-                Some(expr) => { self.lower_as_operand(expr) },
-                None => { Operand::Constant(Constant::zero_sized(Type::new_unit()))}
-            }
-        } 
-        else {    
+        else{
             Operand::Load(self.lower_as_place(expr))
         }
     }
@@ -622,8 +640,7 @@ impl<'a> BodyBuild<'a> {
                 }
             }
         }
-        let operand = self.lower_as_operand(expr);
-        self.terminate(Terminator::Return(operand));
+        self.lower_return_expr(expr);
         self.result_body
     }
 }
