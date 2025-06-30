@@ -411,6 +411,7 @@ impl<'a> DebugMir<'a> {
             self.format_block(id, block);
         }
         self.output.push('\n');
+        self.decrease_indent_level();
     }
     pub fn debug_body(mut self, body: &Body) -> String {
         self.format_body(body);
