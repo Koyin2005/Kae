@@ -1,14 +1,11 @@
 use crate::{
-    SymbolInterner,
-    data_structures::IntoIndex,
-    frontend::{
+    data_structures::IntoIndex, frontend::{
         ast_lowering::hir,
         typechecking::{
             context::TypeContext,
-            types::{AdtKind, Type, format::TypeFormatter},
+            types::{format::TypeFormatter, AdtKind, Type},
         },
-    },
-    middle::mir::{AggregrateConstant, AssertKind, Constant},
+    }, middle::mir::{self, AggregrateConstant, AssertKind, Constant}, SymbolInterner
 };
 
 use super::{
@@ -358,7 +355,29 @@ impl<'a> DebugMir<'a> {
         self.push_next_line(&first_line);
         self.increase_indent_level();
         for (local,info) in body.locals.index_value_iter(){
-            self.push_next_line(&format!("let _{} : {}",local.0,TypeFormatter::new(self.symbol_interner, self.context).format_type(&info.ty)));
+            let mut output = String::from("let");
+            output.push_str(" (");
+            match info.kind{
+                mir::LocalKind::Argument(name) => {
+                    output.push_str("arg");
+                    if let Some(name) = name{
+                        output.push(' ');
+                        output.push_str(self.symbol_interner.get(name));
+                    }
+                },
+                mir::LocalKind::Temporary => {
+                    output.push_str("temp");
+                },
+                mir::LocalKind::Variable(name) => {
+                    output.push_str("var");
+                    output.push(' ');
+                    output.push_str(self.symbol_interner.get(name));
+
+                }
+            }
+            output.push(')');
+            output.push_str(&format!(" _{} : {}",local.0,TypeFormatter::new(self.symbol_interner, self.context).format_type(&info.ty)));
+            self.push_next_line(&output);
         }
         self.push_next_line("");
         for (id, block) in body.blocks.index_value_iter() {

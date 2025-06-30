@@ -132,7 +132,7 @@ impl<'a> BodyBuild<'a> {
         }
     }
     fn new_temporary(&mut self, ty: Type) -> Local {
-        self.new_local(LocalInfo { ty })
+        self.new_local(LocalInfo { ty, kind : mir::LocalKind::Temporary })
     }
     fn new_local(&mut self, info: LocalInfo) -> Local {
         self.result_body.locals.push(info)
@@ -586,9 +586,10 @@ impl<'a> BodyBuild<'a> {
     }
     fn declare_bindings(&mut self, pattern: &Pattern) {
         match &pattern.kind {
-            &PatternKind::Binding(_, variable, ref sub_pattern) => {
+            &PatternKind::Binding(name, variable, ref sub_pattern) => {
                 let local = self.new_local(LocalInfo {
                     ty: pattern.ty.clone(),
+                    kind : mir::LocalKind::Variable(name)
                 });
                 self.var_to_local.insert(variable, local);
                 if let Some(sub_pattern) = sub_pattern.as_ref() {
@@ -626,12 +627,14 @@ impl<'a> BodyBuild<'a> {
         for param in self.body.params.iter() {
             self.new_local(LocalInfo {
                 ty: param.ty.clone(),
+                kind : mir::LocalKind::Argument(None)
             });
         }
         for (i, param) in self.body.params.iter().enumerate() {
             let param_local = Local::new(i);
             match param.pattern.kind {
-                PatternKind::Binding(_, id, None) => {
+                PatternKind::Binding(name, id, None) => {
+                    self.result_body.locals[param_local].kind = mir::LocalKind::Argument(Some(name));
                     self.var_to_local.insert(id, param_local);
                 }
                 _ => {

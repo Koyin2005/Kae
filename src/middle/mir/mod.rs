@@ -344,8 +344,14 @@ impl Display for BlockId {
         f.write_fmt(format_args!("bb{}", self.0))
     }
 }
+pub enum LocalKind {
+    Argument(Option<SymbolIndex>),
+    Variable(SymbolIndex),
+    Temporary,
+}
 pub struct LocalInfo {
     pub ty: Type,
+    pub kind : LocalKind
 }
 pub enum BodyKind {
     Anonymous,
