@@ -22,10 +22,7 @@ impl TypeChecker<'_> {
             let left = this.format_type(left);
             let right = this.format_type(right);
             this.new_error(
-                format!(
-                    "Cannot apply '{}' to operands of type '{}' and '{}'.",
-                    op, left, right
-                ),
+                format!("Cannot apply '{op}' to operands of type '{left}' and '{right}'."),
                 span,
             )
         }
@@ -38,11 +35,11 @@ impl TypeChecker<'_> {
                 left,
                 right,
             ) => match (left, right) {
-                (Type::Float, Type::Float) => return Type::Float,
-                (Type::Int, Type::Int) => return Type::Int,
-                (Type::Float, Type::Error) | (Type::Error, Type::Float) => return Type::Float,
-                (Type::Int, Type::Error) | (Type::Error, Type::Int) => return Type::Int,
-                _ => operand_error(&self, left, right, op, span),
+                (Type::Float, Type::Float) => Type::Float,
+                (Type::Int, Type::Int) => Type::Int,
+                (Type::Float, Type::Error) | (Type::Error, Type::Float) => Type::Float,
+                (Type::Int, Type::Error) | (Type::Error, Type::Int) => Type::Int,
+                _ => operand_error(self, left, right, op, span),
             },
             (
                 hir::BinaryOp::Lesser
@@ -52,15 +49,18 @@ impl TypeChecker<'_> {
                 left,
                 right,
             ) => match (left, right) {
-                (Type::Float, Type::Float) | (Type::Int, Type::Int) => return Type::Bool,
-                (Type::Float, Type::Error) | (Type::Error, Type::Float) => return Type::Float,
-                (Type::Int, Type::Error) | (Type::Error, Type::Int) => return Type::Int,
-                _ => operand_error(&self, left, right, op, span),
+                (Type::Float, Type::Float)
+                | (Type::Int, Type::Int)
+                | (Type::Float, Type::Error)
+                | (Type::Error, Type::Float)
+                | (Type::Int, Type::Error)
+                | (Type::Error, Type::Int) => Type::Bool,
+                _ => operand_error(self, left, right, op, span),
             },
             (hir::BinaryOp::Equals | hir::BinaryOp::NotEquals, left, right) if left == right => {
                 Type::Bool
             }
-            (_, left, right) => operand_error(&self, left, right, op, span),
+            (_, left, right) => operand_error(self, left, right, op, span),
         }
     }
     pub(super) fn check_logical_expr(
@@ -78,10 +78,7 @@ impl TypeChecker<'_> {
             let left = self.format_type(&left);
             let right = self.format_type(&right);
             self.new_error(
-                format!(
-                    "Cannot apply '{}' to operands of type '{}' and '{}'.",
-                    op, left, right
-                ),
+                format!("Cannot apply '{op}' to operands of type '{left}' and '{right}'."),
                 span,
             )
         } else {
@@ -106,7 +103,7 @@ impl TypeChecker<'_> {
             Err(operand) => {
                 let operand = self.format_type(&operand);
                 self.new_error(
-                    format!("Cannot apply '{}' to operand of type '{}'.", op, operand),
+                    format!("Cannot apply '{op}' to operand of type '{operand}'."),
                     span,
                 )
             }

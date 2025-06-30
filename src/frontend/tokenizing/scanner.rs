@@ -254,7 +254,7 @@ impl<'src> Scanner<'src> {
             '0'..='9' => self.number(),
             '"' => self.string()?,
             char if char.is_ascii_alphabetic() || char == '_' => self.identifier(),
-            char => return Err(self.error(format!("Unsupported character '{}'.", char))),
+            char => return Err(self.error(format!("Unsupported character '{char}'."))),
         })
     }
     pub fn scan(mut self) -> Result<Vec<Token<'src>>, ScanningFailed> {

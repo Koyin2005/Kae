@@ -116,7 +116,7 @@ impl Value {
                     if i > 0 {
                         result.push(',');
                     }
-                    result.push_str(&&element.format_recursive(heap, seen_objects));
+                    result.push_str(&element.format_recursive(heap, seen_objects));
                 }
                 result.push(')');
                 result
@@ -150,18 +150,16 @@ impl Value {
                 format!("native<{}>", object.as_native_function(heap).name)
             }
             Value::StackAddress(address) | Value::GlobalAddress(address) => {
-                format!("*{}", address)
+                format!("*{address}")
             }
-            Value::String(string) => {
-                format!("{}", string.as_string(heap))
-            }
+            Value::String(string) => string.as_string(heap).to_string(),
             Value::Array(array_object) => {
                 let mut result = String::from("[");
                 let is_recursive = seen_objects.contains(array_object);
                 let elements = array_object.as_array(heap);
                 seen_objects.insert(*array_object);
                 if !is_recursive {
-                    for (i, element) in elements.into_iter().enumerate() {
+                    for (i, element) in elements.iter().enumerate() {
                         if i > 0 {
                             result.push(',');
                         }

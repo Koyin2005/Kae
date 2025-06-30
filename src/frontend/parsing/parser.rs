@@ -100,7 +100,7 @@ impl<'a> Parser<'a> {
             TokenKind::Eof => eprint!("at end "),
             _ => eprint!("at '{}'", token.lexeme),
         }
-        eprintln!(": {}", message);
+        eprintln!(": {message}");
         self.had_error = true;
     }
     fn expect(&mut self, kind: TokenKind, message: &str) {
@@ -166,9 +166,9 @@ impl<'a> Parser<'a> {
         })
     }
     fn int(&mut self) -> Result<ExprNode, ParsingFailed> {
-        let value = self.prev_token.lexeme.parse().or_else(|_| {
+        let value = self.prev_token.lexeme.parse().map_err(|_| {
             self.error("Int literal is too big.");
-            Err(ParsingFailed)
+            ParsingFailed
         })?;
         Ok(ExprNode {
             id: self.next_id(),
@@ -439,7 +439,7 @@ impl<'a> Parser<'a> {
             location: span,
         }
     }
-    fn into_path(&mut self, symbol: Symbol) -> Path {
+    fn symbol_to_path(&mut self, symbol: Symbol) -> Path {
         Path {
             segments: vec![PathSegment {
                 name: symbol,
@@ -464,7 +464,7 @@ impl<'a> Parser<'a> {
                     location: span,
                     kind: ExprNodeKind::GetPath({
                         let symbol = self.intern_symbol(field_name.lexeme.to_string(), span);
-                        self.into_path(symbol).into()
+                        self.symbol_to_path(symbol).into()
                     }),
                 }
             };
@@ -1176,7 +1176,7 @@ impl<'a> Parser<'a> {
         }
         Ok(EnumVariant {
             name: variant_name,
-            fields: fields,
+            fields,
         })
     }
     fn enum_stmt(&mut self) -> Result<EnumDef, ParsingFailed> {
@@ -1264,7 +1264,7 @@ impl<'a> Parser<'a> {
                 Some(SelfParam::ByRef)
             } else {
                 self.matches(TokenKind::LowerSelf)
-                    .then(|| SelfParam::ByValue)
+                    .then_some(SelfParam::ByValue)
             };
             let param = if let Some(self_param) = self_param {
                 if params.len() > 1 {
@@ -1280,7 +1280,7 @@ impl<'a> Parser<'a> {
                     pattern: ParsedPatternNode {
                         id: self.next_id(),
                         location: self_name.location,
-                        kind: ParsedPatternNodeKind::Name(self_name.content.clone()),
+                        kind: ParsedPatternNodeKind::Name(self_name.content),
                     },
                     ty: Type::Path(Path {
                         segments: vec![PathSegment {
@@ -1403,7 +1403,7 @@ impl<'a> Parser<'a> {
         Some(if self.matches(TokenKind::Let) {
             self.let_stmt()
         } else if let Some(item) = self.try_item() {
-            item.map(|item| StmtNode::Item(item))
+            item.map(StmtNode::Item)
         } else {
             return None;
         })

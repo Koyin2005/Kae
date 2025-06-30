@@ -7,6 +7,11 @@ pub struct TypeEnv {
     variables: FxHashMap<VariableIndex, Type>,
     self_ty: Option<SelfType>,
 }
+impl Default for TypeEnv {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl TypeEnv {
     pub fn new() -> Self {

@@ -100,10 +100,10 @@ impl Display for Constant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Float(float) => {
-                write!(f, "{}", float)
+                write!(f, "{float}")
             }
             Self::Int(int) => {
-                write!(f, "{}", int)
+                write!(f, "{int}")
             }
             Self::Function(function) => {
                 write!(f, "fn<{}>", function.name)
@@ -112,7 +112,7 @@ impl Display for Constant {
                 write!(f, "native<{}>", function.name)
             }
             Self::String(string) => {
-                write!(f, "{:?}", string)
+                write!(f, "{string:?}")
             }
         }
     }

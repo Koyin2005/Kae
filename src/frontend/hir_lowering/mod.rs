@@ -47,7 +47,7 @@ impl<'a> BodyLower<'a> {
             {
                 self.lower_context
                     .error_reporter
-                    .emit(format!("Refutable pattern in function parameter."), span);
+                    .emit("Refutable pattern in function parameter.".to_string(), span);
             }
             self.thir.params.push(Param {
                 ty: pattern.ty.clone(),
@@ -167,9 +167,10 @@ impl<'a> BodyLower<'a> {
                     .missing_patterns()
                     .is_empty()
                 {
-                    self.lower_context
-                        .error_reporter
-                        .emit(format!("Refutable pattern in 'let' statement."), stmt.span);
+                    self.lower_context.error_reporter.emit(
+                        "Refutable pattern in 'let' statement.".to_string(),
+                        stmt.span,
+                    );
                 }
                 self.thir.stmts.push(Stmt {
                     kind: StmtKind::Let(Box::new(pattern), expr),
@@ -310,7 +311,7 @@ impl<'a> BodyLower<'a> {
             }
             hir::ExprKind::Path(_) => self
                 .lower_expr_as_path(expr.id)
-                .expect(&format!("There should be a resolution for '{:?}'.", &expr)),
+                .unwrap_or_else(|| panic!("There should be a resolution for '{expr:?}'.")),
             hir::ExprKind::Block(stmts, result_expr) => {
                 let stmts = self.lower_stmts(stmts.into_iter());
                 let expr = result_expr.map(|result_expr| self.lower_expr(*result_expr));
@@ -345,7 +346,8 @@ impl<'a> BodyLower<'a> {
                     .check_exhaustive(patterns.collect(), &self.thir.exprs[scrutinee].ty)
                     .missing_patterns();
                 if !missing_patterns.is_empty() {
-                    let mut error_message = format!("Non exhaustive match \n Missing patterns:\n");
+                    let mut error_message =
+                        "Non exhaustive match \n Missing patterns:\n".to_string();
                     for (i, pattern) in missing_patterns.into_iter().enumerate() {
                         if i > 0 {
                             error_message.push('\n');
@@ -371,7 +373,7 @@ impl<'a> BodyLower<'a> {
             hir::ExprKind::MethodCall(receiver, method, args) => {
                 let expr_id = expr.id;
                 let (callee, args) = if let Some(kind) = self.lower_expr_as_path(expr_id) {
-                    let args = self.lower_exprs(std::iter::once(*receiver).chain(args.into_iter()));
+                    let args = self.lower_exprs(std::iter::once(*receiver).chain(args));
                     (
                         self.thir.exprs.push(Expr {
                             ty: self.results().signatures[&expr.id].as_type(),

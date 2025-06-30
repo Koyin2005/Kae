@@ -33,7 +33,6 @@ impl MirPass for RemoveUnreachableBranches {
                 let inhabited_variants = ctxt
                     .expect_variants(id)
                     .enumerate()
-                    .into_iter()
                     .filter_map(|(i, variant)| {
                         variant
                             .fields

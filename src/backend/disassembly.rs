@@ -3,13 +3,13 @@ use std::fmt::Display;
 use super::instructions::{Chunk, Constant, Instruction};
 
 pub fn disassemble(name: &str, chunk: &Chunk, constants: &[Constant]) {
-    println!("====== {} =====", name);
+    println!("====== {name} =====");
     for (ip, instruction) in chunk.code.iter().copied().enumerate() {
         disassemble_instruction(chunk, ip, instruction, constants);
     }
 }
 fn arg_instruction<T: Display>(name: &'static str, arg: T) {
-    println!("{} {}", name, arg)
+    println!("{name} {arg}")
 }
 pub fn disassemble_instruction(
     chunk: &Chunk,
@@ -22,7 +22,7 @@ pub fn disassemble_instruction(
     } else {
         print!("{} ", chunk.lines[ip])
     }
-    print!("{:04} ", ip);
+    print!("{ip:04} ");
     match instruction {
         Instruction::LoadConstant(constant) => {
             println!(
@@ -56,7 +56,7 @@ pub fn disassemble_instruction(
             }
         }
         _ => {
-            println!("{:?}", instruction)
+            println!("{instruction:?}")
         }
     }
 }

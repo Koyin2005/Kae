@@ -19,7 +19,7 @@ impl<'a> CfgSimplifier<'a> {
     pub fn new(body: &'a mut Body) -> Self {
         let mut predecessors = IndexVec::from(0u32, body.blocks.len());
         predecessors[BlockId(0)] = 1;
-        let basic_block_info = BasicBlockInfo::new(&body);
+        let basic_block_info = BasicBlockInfo::new(body);
         for block in Preorder::new(&basic_block_info) {
             for &succ in basic_block_info.successors(block) {
                 predecessors[succ] += 1;
@@ -140,7 +140,7 @@ impl MirPass for SimplifyCfg {
     }
     fn run_pass(&self, _: &TypeContext, body: &mut Body) {
         CfgSimplifier::new(body).simplify();
-        let reachable = traversal::reachable(&BasicBlockInfo::new(body));
+        let reachable = traversal::reachable_as_set(&BasicBlockInfo::new(body));
         let mut replacements = FxHashMap::default();
         let mut new_id = 0u32;
         body.blocks.retain_mut(|old_block_id, _| {
@@ -154,7 +154,7 @@ impl MirPass for SimplifyCfg {
         });
         for block in body.blocks.iter_mut() {
             for succ in block.expect_terminator_mut().successors_mut() {
-                *succ = replacements.get(&succ).copied().unwrap_or(*succ);
+                *succ = replacements.get(succ).copied().unwrap_or(*succ);
             }
         }
     }

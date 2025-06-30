@@ -10,7 +10,12 @@ pub struct Compiler {
     metadata: Vec<ProgramMetadata>,
     names: Vec<String>,
 }
-impl<'a> Compiler {
+impl Default for Compiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Compiler {
     pub fn new() -> Self {
         Self {
             current_chunk: Chunk::default(),

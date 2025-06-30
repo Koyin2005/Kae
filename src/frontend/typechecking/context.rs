@@ -54,6 +54,18 @@ pub struct Generics {
     pub param_names: Vec<Ident>,
 }
 impl Generics {
+    pub fn own_count(&self) -> usize {
+        self.param_names.len()
+    }
+    pub fn param_indices(&self) -> impl Iterator<Item = usize> {
+        self.parent_count..self.parent_count + self.own_count()
+    }
+    pub fn param_as_type(&self, index: usize) -> Type {
+        Type::Param(
+            (index - self.parent_count) as u32,
+            self.param_names[index - self.parent_count].index,
+        )
+    }
     pub fn param_at(&self, index: usize) -> Ident {
         self.param_names[index - self.parent_count]
     }
@@ -84,7 +96,11 @@ pub enum TypeMember<'a> {
         id: DefId,
     },
 }
-
+impl Default for TypeContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 pub struct TypeContext {
     pub(super) structs: DefIdMap<StructDef>,
     pub(super) enums: DefIdMap<EnumDef>,
@@ -161,7 +177,7 @@ impl TypeContext {
         self.name_map
             .get(id)
             .copied()
-            .expect(&format!("There should be an ident for this id {:?}", id))
+            .unwrap_or_else(|| panic!("There should be an ident for this id {id:?}"))
     }
     pub fn expect_index_for(&self, param_def_id: DefId) -> u32 {
         self.params_to_indexes[param_def_id]
@@ -193,7 +209,7 @@ impl TypeContext {
                     .variants
                     .iter()
                     .position(|variant| variant.id == variant_id)
-                    .map(|variant_index| VariantIndex::new(variant_index))
+                    .map(VariantIndex::new)
             })
     }
     pub fn expect_struct(&self, struct_id: DefId) -> &StructDef {
@@ -338,17 +354,14 @@ impl TypeContext {
             })
     }
     pub fn get_variant_by_index(&self, enum_id: DefId, index: VariantIndex) -> &VariantDef {
-        &self.enums[enum_id].variants[index.as_index() as usize]
+        &self.enums[enum_id].variants[index.as_index()]
     }
-    pub fn expect_variants(
-        &self,
-        enum_id: DefId,
-    ) -> impl Iterator<Item = &VariantDef> + ExactSizeIterator {
+    pub fn expect_variants(&self, enum_id: DefId) -> impl ExactSizeIterator<Item = &VariantDef> {
         self.enums[enum_id].variants.iter()
     }
     pub fn expect_variants_for(&self, enum_id: DefId) -> Vec<VariantIndex> {
         (0..self.enums[enum_id].variants.len())
-            .map(|variant| VariantIndex::new(variant))
+            .map(VariantIndex::new)
             .collect()
     }
     pub fn field_defs(&self, struct_id: DefId) -> &[FieldDef] {
@@ -357,9 +370,9 @@ impl TypeContext {
 
     pub fn format_full_path(&self, id: DefId, interner: &crate::SymbolInterner) -> String {
         match self.kinds[id] {
-            DefKind::AnonFunction => format!("<anonymous>"),
+            DefKind::AnonFunction => "<anonymous>".to_string(),
             DefKind::Struct | DefKind::Function | DefKind::Enum | DefKind::Param => {
-                format!("{}", interner.get(self.ident(id).index))
+                interner.get(self.ident(id).index).to_string()
             }
             DefKind::Method => {
                 let impl_id = self.expect_owner_of(id);
@@ -387,17 +400,36 @@ impl TypeContext {
         interner: &crate::SymbolInterner,
     ) -> String {
         match self.kinds[id] {
-            DefKind::AnonFunction => format!("<anonymous>"),
+            DefKind::AnonFunction => "<anonymous>".to_string(),
             DefKind::Struct | DefKind::Function | DefKind::Enum | DefKind::Param => {
-                format!("{}", interner.get(self.ident(id).index))
+                format!(
+                    "{}{}",
+                    interner.get(self.ident(id).index),
+                    TypeFormatter::new(interner, self).format_generic_args(generic_args)
+                )
             }
             DefKind::Method => {
                 let impl_id = self.expect_owner_of(id);
-                let ty = TypeSubst::new(generic_args).instantiate_type(&self.impls[impl_id].ty);
+                let subst = TypeSubst::new(generic_args);
+                let ty = subst.instantiate_type(&self.impls[impl_id].ty);
+                let generic_args =
+                    self.get_generics_for(id)
+                        .map_or(GenericArgs::new_empty(), |generics| {
+                            GenericArgs::new(
+                                generics
+                                    .param_indices()
+                                    .map(|param| {
+                                        subst.instantiate_type(&generics.param_as_type(param))
+                                    })
+                                    .collect(),
+                            )
+                        });
+                let mut formatter = TypeFormatter::new(interner, self);
                 format!(
-                    "{}::{}",
-                    TypeFormatter::new(interner, self).format_type(&ty),
-                    interner.get(self.ident(id).index)
+                    "{}::{}{}",
+                    formatter.format_type(&ty),
+                    interner.get(self.ident(id).index),
+                    formatter.format_generic_args(&generic_args)
                 )
             }
             DefKind::Variant => {
@@ -405,11 +437,7 @@ impl TypeContext {
                 format!(
                     "{}{}::{}",
                     interner.get(self.ident(enum_id).index),
-                    if generic_args.is_empty() {
-                        "".to_string()
-                    } else {
-                        TypeFormatter::new(interner, self).format_generic_args(generic_args)
-                    },
+                    TypeFormatter::new(interner, self).format_generic_args(generic_args),
                     interner.get(self.ident(id).index)
                 )
             }

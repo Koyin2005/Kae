@@ -59,7 +59,7 @@ pub fn dominators(bb_count: usize, blocks: &BasicBlockInfo) -> Dominators {
         IndexVec::from(None, reachable_vertices);
     let mut buckets: IndexVec<PreorderIndex, Vec<PreorderIndex>> =
         IndexVec::from(vec![], reachable_vertices);
-    for w in (1..reachable_vertices).map(|i| PreorderIndex::new(i)).rev() {
+    for w in (1..reachable_vertices).map(PreorderIndex::new).rev() {
         for &pred in blocks.predecessors(preorder_to_real[w]) {
             let Some(v) = real_to_preorder[pred] else {
                 continue;
@@ -78,7 +78,7 @@ pub fn dominators(bb_count: usize, blocks: &BasicBlockInfo) -> Dominators {
         });
     }
 
-    for w in (1..reachable_vertices).map(|i| PreorderIndex::new(i)) {
+    for w in (1..reachable_vertices).map(PreorderIndex::new) {
         if idom[w] != sdom[w] {
             idom[w] = idom[idom[w]];
         }

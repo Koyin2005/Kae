@@ -37,7 +37,7 @@ impl VM {
         Self {
             names: program.names,
             open_upvalues: Vec::new(),
-            stack: Vec::from_iter(std::iter::repeat(Value::Int(0)).take(program.chunk.locals)),
+            stack: Vec::from_iter(std::iter::repeat_n(Value::Int(0), program.chunk.locals)),
             constants: program.constants.into_boxed_slice(),
             heap: Heap::default(),
             frames: vec![CallFrame {
@@ -118,9 +118,7 @@ impl VM {
     fn load_constant(&mut self, index: usize) -> Value {
         match self.constants[index].clone() {
             Constant::Int(int) => Value::Int(int),
-            Constant::String(string) => {
-                Value::String(Object::new_string(&mut self.heap, string.into()))
-            }
+            Constant::String(string) => Value::String(Object::new_string(&mut self.heap, string)),
             Constant::Float(float) => Value::Float(float),
             Constant::Function(function) => {
                 Value::Function(Object::new_function(&mut self.heap, function))
@@ -142,8 +140,10 @@ impl VM {
     ) -> Result<(), RuntimeError> {
         let bp = self.stack.len() - arg_count - 1;
         self.stack.remove(bp);
-        self.stack
-            .extend(std::iter::repeat(Value::Int(0)).take(function.chunk.locals - arg_count));
+        self.stack.extend(std::iter::repeat_n(
+            Value::Int(0),
+            function.chunk.locals - arg_count,
+        ));
         self.frames.push(CallFrame {
             closure,
             function,
@@ -245,11 +245,11 @@ impl VM {
                 };
                 &array.as_array(&self.heap)[index_ref.field_offset]
             }
-            _ => panic!("Cannot get a reference got {:?}", reference),
+            _ => panic!("Cannot get a reference got {reference:?}"),
         }
     }
     pub fn runtime_error(&self, message: &str) {
-        eprintln!("Error : {}", message);
+        eprintln!("Error : {message}");
         for frame in self.frames.iter().rev() {
             eprintln!(
                 "[line {}] in {}",
@@ -275,7 +275,7 @@ impl VM {
                 }
                 println!();
                 if let Some(debug_buffer) = debug_buffer.as_ref() {
-                    println!("{:?}", debug_buffer);
+                    println!("{debug_buffer:?}");
                 }
                 let instruction = self.current_chunk().code[self.current_frame().ip];
                 print!("{} ", self.current_frame().function.name);
@@ -656,8 +656,7 @@ impl VM {
                         self.push(value)?;
                     } else {
                         self.runtime_error(&format!(
-                            "Index out of range, index was {} but len was {}.",
-                            index, len
+                            "Index out of range, index was {index} but len was {len}."
                         ));
                         return Err(RuntimeError);
                     }
@@ -676,8 +675,7 @@ impl VM {
                         array[index as usize] = value;
                     } else {
                         self.runtime_error(&format!(
-                            "Index out of range, index was {} but len was {}.",
-                            index, len
+                            "Index out of range, index was {index} but len was {len}."
                         ));
                         return Err(RuntimeError);
                     }
@@ -697,8 +695,7 @@ impl VM {
                         })))?;
                     } else {
                         self.runtime_error(&format!(
-                            "Index out of range, index was {} but len was {}.",
-                            index, len
+                            "Index out of range, index was {index} but len was {len}."
                         ));
                         return Err(RuntimeError);
                     }
@@ -773,7 +770,7 @@ impl VM {
                     }
                     self.pop_n(args as usize);
                     if let Some(debug_buffer) = debug_buffer.as_mut() {
-                        println!("{}", debug_buffer);
+                        println!("{debug_buffer}");
                         debug_buffer.clear();
                     } else {
                         println!();
@@ -839,7 +836,7 @@ impl VM {
                     let fields = struct_info.field_count;
                     self.push(Value::Record(Box::new(Record {
                         name,
-                        fields: std::iter::repeat(Value::Int(0)).take(fields).collect(),
+                        fields: std::iter::repeat_n(Value::Int(0), fields).collect(),
                     })))?;
                 }
                 Instruction::BuildVariantRecord(variant_metadata) => {
@@ -852,7 +849,7 @@ impl VM {
                     self.push(Value::VariantRecord(VariantRecord {
                         record_data: Box::new(Record {
                             name,
-                            fields: std::iter::repeat(Value::Int(0)).take(fields).collect(),
+                            fields: std::iter::repeat_n(Value::Int(0), fields).collect(),
                         }),
                         discriminant: variant_info.discriminant,
                     }))?;

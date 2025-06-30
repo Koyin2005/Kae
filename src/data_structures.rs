@@ -67,10 +67,10 @@ impl<Index: IntoIndex, Value> IndexVec<Index, Value> {
         index
     }
     pub fn get(&self, index: Index) -> Option<&Value> {
-        self.data.get(index.as_index() as usize)
+        self.data.get(index.as_index())
     }
     pub fn get_mut(&mut self, index: Index) -> Option<&mut Value> {
-        self.data.get_mut(index.as_index() as usize)
+        self.data.get_mut(index.as_index())
     }
     pub fn retain_mut(&mut self, mut f: impl FnMut(Index, &mut Value) -> bool) {
         let mut index: usize = 0;
@@ -149,12 +149,12 @@ impl<Index: IntoIndex, Value> FromIterator<Value> for IndexVec<Index, Value> {
 impl<I: IntoIndex, V> Index<I> for IndexVec<I, V> {
     type Output = V;
     fn index(&self, index: I) -> &Self::Output {
-        &self.data[index.as_index() as usize]
+        &self.data[index.as_index()]
     }
 }
 impl<I: IntoIndex, V> IndexMut<I> for IndexVec<I, V> {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
-        &mut self.data[index.as_index() as usize]
+        &mut self.data[index.as_index()]
     }
 }
 pub struct IndexVecIter<'a, I: IntoIndex, V> {

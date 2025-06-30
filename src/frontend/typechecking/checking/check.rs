@@ -62,7 +62,7 @@ impl<'a> TypeChecker<'a> {
     }
     pub(super) fn lowerer(&self) -> TypeLower {
         TypeLower::new(
-            &self.ident_interner,
+            self.ident_interner,
             self.context,
             self.env.get_self_type().map(|self_ty| &self_ty.0).cloned(),
             &self.error_reporter,
@@ -72,7 +72,7 @@ impl<'a> TypeChecker<'a> {
         self.lowerer().lower_type(ty)
     }
     pub(super) fn format_type(&self, ty: &Type) -> String {
-        TypeFormatter::new(&*self.ident_interner, &*self.context).format_type(ty)
+        TypeFormatter::new(self.ident_interner, self.context).format_type(ty)
     }
     fn store_type(&self, id: HirId, ty: Type) {
         self.results.borrow_mut().node_types.insert(id, ty);
@@ -126,7 +126,7 @@ impl<'a> TypeChecker<'a> {
             self.check_stmt(stmt);
         }
     }
-    fn check_function<'b>(&mut self, sig: &FuncSig, function: &hir::Function) {
+    fn check_function(&mut self, sig: &FuncSig, function: &hir::Function) {
         let FuncSig {
             params: param_types,
             return_type,
@@ -157,7 +157,7 @@ impl<'a> TypeChecker<'a> {
                 self.check_expr(expr, Expectation::None);
             }
             hir::StmtKind::Let(pattern, ty, expr) => {
-                let ty = ty.as_ref().map(|ty| self.lower_type(&ty));
+                let ty = ty.as_ref().map(|ty| self.lower_type(ty));
                 let expr_ty = self.check_expr(
                     expr,
                     ty.as_ref()
@@ -195,7 +195,7 @@ impl<'a> TypeChecker<'a> {
                         self.format_type(&Type::new_tuple(vec![Type::new_error(); elements.len()]));
                     let expected_ty = self.format_type(&expected_type);
                     self.error(
-                        format!("Expected a '{}' got '{}'.", expected_tuple, expected_ty),
+                        format!("Expected a '{expected_tuple}' got '{expected_ty}'."),
                         pattern.span,
                     );
                     Vec::new()
@@ -204,7 +204,7 @@ impl<'a> TypeChecker<'a> {
                 for pattern in elements.iter() {
                     self.check_pattern(
                         pattern,
-                        element_iter.next().unwrap_or_else(|| Type::new_error()),
+                        element_iter.next().unwrap_or_else(Type::new_error),
                     );
                 }
                 expected_type
@@ -234,7 +234,7 @@ impl<'a> TypeChecker<'a> {
                                 path.format(self.ident_interner)
                             )
                         } else {
-                            format!("Cannot infer type of constructor.")
+                            "Cannot infer type of constructor.".to_string()
                         },
                         pattern.span,
                     );
@@ -290,7 +290,7 @@ impl<'a> TypeChecker<'a> {
                         );
                     };
                     for (field, field_ty) in fields.iter().zip(field_types) {
-                        self.check_pattern(&field, field_ty);
+                        self.check_pattern(field, field_ty);
                     }
                 }
                 match constructor_kind {
@@ -347,7 +347,7 @@ impl<'a> TypeChecker<'a> {
                                 path.format(self.ident_interner)
                             )
                         } else {
-                            format!("Cannot infer type of constructor.")
+                            "Cannot infer type of constructor.".to_string()
                         },
                         pattern.span,
                     );
@@ -550,13 +550,12 @@ impl<'a> TypeChecker<'a> {
         }
     }
     fn check_literal_expr(&self, literal: &hir::LiteralKind) -> Type {
-        let lit_ty = match literal {
+        match literal {
             hir::LiteralKind::Bool(_) => Type::Bool,
             hir::LiteralKind::Float(_) => Type::Float,
             hir::LiteralKind::Int(_) => Type::Int,
             hir::LiteralKind::String(_) => Type::String,
-        };
-        lit_ty
+        }
     }
     fn check_tuple_expr(&mut self, elements: &[hir::Expr], expected: Expectation) -> Type {
         let element_types = if let Some(Type::Tuple(element_types)) = expected.as_type() {
@@ -676,12 +675,11 @@ impl<'a> TypeChecker<'a> {
         expected: Expectation,
     ) -> Type {
         self.check_stmts(stmts);
-        let ty = if let Some(result_expr) = result_expr.as_ref() {
+        if let Some(result_expr) = result_expr.as_ref() {
             self.check_expr(result_expr, expected)
         } else {
             Type::new_unit()
-        };
-        ty
+        }
     }
     fn check_callee(&mut self, callee: &hir::Expr, expected_ty: Option<&Type>) -> Type {
         let ty = match &callee.kind {
@@ -692,8 +690,8 @@ impl<'a> TypeChecker<'a> {
                     .and_then(|(ty, (generic_args, id, kind))| match kind {
                         AdtKind::Enum => {
                             self.context.get_variant_of(id, name.index).map(|variant| {
-                                let params = TypeSubst::new(&generic_args)
-                                    .instantiate_types(variant.fields.iter().map(|field| field));
+                                let params = TypeSubst::new(generic_args)
+                                    .instantiate_types(variant.fields.iter());
                                 self.store_generic_args(callee.id, generic_args.clone());
                                 self.store_resolution(
                                     callee.id,
@@ -711,7 +709,7 @@ impl<'a> TypeChecker<'a> {
                         }
                         AdtKind::Struct => None,
                     })
-                    .unwrap_or_else(|| self.new_error(format!("Cannot infer type."), name.span)),
+                    .unwrap_or_else(|| self.new_error("Cannot infer type.".to_string(), name.span)),
             },
             _ => self.check_expr(callee, Expectation::None),
         };
@@ -747,7 +745,7 @@ impl<'a> TypeChecker<'a> {
             return Type::new_error();
         } else {
             let callee_string = self.format_type(&callee_ty);
-            self.new_error(format!("Cannot call '{}'.", callee_string), callee.span)
+            self.new_error(format!("Cannot call '{callee_string}'."), callee.span)
         }
     }
     ///Checks a method call
@@ -962,7 +960,7 @@ impl<'a> TypeChecker<'a> {
                         path.format(self.ident_interner)
                     )
                 } else {
-                    format!("Cannot infer type of constructor.")
+                    "Cannot infer type of constructor.".to_string()
                 },
                 expr.span,
             );
@@ -1111,7 +1109,7 @@ impl<'a> TypeChecker<'a> {
                         _ => None,
                     })
                     .unwrap_or_else(|| {
-                        self.new_error(format!("Cannot infer type of variant."), name.span)
+                        self.new_error("Cannot infer type of variant.".to_string(), name.span)
                     }),
             },
             hir::ExprKind::Index(base, index) => {
@@ -1120,10 +1118,10 @@ impl<'a> TypeChecker<'a> {
                 if let Type::Array(element_type) = base_ty {
                     *element_type
                 } else {
-                    let base_ty_string = TypeFormatter::new(&*self.ident_interner, &self.context)
-                        .format_type(&base_ty);
+                    let base_ty_string =
+                        TypeFormatter::new(self.ident_interner, self.context).format_type(&base_ty);
                     self.new_error(
-                        format!("Cannot get element of '{}'.", base_ty_string),
+                        format!("Cannot get element of '{base_ty_string}'."),
                         base.span,
                     )
                 }
@@ -1162,7 +1160,7 @@ impl<'a> TypeChecker<'a> {
                 {
                     Some(return_type.clone())
                 } else {
-                    self.error(format!("'return' outside of function."), expr.span);
+                    self.error("'return' outside of function.".to_string(), expr.span);
                     None
                 };
                 if let Some(return_expr) = return_expr.as_ref() {
@@ -1177,8 +1175,7 @@ impl<'a> TypeChecker<'a> {
                         let return_ty = self.format_type(&return_type);
                         self.error(
                             format!(
-                                "Empty return cannot be used for '{}' returning function.",
-                                return_ty
+                                "Empty return cannot be used for '{return_ty}' returning function."
                             ),
                             expr.span,
                         );
@@ -1187,10 +1184,7 @@ impl<'a> TypeChecker<'a> {
                 Type::Never
             }
             hir::ExprKind::Function(function) => {
-                let &hir::AnonFunction {
-                    id: _,
-                    ref function,
-                } = function.as_ref();
+                let hir::AnonFunction { id: _, function } = function.as_ref();
                 let sig = self
                     .lowerer()
                     .lower_sig(function.params.iter(), function.return_type.as_ref());
@@ -1235,7 +1229,7 @@ impl<'a> TypeChecker<'a> {
                         let base_string = self.format_type(&base_ty);
                         (
                             Some(self.new_error(
-                                format!("'{}' doesn't have fields.", base_string),
+                                format!("'{base_string}' doesn't have fields.",),
                                 field.span,
                             )),
                             None,
@@ -1278,9 +1272,7 @@ impl<'a> TypeChecker<'a> {
                 }
             }
             Expectation::CoercesTo(expected_type) => {
-                if ty == expected_type {
-                    (ty, expected_type)
-                } else if ty.is_error() {
+                if ty == expected_type || ty.is_error() {
                     (ty, expected_type)
                 } else if let Some(coercion) =
                     self.check_type_coerces_to(&ty, &expected_type, expr.span, || {
@@ -1322,11 +1314,7 @@ impl<'a> TypeChecker<'a> {
         }
     }
     fn check_path_segment(&self, segment: &hir::PathSegment, generic_param_count: usize) -> bool {
-        if self.check_generic_count(generic_param_count, segment.args.len(), segment.ident.span) {
-            true
-        } else {
-            false
-        }
+        self.check_generic_count(generic_param_count, segment.args.len(), segment.ident.span)
     }
     fn resolve_path(
         &self,
@@ -1335,11 +1323,11 @@ impl<'a> TypeChecker<'a> {
         match path {
             hir::QualifiedPath::TypeRelative(ty, segment) => {
                 ItemCheck::new(self.context, self.ident_interner, &self.error_reporter)
-                    .check_type(&ty);
+                    .check_type(ty);
                 if self.error_reporter.error_occurred() {
                     return Err(TypeError);
                 }
-                let ty = self.lower_type(&ty);
+                let ty = self.lower_type(ty);
                 if let Some(member) = self.context.get_member(self.symbols, &ty, segment.ident) {
                     let (generic_count, base_generic_args, resolution) = match member {
                         TypeMember::Method {
@@ -1373,7 +1361,7 @@ impl<'a> TypeChecker<'a> {
                         ),
                         segment.ident.span,
                     );
-                    return Err(TypeError);
+                    Err(TypeError)
                 }
             }
             hir::QualifiedPath::FullyResolved(path) => {
@@ -1412,7 +1400,7 @@ impl<'a> TypeChecker<'a> {
         self.store_generic_args(expr_id, generic_args.clone());
         self.store_resolution(expr_id, res);
         let span = path.span();
-        let ty = match res {
+        match res {
             hir::Resolution::Variable(variable) => self.variable_types.borrow()[&variable].clone(),
             hir::Resolution::Definition(hir::DefKind::Function | hir::DefKind::Method, id) => {
                 let sig = &self.context.signatures[id];
@@ -1427,8 +1415,8 @@ impl<'a> TypeChecker<'a> {
                     .get_variant(id)
                     .expect("There should be a variant here");
                 if as_callable {
-                    let params = TypeSubst::new(&generic_args)
-                        .instantiate_types(variant.fields.iter().map(|field| field));
+                    let params =
+                        TypeSubst::new(&generic_args).instantiate_types(variant.fields.iter());
                     let return_type = Type::new_enum(generic_args, enum_id);
                     self.results.borrow_mut().signatures.insert(
                         expr_id,
@@ -1498,16 +1486,13 @@ impl<'a> TypeChecker<'a> {
             }
             hir::Resolution::Primitive(_)
             | hir::Resolution::Definition(hir::DefKind::Param | hir::DefKind::Enum, _)
-            | hir::Resolution::None => {
-                return self.new_error(
-                    format!(
-                        "Cannot use type '{}' as expr.",
-                        path.format(self.ident_interner)
-                    ),
-                    span,
-                );
-            }
-        };
-        ty
+            | hir::Resolution::None => self.new_error(
+                format!(
+                    "Cannot use type '{}' as expr.",
+                    path.format(self.ident_interner)
+                ),
+                span,
+            ),
+        }
     }
 }

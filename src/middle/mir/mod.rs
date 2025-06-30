@@ -18,12 +18,12 @@ use crate::{
 };
 
 pub mod basic_blocks;
+pub mod const_eval;
 pub mod debug;
 pub mod dominator;
 pub mod passes;
 pub mod traversal;
 pub mod visitor;
-pub mod const_eval;
 #[derive(Clone, Debug, PartialEq, Hash)]
 pub enum FunctionKind {
     Anon(DefId),
@@ -41,7 +41,7 @@ pub enum ConstantKind {
     Function(FunctionKind, GenericArgs),
     Aggregrate(Box<AggregrateConstant>),
 }
-impl Eq for ConstantKind{}
+impl Eq for ConstantKind {}
 impl Hash for ConstantKind {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
@@ -99,31 +99,32 @@ impl From<ConstantNumber> for Constant {
 pub enum AggregrateConstant {
     Array(Box<[Constant]>),
     Tuple(Box<[Constant]>),
-    Adt(DefId,GenericArgs,Option<VariantIndex>,Box<[Constant]>)
+    Adt(DefId, GenericArgs, Option<VariantIndex>, Box<[Constant]>),
 }
 impl AggregrateConstant {
     fn fields(&self) -> &[Constant] {
         match self {
-            Self::Array(fields) | Self::Tuple(fields) => &fields,
-            Self::Adt(_,_,_,fields) => &fields
+            Self::Array(fields) | Self::Tuple(fields) => fields,
+            Self::Adt(_, _, _, fields) => fields,
         }
     }
 }
-#[derive(Clone, Debug, PartialEq, Hash,Eq)]
+#[derive(Clone, Debug, PartialEq, Hash, Eq)]
 pub struct Constant {
     pub ty: Type,
     pub kind: ConstantKind,
 }
 impl Constant {
-    pub fn zero_sized(ty: Type) -> Self{
-        Self { ty, kind: ConstantKind::ZeroSized }
+    pub fn zero_sized(ty: Type) -> Self {
+        Self {
+            ty,
+            kind: ConstantKind::ZeroSized,
+        }
     }
-    pub fn as_aggregrate(&self) -> Option<&AggregrateConstant>{
-        match self.kind{
-            ConstantKind::Aggregrate(ref aggregate) => {
-                Some(aggregate)
-            },
-            _ => None
+    pub fn as_aggregrate(&self) -> Option<&AggregrateConstant> {
+        match self.kind {
+            ConstantKind::Aggregrate(ref aggregate) => Some(aggregate),
+            _ => None,
         }
     }
     pub fn is_float(&self) -> bool {
@@ -235,8 +236,7 @@ impl Place {
                         let (generic_args, id, _) =
                             ty.as_adt().expect("There should be a def id for enums");
                         ty = TypeSubst::new(generic_args).instantiate_type(
-                            &ctxt.get_variant_by_index(id, variant_index).fields
-                                [field.as_index() as usize],
+                            &ctxt.get_variant_by_index(id, variant_index).fields[field.as_index()],
                         );
                         projection_iter.next();
                     }
@@ -303,7 +303,7 @@ pub enum Terminator {
     Unreachable,
 }
 impl Terminator {
-    fn successors_mut<'a>(&'a mut self) -> Box<[&'a mut BlockId]> {
+    fn successors_mut(&mut self) -> Box<[&mut BlockId]> {
         match self {
             Self::Assert(_, _, block_id) | Self::Goto(block_id) => Box::new([block_id]),
             Self::Return(_) | Self::Unreachable => Box::new([]),
@@ -314,7 +314,7 @@ impl Terminator {
                 .collect(),
         }
     }
-    fn successors<'a>(&'a self) -> Box<[BlockId]> {
+    fn successors(&self) -> Box<[BlockId]> {
         match self {
             &Self::Assert(_, _, block_id) | &Self::Goto(block_id) => Box::new([block_id]),
             Self::Return(_) | Self::Unreachable => Box::new([]),
@@ -351,7 +351,7 @@ pub enum LocalKind {
 }
 pub struct LocalInfo {
     pub ty: Type,
-    pub kind : LocalKind
+    pub kind: LocalKind,
 }
 pub enum BodyKind {
     Anonymous,
@@ -370,10 +370,10 @@ pub struct Body {
     pub blocks: IndexVec<BlockId, Block>,
 }
 impl Body {
-    pub fn args(&self) -> impl Iterator<Item = Local>{
+    pub fn args(&self) -> impl Iterator<Item = Local> {
         (0..self.arg_count()).map(Local::new)
     }
-    pub fn arg_count(&self) -> usize{
+    pub fn arg_count(&self) -> usize {
         self.source.params.len()
     }
     pub fn at_location(&self, location: Location) -> StatementOrTerminator {

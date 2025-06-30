@@ -156,13 +156,13 @@ impl<'a> TypeLower<'a> {
             ),
             hir::TypeKind::Tuple(elements) => Type::new_tuple(
                 elements
-                    .into_iter()
+                    .iter()
                     .map(|element| self.lower_type(element))
                     .collect(),
             ),
             hir::TypeKind::Path(path) => match path {
                 hir::QualifiedPath::TypeRelative(ty, name) => {
-                    let ty = self.lower_type(&ty);
+                    let ty = self.lower_type(ty);
                     if ty.is_error() {
                         return Type::new_error();
                     }

@@ -1,7 +1,9 @@
 use std::io::Write;
 
 use pl4::{
-    backend::{codegen::Codegen, compiling::compiler::Compiler, instructions::Program, vm::VM}, frontend::{
+    GlobalSymbols, SymbolInterner,
+    backend::{codegen::Codegen, compiling::compiler::Compiler, instructions::Program, vm::VM},
+    frontend::{
         ast_lowering::{ast_lower::AstLowerer, hir::DefIdProvider, name_finding::NameFinder},
         hir_lowering::ThirLower,
         parsing::parser::Parser,
@@ -10,12 +12,15 @@ use pl4::{
             checking::check::TypeChecker, items::item_check::ItemCheck,
             types::collect::ItemCollector,
         },
-    }, middle::mir::{
+    },
+    middle::mir::{
         debug::DebugMir,
         passes::{
-            const_branch::ConstBranch, const_prop::ConstProp, pass_manager::PassManager, remove_unreachable_branches::RemoveUnreachableBranches, simplify_cfg::SimplifyCfg, MirPass
+            MirPass, const_branch::ConstBranch, const_prop::ConstProp, pass_manager::PassManager,
+            remove_unreachable_branches::RemoveUnreachableBranches, simplify_cfg::SimplifyCfg,
         },
-    }, thir_lowering::MirBuild, GlobalSymbols, SymbolInterner
+    },
+    thir_lowering::MirBuild,
 };
 
 fn compile(source: &str) -> Option<Program> {
@@ -79,7 +84,7 @@ fn repl() {
             .flush()
             .map(|_| std::io::stdin().read_line(&mut source))
         {
-            eprintln!("{}", err);
+            eprintln!("{err}");
             continue;
         };
         if let Some(code) = compile(&source) {
@@ -92,7 +97,7 @@ fn run_file(filepath: &str) {
     let source = match std::fs::read_to_string(filepath) {
         Ok(source) => source,
         Err(error) => {
-            eprintln!("{}", error);
+            eprintln!("{error}");
             return;
         }
     };

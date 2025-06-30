@@ -288,12 +288,12 @@ pub struct PathSegment {
     pub generic_args: Option<ParsedGenericArgs>,
     pub location: SourceLocation,
 }
-impl Into<PathSegment> for Symbol {
-    fn into(self) -> PathSegment {
+impl From<Symbol> for PathSegment {
+    fn from(symbol: Symbol) -> Self {
         PathSegment {
-            name: self,
+            name: symbol,
             generic_args: None,
-            location: self.location,
+            location: symbol.location,
         }
     }
 }

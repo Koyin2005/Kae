@@ -111,7 +111,7 @@ impl<'a> ItemCheck<'a> {
                     }
                 }
                 hir::QualifiedPath::TypeRelative(ty, segment) => {
-                    self.check_type(&ty);
+                    self.check_type(ty);
                     let name = segment.ident;
                     self.error(
                         format!(
@@ -132,7 +132,7 @@ impl<'a> ItemCheck<'a> {
     }
     pub fn check_function(&self, function_def: &hir::Function) {
         for ty in &function_def.params {
-            self.check_type(&ty);
+            self.check_type(ty);
         }
         if let Some(return_type) = function_def.return_type.as_ref() {
             self.check_type(return_type);
@@ -184,8 +184,8 @@ impl<'a> ItemCheck<'a> {
                             .fields
                             .iter(),
                     ) {
-                        self.check_type(&field_def);
-                        if self.context.is_type_recursive(&field_ty, enum_def.id) {
+                        self.check_type(field_def);
+                        if self.context.is_type_recursive(field_ty, enum_def.id) {
                             is_recursive = true;
                         }
                     }

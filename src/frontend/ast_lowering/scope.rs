@@ -47,6 +47,11 @@ impl Scope {
 pub struct NameSpaces {
     names_to_scopes: FxHashMap<Resolution, ScopeId>,
 }
+impl Default for NameSpaces {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl NameSpaces {
     pub fn new() -> Self {
         Self {
@@ -61,7 +66,7 @@ impl NameSpaces {
     }
     pub fn expect_namespace(&self, name: Resolution) -> &ScopeId {
         self.get_namespace(name)
-            .expect(&format!("There should be a namespace for '{:?}'", name))
+            .unwrap_or_else(|| panic!("There should be a namespace for '{name:?}'"))
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq)]

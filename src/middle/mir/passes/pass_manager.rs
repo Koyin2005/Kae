@@ -3,7 +3,7 @@ use crate::{
     frontend::typechecking::context::TypeContext,
     middle::mir::{self, debug::DebugMir, passes::MirPass},
 };
-
+#[derive(Default)]
 pub struct PassManager<'a> {
     interner: Option<&'a SymbolInterner>,
 }
@@ -22,13 +22,13 @@ impl<'a> PassManager<'a> {
             println!(
                 "Before running {}\n{}",
                 pass.name(),
-                DebugMir::new(ctxt, interner).debug_body(&body)
+                DebugMir::new(ctxt, interner).debug_body(body)
             );
             pass.run_pass(ctxt, body);
             println!(
                 "After running {}\n{}",
                 pass.name(),
-                DebugMir::new(ctxt, interner).debug_body(&body)
+                DebugMir::new(ctxt, interner).debug_body(body)
             );
         } else {
             pass.run_pass(ctxt, body);

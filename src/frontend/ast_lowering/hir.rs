@@ -33,10 +33,15 @@ impl DefIdProvider {
     pub fn new() -> Self {
         Self { next: 0 }
     }
-    pub fn next(&mut self) -> DefId {
+    pub fn next_id(&mut self) -> DefId {
         let prev_id = self.next;
         self.next += 1;
         DefId(prev_id)
+    }
+}
+impl Default for DefIdProvider {
+    fn default() -> Self {
+        Self::new()
     }
 }
 pub struct FieldDef {
@@ -74,6 +79,12 @@ impl Generics {
         Self {
             params: Default::default(),
         }
+    }
+}
+
+impl Default for Generics {
+    fn default() -> Self {
+        Self::new()
     }
 }
 pub struct StructDef {
@@ -304,7 +315,7 @@ impl Type {
                         if i > 0 {
                             format!(",{}", element.format(interner))
                         } else {
-                            format!("{}", element.format(interner))
+                            element.format(interner)
                         }
                     })
                     .collect::<String>()
@@ -317,14 +328,14 @@ impl Type {
                         if i > 0 {
                             format!(",{}", element.format(interner))
                         } else {
-                            format!("{}", element.format(interner))
+                            element.format(interner).to_string()
                         }
                     })
                     .collect::<String>();
                 if let Some(return_type) = return_type.as_ref() {
                     format!("fun({})->{}", params, return_type.format(interner))
                 } else {
-                    format!("fun({})->()", params)
+                    format!("fun({params})->()")
                 }
             }
         }
@@ -416,12 +427,12 @@ pub enum Resolution {
 }
 impl Resolution {
     pub fn is_type(&self) -> bool {
-        match self {
+        matches!(
+            self,
             Self::Definition(DefKind::Enum | DefKind::Struct | DefKind::Param, _)
-            | Self::SelfType(_)
-            | Self::Primitive(_) => true,
-            _ => false,
-        }
+                | Self::SelfType(_)
+                | Self::Primitive(_)
+        )
     }
     pub fn def_id(&self) -> Option<DefId> {
         match self {
@@ -451,6 +462,12 @@ pub struct FieldExpr {
 
 #[derive(Debug)]
 pub struct DefIdMap<T>(FxHashMap<DefId, T>);
+
+impl<T> Default for DefIdMap<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl<T> DefIdMap<T> {
     pub fn new() -> Self {
         Self(FxHashMap::default())
@@ -482,7 +499,7 @@ impl<T> std::ops::IndexMut<DefId> for DefIdMap<T> {
         if let Some(value) = self.0.get_mut(&index) {
             value
         } else {
-            panic!("Expected a value with this id : {:?}", index)
+            panic!("Expected a value with this id : {index:?}")
         }
     }
 }

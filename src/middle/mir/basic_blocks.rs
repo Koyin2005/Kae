@@ -50,14 +50,14 @@ impl BasicBlockInfo {
         self.successors
             .get(&block)
             .as_ref()
-            .map(|succs| &succs as &[_])
-            .unwrap_or(&[] as &[_])
+            .map(|succs| succs as &[_])
+            .unwrap_or(&[])
     }
     pub fn predecessors(&self, block: BlockId) -> &[BlockId] {
         self.predecessors
             .get(&block)
             .as_ref()
-            .map(|preds| &preds as &[_])
-            .unwrap_or(&[] as &[_])
+            .map(|preds| preds as &[_])
+            .unwrap_or(&[])
     }
 }

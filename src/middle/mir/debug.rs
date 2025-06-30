@@ -1,11 +1,14 @@
 use crate::{
-    data_structures::IntoIndex, frontend::{
+    SymbolInterner,
+    data_structures::IntoIndex,
+    frontend::{
         ast_lowering::hir,
         typechecking::{
             context::TypeContext,
-            types::{format::TypeFormatter, AdtKind, Type},
+            types::{AdtKind, Type, format::TypeFormatter},
         },
-    }, middle::mir::{self, AggregrateConstant, AssertKind, Constant}, SymbolInterner
+    },
+    middle::mir::{self, AggregrateConstant, AssertKind, Constant},
 };
 
 use super::{
@@ -58,14 +61,14 @@ impl<'a> DebugMir<'a> {
                     output.push_str(&format!("[_{}]", local.as_index()));
                 }
                 PlaceProjection::ConstantIndex(value) => {
-                    output.push_str(&format!("[{}]", value));
+                    output.push_str(&format!("[{value}]"));
                 }
             }
         }
         output
     }
     fn debug_constant(&self, constant: &Constant) -> String {
-        match &constant.kind {
+        let value = match &constant.kind {
             ConstantKind::Bool(value) => value.to_string(),
             ConstantKind::Int(value) => value.to_string(),
             ConstantKind::Float(value) => value.to_string(),
@@ -73,20 +76,26 @@ impl<'a> DebugMir<'a> {
             ConstantKind::ZeroSized => {
                 TypeFormatter::new(self.symbol_interner, self.context).format_type(&constant.ty)
             }
-            ConstantKind::Function(kind, generic_args) => match kind {
-                FunctionKind::Anon(_) => "anonymous".to_string(),
-                FunctionKind::Normal(id) | FunctionKind::Variant(id) => self
-                    .context
-                    .format_value_path(*id, generic_args, self.symbol_interner),
-                FunctionKind::Builtin(builtin) => match builtin {
-                    hir::BuiltinKind::Panic => "panic",
-                }
-                .to_string(),
-            },
+            ConstantKind::Function(kind, generic_args) => {
+                return match kind {
+                    FunctionKind::Anon(_) => "anonymous".to_string(),
+                    FunctionKind::Normal(id) | FunctionKind::Variant(id) => self
+                        .context
+                        .format_value_path(*id, generic_args, self.symbol_interner),
+                    FunctionKind::Builtin(builtin) => match builtin {
+                        hir::BuiltinKind::Panic => "panic",
+                    }
+                    .to_string(),
+                };
+            }
             ConstantKind::Aggregrate(aggregate) => {
                 let aggregate = aggregate.as_ref();
 
-                fn format_fields(this:&DebugMir,output:&mut String,aggregate: &AggregrateConstant){
+                fn format_fields(
+                    this: &DebugMir,
+                    output: &mut String,
+                    aggregate: &AggregrateConstant,
+                ) {
                     let mut is_first = true;
                     for field in aggregate.fields() {
                         if !is_first {
@@ -100,20 +109,29 @@ impl<'a> DebugMir<'a> {
                 match aggregate {
                     AggregrateConstant::Array(_) => {
                         format_fields(self, &mut output, aggregate);
-                        format!("[{}]", output)
+                        format!("[{output}]")
                     }
                     AggregrateConstant::Tuple(_) => {
                         format_fields(self, &mut output, aggregate);
-                        format!("({})", output)
-                    },
-                    &AggregrateConstant::Adt(id,ref generic_args,variant,_) => {
-                        if let Some(variant) = variant{
+                        format!("({output})")
+                    }
+                    &AggregrateConstant::Adt(id, ref generic_args, variant, _) => {
+                        if let Some(variant) = variant {
                             format_fields(self, &mut output, aggregate);
-                            format!("{}({})",self.context.format_value_path(self.context.get_variant_by_index(id, variant).id, generic_args,self.symbol_interner),output)
-                        }
-                        else{
+                            format!(
+                                "{}({})",
+                                self.context.format_value_path(
+                                    self.context.get_variant_by_index(id, variant).id,
+                                    generic_args,
+                                    self.symbol_interner
+                                ),
+                                output
+                            )
+                        } else {
                             let mut is_first = true;
-                            for (field_def,field) in self.context.field_defs(id).iter().zip(aggregate.fields()) {
+                            for (field_def, field) in
+                                self.context.field_defs(id).iter().zip(aggregate.fields())
+                            {
                                 if !is_first {
                                     output.push(',');
                                 }
@@ -122,19 +140,26 @@ impl<'a> DebugMir<'a> {
                                 output.push_str(&self.debug_constant(field));
                                 is_first = false;
                             }
-                            format!("{}{{{}}}",self.context.format_value_path(id, generic_args,self.symbol_interner),output)
+                            format!(
+                                "{}{{{}}}",
+                                self.context.format_value_path(
+                                    id,
+                                    generic_args,
+                                    self.symbol_interner
+                                ),
+                                output
+                            )
                         }
                     }
                 }
             }
-        }
+        };
+        format!("const {value}")
     }
     fn debug_operand(&self, operand: &Operand) -> String {
         match operand {
-            Operand::Constant(constant) => format!("const {}",self.debug_constant(constant)),
-            Operand::Load(place) => {
-                format!("{}", self.debug_lvalue(place))
-            }
+            Operand::Constant(constant) => self.debug_constant(constant),
+            Operand::Load(place) => self.debug_lvalue(place),
         }
     }
     fn debug_rvalue(&self, rvalue: &RValue) -> String {
@@ -160,12 +185,12 @@ impl<'a> DebugMir<'a> {
                 let (left, right) = left_and_right.as_ref();
                 let mut output = String::new();
                 output.push_str(&self.debug_operand(left));
-                output.push_str(&format!(" {} ", op));
+                output.push_str(&format!(" {op} "));
                 output.push_str(&self.debug_operand(right));
                 output
             }
             RValue::Unary(op, operand) => {
-                format!("{}{}", op.to_string(), self.debug_operand(operand))
+                format!("{}{}", op, self.debug_operand(operand))
             }
             RValue::Adt(adt, operands) => {
                 let &(id, ref generic_args, variant) = adt.as_ref();
@@ -200,8 +225,7 @@ impl<'a> DebugMir<'a> {
                             operands.index_value_iter().map(|(index, operand)| {
                                 (
                                     self.symbol_interner.get(
-                                        self.context.expect_struct(id).fields
-                                            [index.as_index() as usize]
+                                        self.context.expect_struct(id).fields[index.as_index()]
                                             .name
                                             .index,
                                     ),
@@ -299,22 +323,22 @@ impl<'a> DebugMir<'a> {
                         if !first {
                             output.push(',');
                         }
-                        output.push_str(&format!("{} : {}", value, branch));
+                        output.push_str(&format!("{value} : {branch}"));
                         first = false;
                     }
                     output.push(',');
-                    output.push_str(&format!("otherwise : {}", otherwise));
+                    output.push_str(&format!("otherwise : {otherwise}"));
                     output.push('}');
                     self.push_next_line(&output);
                 }
                 Terminator::Return(operand) => {
-                    self.push_next_line(&format!("return {}",self.debug_operand(operand)));
-                },
+                    self.push_next_line(&format!("return {}", self.debug_operand(operand)));
+                }
                 Terminator::Unreachable => {
                     self.push_next_line("unreachable");
                 }
                 Terminator::Goto(block) => {
-                    self.push_next_line(&format!("goto -> {}", block));
+                    self.push_next_line(&format!("goto -> {block}"));
                 }
                 Terminator::Assert(operand, kind, next) => {
                     self.push_next_line(&format!("assert({}, {}) -> {}",self.debug_operand(operand),match kind{
@@ -334,7 +358,7 @@ impl<'a> DebugMir<'a> {
         let name = self
             .context
             .format_full_path(body.source.id, self.symbol_interner);
-        let mut first_line = format!("fun {}(", name);
+        let mut first_line = format!("fun {name}(");
         let mut first = true;
         for (local, ty) in body.args().zip(body.source.params.iter()) {
             if !first {
@@ -354,29 +378,32 @@ impl<'a> DebugMir<'a> {
         ));
         self.push_next_line(&first_line);
         self.increase_indent_level();
-        for (local,info) in body.locals.index_value_iter(){
+        for (local, info) in body.locals.index_value_iter() {
             let mut output = String::from("let");
             output.push_str(" (");
-            match info.kind{
+            match info.kind {
                 mir::LocalKind::Argument(name) => {
                     output.push_str("arg");
-                    if let Some(name) = name{
+                    if let Some(name) = name {
                         output.push(' ');
                         output.push_str(self.symbol_interner.get(name));
                     }
-                },
+                }
                 mir::LocalKind::Temporary => {
                     output.push_str("temp");
-                },
+                }
                 mir::LocalKind::Variable(name) => {
                     output.push_str("var");
                     output.push(' ');
                     output.push_str(self.symbol_interner.get(name));
-
                 }
             }
             output.push(')');
-            output.push_str(&format!(" _{} : {}",local.0,TypeFormatter::new(self.symbol_interner, self.context).format_type(&info.ty)));
+            output.push_str(&format!(
+                " _{} : {}",
+                local.0,
+                TypeFormatter::new(self.symbol_interner, self.context).format_type(&info.ty)
+            ));
             self.push_next_line(&output);
         }
         self.push_next_line("");

@@ -90,7 +90,7 @@ pub trait MutVisitor {
             PlaceProjection::Field(_) | PlaceProjection::Variant(_, _) => {}
             PlaceProjection::ConstantIndex(_) => (),
             PlaceProjection::Index(local) => {
-                self.visit_local(local, context,location);
+                self.visit_local(local, context, location);
             }
         }
     }
@@ -103,7 +103,7 @@ pub trait MutVisitor {
         self.super_visit_projection(projection, context, location);
     }
     fn super_visit_place(&mut self, place: &mut Place, context: PlaceContext, location: Location) {
-        self.visit_local(&mut place.local, context,location);
+        self.visit_local(&mut place.local, context, location);
         for projection in place.projections.iter_mut() {
             self.visit_projection(projection, context, location);
         }
@@ -141,7 +141,7 @@ pub trait MutVisitor {
                 self.visit_operand(condition, location);
             }
             Terminator::Goto(_) | Terminator::Unreachable => (),
-            Terminator::Switch(operand, _, _)  | Terminator::Return(operand) => {
+            Terminator::Switch(operand, _, _) | Terminator::Return(operand) => {
                 self.visit_operand(operand, location);
             }
         }
@@ -257,7 +257,7 @@ pub trait Visitor {
             PlaceProjection::Field(_) | PlaceProjection::Variant(_, _) => {}
             PlaceProjection::ConstantIndex(_) => (),
             PlaceProjection::Index(local) => {
-                self.super_visit_local(local, context,location);
+                self.super_visit_local(local, context, location);
             }
         }
     }
@@ -276,7 +276,7 @@ pub trait Visitor {
         }
     }
     fn visit_local(&mut self, local: &Local, context: PlaceContext, location: Location) {
-        self.super_visit_local(local, context,location);
+        self.super_visit_local(local, context, location);
     }
     fn super_visit_assign(&mut self, lvalue: &Place, rvalue: &RValue, location: Location) {
         self.visit_place(lvalue, PlaceContext::Write, location);
@@ -308,7 +308,7 @@ pub trait Visitor {
                 self.visit_operand(condition, location);
             }
             Terminator::Goto(_) | Terminator::Unreachable => (),
-            Terminator::Switch(operand, _, _)| Terminator::Return(operand)   => {
+            Terminator::Switch(operand, _, _) | Terminator::Return(operand) => {
                 self.visit_operand(operand, location);
             }
         }

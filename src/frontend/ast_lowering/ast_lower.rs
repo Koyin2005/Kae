@@ -24,7 +24,7 @@ use super::{
     scope::{ScopeId, ScopeKind},
 };
 use crate::identifiers::ItemIndex;
-
+struct FunctionSig(Vec<hir::Param>, Vec<hir::Type>, Option<hir::Type>);
 pub struct LoweringErr;
 pub struct PathLoweringErr;
 pub struct AstLowerer<'a> {
@@ -160,40 +160,34 @@ impl<'a> AstLowerer<'a> {
     }
     fn validate_path(&self, resolution: Resolution, name: Symbol) -> bool {
         let mut had_error = false;
-        match resolution {
-            Resolution::Definition(DefKind::Param, _) => {
-                let mut scope = self.resolver.borrow().current_scope_id();
-                let resolver = self.resolver.borrow();
-                let scopes = resolver.scopes();
-                let mut found_item = false;
-                while let Some(parent) = scopes.get_parent(scope) {
-                    match scopes.get_scope(scope).kind() {
-                        ScopeKind::Item(_) => {
-                            if found_item {
-                                if let Some((name_index, _)) = scopes
-                                    .get_scope(scope)
-                                    .bindings_iter()
-                                    .find(|(_, res)| *res == resolution)
-                                {
-                                    self.error(
-                                        format!(
-                                            "Cannot use generic parameter '{}' from outer item.",
-                                            self.symbol_interner.get(name_index)
-                                        ),
-                                        name.location,
-                                    );
-                                    had_error = true;
-                                    break;
-                                }
-                            }
-                            found_item = true;
+        if let Resolution::Definition(DefKind::Param, _) = resolution {
+            let mut scope = self.resolver.borrow().current_scope_id();
+            let resolver = self.resolver.borrow();
+            let scopes = resolver.scopes();
+            let mut found_item = false;
+            while let Some(parent) = scopes.get_parent(scope) {
+                if let ScopeKind::Item(_) = scopes.get_scope(scope).kind() {
+                    if found_item {
+                        if let Some((name_index, _)) = scopes
+                            .get_scope(scope)
+                            .bindings_iter()
+                            .find(|(_, res)| *res == resolution)
+                        {
+                            self.error(
+                                format!(
+                                    "Cannot use generic parameter '{}' from outer item.",
+                                    self.symbol_interner.get(name_index)
+                                ),
+                                name.location,
+                            );
+                            had_error = true;
+                            break;
                         }
-                        _ => (),
                     }
-                    scope = parent;
+                    found_item = true;
                 }
+                scope = parent;
             }
-            _ => (),
         }
         !had_error
     }
@@ -261,7 +255,7 @@ impl<'a> AstLowerer<'a> {
                 if i > 0 {
                     base_path += "::";
                 }
-                base_path += &self.symbol_interner.get(segment.name.content);
+                base_path += self.symbol_interner.get(segment.name.content);
             }
             let last = path.segments[resolution_len].name;
             let span = last.location;
@@ -311,7 +305,7 @@ impl<'a> AstLowerer<'a> {
             }
             &ast::Type::Fun(span, ref params, ref return_type) => {
                 let param_types = params
-                    .into_iter()
+                    .iter()
                     .map(|param| self.lower_type(param))
                     .collect::<Vec<_>>();
                 let return_type = return_type
@@ -333,11 +327,8 @@ impl<'a> AstLowerer<'a> {
         };
         Ok(hir::Type { kind, span })
     }
-    fn lower_function_sig(
-        &mut self,
-        sig: ast::FunctionSig,
-    ) -> Result<(Vec<hir::Param>, Vec<hir::Type>, Option<hir::Type>), LoweringErr> {
-        let params = (|| {
+    fn lower_function_sig(&mut self, sig: ast::FunctionSig) -> Result<FunctionSig, LoweringErr> {
+        let params = {
             let params: Vec<_> = sig
                 .params
                 .into_iter()
@@ -354,7 +345,7 @@ impl<'a> AstLowerer<'a> {
                     Ok((hir::Param { pattern }, ty))
                 })
                 .collect::<Result<(Vec<_>, Vec<_>), _>>()
-        })();
+        };
 
         let return_type = sig
             .return_type
@@ -363,7 +354,7 @@ impl<'a> AstLowerer<'a> {
         let (params, param_types, return_type) = return_type.and_then(|return_type| {
             params.map(|(params, param_types)| (params, param_types, return_type))
         })?;
-        Ok((params, param_types, return_type))
+        Ok(FunctionSig(params, param_types, return_type))
     }
     fn lower_function(
         &mut self,
@@ -379,10 +370,10 @@ impl<'a> AstLowerer<'a> {
         let body = self.lower_expr(body);
         self.end_scope();
 
-        let (params, param_types, return_type) = params_and_return_type?;
+        let FunctionSig(params, param_types, return_type) = params_and_return_type?;
         Ok(hir::Function {
             params: param_types,
-            return_type: return_type,
+            return_type,
             body: {
                 let body = self.bodies.push(hir::Body {
                     params,
@@ -486,13 +477,13 @@ impl<'a> AstLowerer<'a> {
                                 Some(self.intern_symbol(symbol)),
                             ))
                         } else {
-                            self.error(format!("Cannot use _ in variant patterns."), span);
+                            self.error("Cannot use _ in variant patterns.".to_string(), span);
                             Err(LoweringErr)
                         }
                     }
-                    ast::InferPathKind::Path(path) => self
-                        .lower_path(&path)
-                        .map(|path| hir::InferOrPath::Path(path)),
+                    ast::InferPathKind::Path(path) => {
+                        self.lower_path(&path).map(hir::InferOrPath::Path)
+                    }
                 };
                 let fields = fields
                     .into_iter()
@@ -509,20 +500,20 @@ impl<'a> AstLowerer<'a> {
                         pattern.location,
                         symbol.map(|symbol| self.intern_symbol(symbol)),
                     )),
-                    ast::InferPathKind::Path(path) => self
-                        .lower_path(&path)
-                        .map(|path| hir::InferOrPath::Path(path)),
+                    ast::InferPathKind::Path(path) => {
+                        self.lower_path(&path).map(hir::InferOrPath::Path)
+                    }
                 };
                 let fields: Vec<_> = fields
                     .into_iter()
-                    .filter_map(|(symbol, pattern)| {
+                    .map(|(symbol, pattern)| {
                         let field_symbol = self.intern_symbol(symbol);
                         let pattern = self.lower_pattern(pattern);
-                        Some(pattern.map(|pattern| hir::FieldPattern {
+                        pattern.map(|pattern| hir::FieldPattern {
                             id: self.next_id(),
                             name: field_symbol,
                             pattern,
-                        }))
+                        })
                     })
                     .collect();
                 (
@@ -681,7 +672,10 @@ impl<'a> AstLowerer<'a> {
                     if let Some(name) = name {
                         hir::PathExpr::Infer(self.intern_symbol(name))
                     } else {
-                        self.error(format!("Cannot use '_' in this position."), path.location);
+                        self.error(
+                            "Cannot use '_' in this position.".to_string(),
+                            path.location,
+                        );
                         return Err(LoweringErr);
                     }
                 }
@@ -773,7 +767,7 @@ impl<'a> AstLowerer<'a> {
             ast::ExprNodeKind::Instantiate { lhs, args } => {
                 let _ = self.lower_expr(*lhs);
                 let _ = self.lower_generic_args(Some(&args));
-                self.error(format!("Cannot have generic arguments here."), span);
+                self.error("Cannot have generic arguments here.".to_string(), span);
                 return Err(LoweringErr);
             }
             ast::ExprNodeKind::Index { lhs, rhs } => {
@@ -793,9 +787,9 @@ impl<'a> AstLowerer<'a> {
         fields: Vec<(Symbol, ast::Type)>,
         field_names: Vec<hir::Ident>,
     ) -> Result<Vec<hir::FieldDef>, LoweringErr> {
-        let fields = field_names
+        field_names
             .into_iter()
-            .zip(fields.into_iter())
+            .zip(fields)
             .map(|(field, (_, field_ty))| {
                 let field_ty = self.lower_type(&field_ty);
                 field_ty.map(|field_ty| hir::FieldDef {
@@ -803,8 +797,7 @@ impl<'a> AstLowerer<'a> {
                     ty: field_ty,
                 })
             })
-            .collect();
-        fields
+            .collect()
     }
     fn lower_item(
         &mut self,

@@ -39,10 +39,10 @@ impl Resolver {
         self.scope_tree.get_scope_mut(self.current_scope)
     }
     pub fn resolve_path(&self, path: impl Iterator<Item = SymbolIndex>) -> Vec<Resolution> {
-        let mut path_iter = path;
+        let path_iter = path;
         let mut prev_res: Option<Resolution> = None;
         let mut segments = Vec::new();
-        while let Some(name) = path_iter.next() {
+        for name in path_iter {
             if let Some(res) = prev_res {
                 if let Some(res) = self
                     .name_spaces
@@ -83,7 +83,7 @@ mod test {
     ) -> (SymbolInterner, [DefId; ID_COUNT], [SymbolIndex; N]) {
         let mut ids = DefIdProvider::new();
         let mut interner = SymbolInterner::new();
-        let ids = std::array::from_fn(|_| ids.next());
+        let ids = std::array::from_fn(|_| ids.next_id());
         let names =
             std::array::from_fn(|index| interner.intern(names_to_intern[index].to_string()));
         (interner, ids, names)

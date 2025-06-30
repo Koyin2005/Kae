@@ -83,6 +83,9 @@ pub fn reversed_postorder(blocks: &BasicBlockInfo) -> IndexSet<BlockId> {
     traversed.reverse();
     traversed
 }
-pub fn reachable(blocks: &BasicBlockInfo) -> IndexSet<BlockId> {
+pub fn reachable(blocks: &BasicBlockInfo) -> impl Iterator<Item = BlockId> {
+    Preorder::new(blocks)
+}
+pub fn reachable_as_set(blocks: &BasicBlockInfo) -> IndexSet<BlockId> {
     Preorder::new(blocks).collect()
 }

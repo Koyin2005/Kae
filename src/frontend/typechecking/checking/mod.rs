@@ -46,6 +46,11 @@ pub struct TypeCheckResults {
     pub signatures: FxHashMap<HirId, FuncSig>,
     pub coercions: FxHashMap<HirId, Coercion>,
 }
+impl Default for TypeCheckResults {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl TypeCheckResults {
     pub fn new() -> Self {
         Self {

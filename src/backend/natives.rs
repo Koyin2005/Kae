@@ -14,7 +14,7 @@ pub fn native_input(vm: &mut VM, _: &[Value]) -> Result<Value, RuntimeError> {
             result.into(),
         ))),
         Err(err) => {
-            vm.runtime_error(&format!("{}", err));
+            vm.runtime_error(&format!("{err}",));
             Err(RuntimeError)
         }
     }

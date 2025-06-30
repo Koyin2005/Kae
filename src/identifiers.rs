@@ -42,6 +42,11 @@ pub struct SymbolInterner {
     idents: IndexVec<SymbolIndex, String>,
     ident_map: HashMap<String, SymbolIndex>,
 }
+impl Default for SymbolInterner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl SymbolInterner {
     pub fn new() -> Self {
         Self {

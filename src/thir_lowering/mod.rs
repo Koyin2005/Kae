@@ -32,7 +32,7 @@ impl<'a> MirBuild<'a> {
             .thir
             .bodies
             .into_iter()
-            .zip(body_owners.into_iter())
+            .zip(body_owners)
             .map(|((body, expr), owner)| {
                 let (id, kind) = match owner {
                     BodyOwner::AnonFunction(id) => (id, BodyKind::Anonymous),
@@ -49,7 +49,7 @@ impl<'a> MirBuild<'a> {
                 BodyBuild::new(self.context, &body, source).lower_body(expr)
             })
             .collect();
-        Mir { bodies: bodies }
+        Mir { bodies }
     }
 }
 
@@ -63,7 +63,7 @@ struct BodyBuild<'a> {
 impl<'a> BodyBuild<'a> {
     fn new(context: &'a TypeContext, body: &'a ThirBody, source: BodySource) -> Self {
         Self {
-            body: &body,
+            body,
             context,
             current_block: BlockId::new(0),
             result_body: Body {
@@ -92,7 +92,7 @@ impl<'a> BodyBuild<'a> {
                     .expect("There should be a variable");
                 self.assign_stmt(local.into(), RValue::Use(Operand::Load(place)));
                 if let Some(sub_pattern) = sub_pattern.as_ref() {
-                    self.lower_let(&sub_pattern, local.into());
+                    self.lower_let(sub_pattern, local.into());
                 }
             }
             PatternKind::Tuple(fields) => {
@@ -132,7 +132,10 @@ impl<'a> BodyBuild<'a> {
         }
     }
     fn new_temporary(&mut self, ty: Type) -> Local {
-        self.new_local(LocalInfo { ty, kind : mir::LocalKind::Temporary })
+        self.new_local(LocalInfo {
+            ty,
+            kind: mir::LocalKind::Temporary,
+        })
     }
     fn new_local(&mut self, info: LocalInfo) -> Local {
         self.result_body.locals.push(info)
@@ -160,13 +163,13 @@ impl<'a> BodyBuild<'a> {
         self.new_temporary(ty)
     }
     pub fn lower_as_place(&mut self, expr: ExprId) -> Place {
-        match &self.body.exprs[expr].kind {
-            &thir::ExprKind::Variable(variable) => self.var_to_local[&variable].into(),
-            &thir::ExprKind::Field(base, field) => {
+        match self.body.exprs[expr].kind {
+            thir::ExprKind::Variable(variable) => self.var_to_local[&variable].into(),
+            thir::ExprKind::Field(base, field) => {
                 let place = self.lower_as_place(base);
                 place.project(PlaceProjection::Field(field))
             }
-            &thir::ExprKind::Index(array, index) => {
+            thir::ExprKind::Index(array, index) => {
                 let array_place = self.lower_as_place(array);
                 let index_place = self.lower_as_place(index);
                 let index = if index_place.projections.is_empty() {
@@ -222,7 +225,7 @@ impl<'a> BodyBuild<'a> {
                 ));
                 self.current_block = new_block;
 
-                array_place.project(PlaceProjection::Index(index.into()))
+                array_place.project(PlaceProjection::Index(index))
             }
             _ => {
                 let temp = self.new_temporary_for(expr);
@@ -231,7 +234,8 @@ impl<'a> BodyBuild<'a> {
             }
         }
     }
-    fn lower_as_constant(&mut self, expr: ExprId) -> Option<Constant>{match &self.body.exprs[expr].kind {
+    fn lower_as_constant(&mut self, expr: ExprId) -> Option<Constant> {
+        match &self.body.exprs[expr].kind {
             &thir::ExprKind::Literal(literal) => {
                 let kind = match literal {
                     hir::LiteralKind::Bool(value) => mir::ConstantKind::Bool(value),
@@ -267,22 +271,22 @@ impl<'a> BodyBuild<'a> {
             _ => None,
         }
     }
-    fn lower_return_expr(&mut self, expr: ExprId){
-        match self.body.exprs[expr].kind{
+    fn lower_return_expr(&mut self, expr: ExprId) {
+        match self.body.exprs[expr].kind {
             ExprKind::Block(block) => {
                 self.lower_block_stmts(block);
-                match self.body.blocks[block].expr{
+                match self.body.blocks[block].expr {
                     Some(expr) => {
                         self.lower_return_expr(expr);
-                    },
+                    }
                     None => {
                         let operand = Operand::Constant(Constant::zero_sized(Type::new_unit()));
                         self.terminate(mir::Terminator::Return(operand));
                     }
                 }
-            },
-            ExprKind::While(_,_) | ExprKind::Print(_) => { 
-                self.lower_expr(expr, None); 
+            }
+            ExprKind::While(_, _) | ExprKind::Print(_) => {
+                self.lower_expr(expr, None);
                 let operand = Operand::Constant(Constant::zero_sized(Type::new_unit()));
                 self.terminate(mir::Terminator::Return(operand))
             }
@@ -296,8 +300,7 @@ impl<'a> BodyBuild<'a> {
         let constant = self.lower_as_constant(expr);
         if let Some(constant) = constant {
             Operand::Constant(constant)
-        }
-        else{
+        } else {
             Operand::Load(self.lower_as_place(expr))
         }
     }
@@ -312,7 +315,7 @@ impl<'a> BodyBuild<'a> {
         let scrutinee_place = self.lower_as_place(scrutinee);
         self.lower_match(place, scrutinee_place, &self.body.exprs[scrutinee].ty, arms);
     }
-    fn lower_block_stmts(&mut self, id : thir::BlockId){
+    fn lower_block_stmts(&mut self, id: thir::BlockId) {
         let block = &self.body.blocks[id];
         for &stmt in &block.stmts {
             self.lower_stmt(&self.body.stmts[stmt]);
@@ -331,13 +334,9 @@ impl<'a> BodyBuild<'a> {
                 }
             }
             &ExprKind::Return(expr) => {
-                let operand = match expr{
-                    Some(expr) => {
-                        self.lower_as_operand(expr)
-                    },
-                    None => {
-                        Operand::Constant(Constant::zero_sized(Type::new_unit()))
-                    }
+                let operand = match expr {
+                    Some(expr) => self.lower_as_operand(expr),
+                    None => Operand::Constant(Constant::zero_sized(Type::new_unit())),
                 };
                 self.terminate(Terminator::Return(operand));
                 let next_block = self.new_block();
@@ -565,12 +564,12 @@ impl<'a> BodyBuild<'a> {
         }
     }
     fn lower_stmt(&mut self, stmt: &thir::Stmt) {
-        match &stmt.kind {
-            &StmtKind::Expr(expr) => {
+        match stmt.kind {
+            StmtKind::Expr(expr) => {
                 self.lower_expr(expr, None);
             }
-            &StmtKind::Let(ref pattern, expr) => {
-                self.declare_bindings(&pattern);
+            StmtKind::Let(ref pattern, expr) => {
+                self.declare_bindings(pattern);
                 match &pattern.kind {
                     &PatternKind::Binding(_, variable, None) => {
                         let local = self.var_to_local[&variable];
@@ -589,7 +588,7 @@ impl<'a> BodyBuild<'a> {
             &PatternKind::Binding(name, variable, ref sub_pattern) => {
                 let local = self.new_local(LocalInfo {
                     ty: pattern.ty.clone(),
-                    kind : mir::LocalKind::Variable(name)
+                    kind: mir::LocalKind::Variable(name),
                 });
                 self.var_to_local.insert(variable, local);
                 if let Some(sub_pattern) = sub_pattern.as_ref() {
@@ -597,18 +596,14 @@ impl<'a> BodyBuild<'a> {
                 }
             }
             PatternKind::Tuple(elements) => {
-                for (_, element) in elements.iter().enumerate() {
+                for element in elements.iter() {
                     self.declare_bindings(element);
                 }
             }
             PatternKind::Constant(_) => (),
             PatternKind::Wildcard => (),
             PatternKind::Struct(_, _, operands) => {
-                for &FieldPattern {
-                    field: _,
-                    ref pattern,
-                } in operands.iter()
-                {
+                for FieldPattern { field: _, pattern } in operands.iter() {
                     self.declare_bindings(pattern);
                 }
             }
@@ -627,14 +622,15 @@ impl<'a> BodyBuild<'a> {
         for param in self.body.params.iter() {
             self.new_local(LocalInfo {
                 ty: param.ty.clone(),
-                kind : mir::LocalKind::Argument(None)
+                kind: mir::LocalKind::Argument(None),
             });
         }
         for (i, param) in self.body.params.iter().enumerate() {
             let param_local = Local::new(i);
             match param.pattern.kind {
                 PatternKind::Binding(name, id, None) => {
-                    self.result_body.locals[param_local].kind = mir::LocalKind::Argument(Some(name));
+                    self.result_body.locals[param_local].kind =
+                        mir::LocalKind::Argument(Some(name));
                     self.var_to_local.insert(id, param_local);
                 }
                 _ => {

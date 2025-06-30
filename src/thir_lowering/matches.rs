@@ -119,7 +119,7 @@ fn test_trees_from(
                 );
             }
             Some(PlaceTest {
-                place: place,
+                place,
                 test: TestCase::Variant(id, variant),
             })
         }
@@ -298,9 +298,9 @@ impl<'a> BodyBuild<'a> {
                 let discriminant = self.new_temporary(Type::Int);
                 self.assign_stmt(discriminant.into(), mir::RValue::Tag(place));
                 let targets = (0..self.context.expect_variants(id).len())
-                    .map(|i| VariantIndex::new(i))
+                    .map(VariantIndex::new)
                     .filter_map(|variant| {
-                        if let Some(_) = targets.get(&TestResult::Variant(id, variant)) {
+                        if targets.get(&TestResult::Variant(id, variant)).is_some() {
                             Some((
                                 variant.as_index() as u128,
                                 get_target(TestResult::Variant(id, variant)),
@@ -320,7 +320,7 @@ impl<'a> BodyBuild<'a> {
     }
     fn build_match(
         &mut self,
-        depth: usize,
+        _depth: usize,
         branches: &mut [&mut MatchBranch],
         start_block: BlockId,
     ) -> BlockId {
@@ -340,7 +340,7 @@ impl<'a> BodyBuild<'a> {
                     .map(|(test, mut branch)| {
                         let branch_block = self.new_block();
                         let branch_otherwise =
-                            self.build_match(depth + 2, &mut branch, branch_block);
+                            self.build_match(_depth + 2, &mut branch, branch_block);
                         self.current_block = branch_otherwise;
                         self.terminate(mir::Terminator::Goto(otherwise_block));
                         (test, branch_block)
@@ -352,7 +352,7 @@ impl<'a> BodyBuild<'a> {
                 (remaining, otherwise_block)
             }
         };
-        self.build_match(depth, remaining, otherwise_block)
+        self.build_match(_depth, remaining, otherwise_block)
     }
     pub fn lower_match<'b>(
         &mut self,

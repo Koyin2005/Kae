@@ -73,13 +73,11 @@ impl Pattern {
                 if !self.fields.is_empty() {
                     format!(
                         "{}({})",
-                        interner
-                            .get(
-                                context
-                                    .ident(context.get_variant_by_index(id, index).id)
-                                    .index
-                            )
-                            .to_string(),
+                        interner.get(
+                            context
+                                .ident(context.get_variant_by_index(id, index).id)
+                                .index
+                        ),
                         self.format_fields(context, interner, None.into_iter())
                     )
                 } else {
@@ -97,7 +95,7 @@ impl Pattern {
                         .map(|field| interner.get(field.name.index));
                     format!(
                         "{}{{{}}}",
-                        TypeFormatter::new(interner, context).format_type(&ty),
+                        TypeFormatter::new(interner, context).format_type(ty),
                         self.format_fields(context, interner, field_names)
                     )
                 } else {
@@ -107,8 +105,9 @@ impl Pattern {
                     )
                 }
             }
-            (Constructor::Wildcard, _) => format!("_"),
-            (Constructor::Missing | Constructor::NonExhaustive, _) => format!("_"),
+            (Constructor::Wildcard, _) | (Constructor::Missing | Constructor::NonExhaustive, _) => {
+                "_".to_string()
+            }
         }
     }
 }
@@ -143,11 +142,11 @@ impl ConstructorSet {
                     missing.push(Constructor::Bool(false));
                 }
             }
-            &Self::Variants(ref variants) => {
+            Self::Variants(variants) => {
                 let mut seen_map = vec![false; variants.len()];
                 for constructor in seen_constructors {
                     if let Constructor::Variant(variant) = *constructor {
-                        seen_map[variant.as_index() as usize] = true;
+                        seen_map[variant.as_index()] = true;
                     }
                 }
                 for (&variant, was_seen) in variants.iter().zip(seen_map) {
@@ -175,7 +174,7 @@ impl ConstructorSet {
             }
             Self::Empty => (),
             Self::Infinite => {
-                seen.extend_from_slice(&seen_constructors);
+                seen.extend_from_slice(seen_constructors);
                 missing.push(Constructor::NonExhaustive);
             }
         }
@@ -196,7 +195,7 @@ pub enum Constructor {
 }
 impl Constructor {
     pub fn is_covered_by(&self, other: &Self) -> bool {
-        let covered = match (self, other) {
+        match (self, other) {
             (_, Constructor::Wildcard) => true,
             (Constructor::NonExhaustive | Constructor::Missing, _) => false,
             (Constructor::Struct, Constructor::Struct) => true,
@@ -208,8 +207,7 @@ impl Constructor {
                 index == other_index
             }
             _ => false,
-        };
-        covered
+        }
     }
 }
 #[derive(Clone, Debug)]
@@ -221,19 +219,14 @@ impl PatternRow {
         Self { patterns: row }
     }
     pub fn first_pattern(&self) -> Option<&Pattern> {
-        self.patterns.get(0)
-    }
-    pub fn len(&self) -> usize {
-        self.patterns.len()
+        self.patterns.first()
     }
     pub fn take_first(&mut self) -> Pattern {
         self.patterns.remove(0)
     }
     pub fn specialize(&self, constructor: Constructor, fields: &[Type]) -> Option<Self> {
         let first_pattern = self.first_pattern()?;
-        let Some(new_fields) = first_pattern.specialize(constructor, fields) else {
-            return None;
-        };
+        let new_fields = first_pattern.specialize(constructor, fields)?;
         let new_row = Self {
             patterns: new_fields
                 .into_iter()
@@ -360,7 +353,7 @@ impl<'a> PatternChecker<'a> {
         }
         let ty = &matrix.column_types[0];
         /*There are no rows there can be more useful patterns*/
-        let all_constructors = self.constructors(&ty);
+        let all_constructors = self.constructors(ty);
 
         let mut had_wildcard = false;
         let seen_constructors = matrix
@@ -385,7 +378,7 @@ impl<'a> PatternChecker<'a> {
             constructors.push(Constructor::Missing);
         }
         for constructor in constructors {
-            let column_types = self.fields(&ty, constructor);
+            let column_types = self.fields(ty, constructor);
             let arity = column_types.len();
             let specialized_matrix = matrix.specialize(constructor, &column_types);
             let mut new_witnesses = self.usefulness(specialized_matrix, depth + 1);
@@ -393,7 +386,7 @@ impl<'a> PatternChecker<'a> {
                 let old_witnesses = new_witnesses;
                 let mut new_witness_matrix = PatternMatrix::new_empty(vec![]);
                 for &missing_constructor in &missing {
-                    let fields = self.fields(&ty, missing_constructor);
+                    let fields = self.fields(ty, missing_constructor);
                     let mut old_witnesses = old_witnesses.clone();
                     let wild_card_filled_pattern = Pattern {
                         ty: ty.clone(),
