@@ -134,7 +134,7 @@ impl<'a> DebugMir<'a> {
     }
     fn debug_operand(&self, operand: &Operand) -> String {
         match operand {
-            Operand::Constant(constant) => self.debug_constant(constant),
+            Operand::Constant(constant) => format!("const {}",self.debug_constant(constant)),
             Operand::Load(place) => {
                 format!("load {}", self.debug_lvalue(place))
             }
@@ -310,8 +310,8 @@ impl<'a> DebugMir<'a> {
                     output.push('}');
                     self.push_next_line(&output);
                 }
-                Terminator::Return => {
-                    self.push_next_line("return");
+                Terminator::Return(operand) => {
+                    self.push_next_line(&format!("return {}",self.debug_operand(operand)));
                 },
                 Terminator::Unreachable => {
                     self.push_next_line("unreachable");

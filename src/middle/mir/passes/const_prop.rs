@@ -250,7 +250,7 @@ impl ConstAnalysis<'_> {
                 }
                 else{ }
             },
-            Terminator::Goto(_) | Terminator::Assert(_,_,_) | Terminator::Return | Terminator::Unreachable => (),
+            Terminator::Goto(_) | Terminator::Assert(_,_,_) | Terminator::Return(_) | Terminator::Unreachable => (),
         }
         terminator.successors()
     }

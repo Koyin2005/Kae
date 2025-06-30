@@ -77,7 +77,7 @@ impl Patch {
                         *otherwise = new_block_id;
                     }
                 }
-                mir::Terminator::Return| mir::Terminator::Unreachable => (),
+                mir::Terminator::Return(_)| mir::Terminator::Unreachable => (),
             }
         }
     }

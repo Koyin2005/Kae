@@ -8,7 +8,7 @@ fn find_successors(basic_block: BlockId, body: &Body) -> Box<[BlockId]> {
     };
     match terminator {
         Terminator::Assert(_, _, next) | Terminator::Goto(next) => Box::new([*next]),
-        Terminator::Return | Terminator::Unreachable => Box::new([]),
+        Terminator::Return(_) | Terminator::Unreachable => Box::new([]),
         Terminator::Switch(_, targets, otherwise) => targets
             .iter()
             .map(|&(_, target)| target)

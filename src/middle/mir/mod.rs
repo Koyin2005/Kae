@@ -115,6 +115,9 @@ pub struct Constant {
     pub kind: ConstantKind,
 }
 impl Constant {
+    pub fn zero_sized(ty: Type) -> Self{
+        Self { ty, kind: ConstantKind::ZeroSized }
+    }
     pub fn as_aggregrate(&self) -> Option<&AggregrateConstant>{
         match self.kind{
             ConstantKind::Aggregrate(ref aggregate) => {
@@ -296,14 +299,14 @@ pub enum Terminator {
     Goto(BlockId),
     Switch(Operand, Box<[(u128, BlockId)]>, BlockId),
     Assert(Operand, AssertKind, BlockId),
-    Return,
+    Return(Operand),
     Unreachable,
 }
 impl Terminator {
     fn successors_mut<'a>(&'a mut self) -> Box<[&'a mut BlockId]> {
         match self {
             Self::Assert(_, _, block_id) | Self::Goto(block_id) => Box::new([block_id]),
-            Self::Return | Self::Unreachable => Box::new([]),
+            Self::Return(_) | Self::Unreachable => Box::new([]),
             Self::Switch(_, targets, default) => targets
                 .iter_mut()
                 .map(|(_, target)| target)
@@ -314,7 +317,7 @@ impl Terminator {
     fn successors<'a>(&'a self) -> Box<[BlockId]> {
         match self {
             &Self::Assert(_, _, block_id) | &Self::Goto(block_id) => Box::new([block_id]),
-            Self::Return | Self::Unreachable => Box::new([]),
+            Self::Return(_) | Self::Unreachable => Box::new([]),
             &Self::Switch(_, ref targets, default) => targets
                 .iter()
                 .map(|&(_, target)| target)
@@ -327,9 +330,6 @@ define_id!(pub Local);
 define_id!(pub BlockId);
 impl BlockId {
     pub const START_BLOCK: BlockId = BlockId(0);
-}
-impl Local {
-    pub const RETURN_PLACE: Local = Local(0);
 }
 impl From<Local> for Place {
     fn from(value: Local) -> Self {
@@ -365,7 +365,7 @@ pub struct Body {
 }
 impl Body {
     pub fn args(&self) -> impl Iterator<Item = Local>{
-        (1..=self.arg_count()).map(Local::new)
+        (0..self.arg_count()).map(Local::new)
     }
     pub fn arg_count(&self) -> usize{
         self.source.params.len()

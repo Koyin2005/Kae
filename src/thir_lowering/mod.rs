@@ -271,7 +271,15 @@ impl<'a> BodyBuild<'a> {
         let constant = self.lower_as_constant(expr);
         if let Some(constant) = constant {
             Operand::Constant(constant)
-        } else {
+        }
+        else if let ExprKind::Block(block) = self.body.exprs[expr].kind{
+            self.lower_block_stmts(block);
+            match self.body.blocks[block].expr{
+                Some(expr) => { self.lower_as_operand(expr) },
+                None => { Operand::Constant(Constant::zero_sized(Type::new_unit()))}
+            }
+        } 
+        else {    
             Operand::Load(self.lower_as_place(expr))
         }
     }
@@ -305,15 +313,15 @@ impl<'a> BodyBuild<'a> {
                 }
             }
             &ExprKind::Return(expr) => {
-                match expr{
+                let operand = match expr{
                     Some(expr) => {
-                        self.lower_expr(expr, Some(Local::RETURN_PLACE.into()));
+                        self.lower_as_operand(expr)
                     },
                     None => {
-                        self.assign_unit(Local::RETURN_PLACE.into());
+                        Operand::Constant(Constant::zero_sized(Type::new_unit()))
                     }
                 };
-                self.terminate(Terminator::Return);
+                self.terminate(Terminator::Return(operand));
                 let next_block = self.new_block();
                 self.current_block = next_block;
             }
@@ -597,14 +605,13 @@ impl<'a> BodyBuild<'a> {
             stmts: Vec::new(),
             terminator: None,
         });
-        self.new_local(LocalInfo { ty: self.body.exprs[expr].ty.clone() });
         for param in self.body.params.iter() {
             self.new_local(LocalInfo {
                 ty: param.ty.clone(),
             });
         }
         for (i, param) in self.body.params.iter().enumerate() {
-            let param_local = Local::new(i + 1);
+            let param_local = Local::new(i);
             match param.pattern.kind {
                 PatternKind::Binding(_, id, None) => {
                     self.var_to_local.insert(id, param_local);
@@ -615,8 +622,8 @@ impl<'a> BodyBuild<'a> {
                 }
             }
         }
-        self.lower_expr(expr, Some(Local::RETURN_PLACE.into()));
-        self.terminate(Terminator::Return);
+        let operand = self.lower_as_operand(expr);
+        self.terminate(Terminator::Return(operand));
         self.result_body
     }
 }

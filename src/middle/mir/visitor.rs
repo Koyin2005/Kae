@@ -140,8 +140,8 @@ pub trait MutVisitor {
             Terminator::Assert(condition, _, _) => {
                 self.visit_operand(condition, location);
             }
-            Terminator::Goto(_) | Terminator::Return | Terminator::Unreachable => (),
-            Terminator::Switch(operand, _, _) => {
+            Terminator::Goto(_) | Terminator::Unreachable => (),
+            Terminator::Switch(operand, _, _)  | Terminator::Return(operand) => {
                 self.visit_operand(operand, location);
             }
         }
@@ -307,8 +307,8 @@ pub trait Visitor {
             Terminator::Assert(condition, _, _) => {
                 self.visit_operand(condition, location);
             }
-            Terminator::Goto(_) | Terminator::Return| Terminator::Unreachable => (),
-            Terminator::Switch(operand, _, _)   => {
+            Terminator::Goto(_) | Terminator::Unreachable => (),
+            Terminator::Switch(operand, _, _)| Terminator::Return(operand)   => {
                 self.visit_operand(operand, location);
             }
         }
