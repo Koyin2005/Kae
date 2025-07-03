@@ -21,7 +21,7 @@ use super::{
 pub struct ResolutionError;
 pub struct Record {
     pub name: Ident,
-    pub fields: Vec<Ident>,
+    pub fields: Vec<(Ident, DefId)>,
 }
 pub type NodeMap<T> = FxHashMap<NodeId, T>;
 
@@ -31,7 +31,7 @@ pub struct NamesFound {
     pub(super) scope_map: FxHashMap<NodeId, Vec<ScopeId>>,
     pub(super) variable_def_map: FxHashMap<NodeId, Vec<VariableIndex>>,
     pub(super) structs: DefIdMap<Record>,
-    pub(super) enum_defs: DefIdMap<(Ident, Vec<(DefId, Ident)>)>,
+    pub(super) enum_defs: DefIdMap<(Ident, Vec<(DefId, Ident, Vec<DefId>)>)>,
     pub(super) generics: DefIdMap<Vec<(DefId, Ident)>>,
     pub(super) node_to_def_map: NodeMap<DefId>,
     pub(super) name_map: DefIdMap<Ident>,
@@ -332,8 +332,17 @@ impl<'b, 'a: 'b> NameFinder<'b> {
                         );
                     }
                     let id = self.def_ids.next_id();
-                    self.get_current_scope_mut()
-                        .add_binding(index, Resolution::Definition(DefKind::Param, id));
+                    self.get_current_scope_mut().add_binding(
+                        index,
+                        Resolution::Definition(
+                            if param.1.is_some() {
+                                DefKind::ConstParam
+                            } else {
+                                DefKind::Param
+                            },
+                            id,
+                        ),
+                    );
                     (
                         id,
                         Ident {
@@ -373,8 +382,11 @@ impl<'b, 'a: 'b> NameFinder<'b> {
             .expect("Any popped scopes must have prev scope");
         self.end_scope(id);
     }
-    fn find_fields(&mut self, fields: &[(ast::Symbol, ast::Type)]) -> Vec<Ident> {
-        fields.iter().map(|&(field, _)| field.into()).collect()
+    fn find_fields(&mut self, fields: &[(ast::Symbol, ast::Type)]) -> Vec<(Ident, DefId)> {
+        fields
+            .iter()
+            .map(|&(field, _)| (field.into(), self.def_ids.next_id()))
+            .collect()
     }
     fn find_names_in_method(
         &mut self,
@@ -422,7 +434,10 @@ impl<'b, 'a: 'b> NameFinder<'b> {
                                 name.span,
                             );
                         }
-                        (id, name)
+                        let fields = (0..variant.fields.len())
+                            .map(|_| self.def_ids.next_id())
+                            .collect();
+                        (id, name, fields)
                     })
                     .collect();
                 self.info.enum_defs.insert(enum_def_id, (name, variants));

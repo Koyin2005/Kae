@@ -163,7 +163,7 @@ pub struct ExprNode {
     pub id: NodeId,
     pub kind: ExprNodeKind,
 }
-pub struct ParsedGenericParam(pub Symbol);
+pub struct ParsedGenericParam(pub Symbol, pub Option<Type>);
 pub struct ParsedGenericParams(pub NodeId, pub Vec<ParsedGenericParam>);
 
 pub struct EnumVariant {
@@ -243,20 +243,20 @@ pub struct Symbol {
     pub content: SymbolIndex,
     pub location: SourceLocation,
 }
-#[derive(Clone,Debug)]
-pub struct ConstantExpr{
-    pub kind : ConstantExprKind,
-    pub location : SourceLocation
+#[derive(Clone, Debug)]
+pub struct ConstantExpr {
+    pub kind: ConstantExprKind,
+    pub location: SourceLocation,
 }
-#[derive(Clone,Debug)]
-pub enum ConstantExprKind{
+#[derive(Clone, Debug)]
+pub enum ConstantExprKind {
     Int(u64),
-    Constant(SymbolIndex)    
+    Constant(SymbolIndex),
 }
 #[derive(Clone, Debug)]
 pub enum Type {
     Path(Path),
-    Array(SourceLocation, Box<Type>, u64),
+    Array(SourceLocation, Box<Type>, ConstantExpr),
     Tuple(SourceLocation, Vec<Type>),
     Fun(SourceLocation, Vec<Type>, Option<Box<Type>>),
 }

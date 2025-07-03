@@ -13,7 +13,7 @@ use crate::{
             error::TypeError,
             items::item_check::ItemCheck,
             types::{
-                format::TypeFormatter, generics::GenericArgs, lowering::TypeLower, subst::{Subst, TypeSubst}, AdtKind, ArraySize, Type
+                format::TypeFormatter, generics::GenericArgs, lowering::TypeLower, subst::{Subst, TypeSubst}, AdtKind, ArraySize, ConstantSize, Type
             },
         },
     },
@@ -31,7 +31,7 @@ pub struct TypeChecker<'a> {
     error_reporter: ErrorReporter,
     prev_functions: RefCell<Vec<FuncContext>>,
     variable_types: RefCell<FxHashMap<VariableIndex, Type>>,
-    context: &'a TypeContext,
+    context: &'a TypeContext<'a>,
     ident_interner: &'a SymbolInterner,
     symbols: &'a GlobalSymbols,
     bodies: &'a IndexVec<BodyIndex, hir::Body>,
@@ -95,7 +95,7 @@ impl<'a> TypeChecker<'a> {
             match item {
                 hir::Item::Function(function_def) => {
                     self.check_function(
-                        &self.context.signatures[function_def.id],
+                        &self.context.signature_for(function_def.id).skip(),
                         &function_def.function,
                     );
                 }
@@ -103,9 +103,9 @@ impl<'a> TypeChecker<'a> {
                 hir::Item::Struct(_) => {}
                 hir::Item::Impl(impl_) => {
                     self.env
-                        .set_self_type(Some(SelfType(self.context.impls[impl_.id].ty.clone())));
-                    for method in &impl_.methods {
-                        self.check_function(&self.context.signatures[method.id], &method.function);
+                        .set_self_type(Some(SelfType(self.context.type_of(impl_.id).skip())));
+                    for (_,method) in &impl_.methods {
+                        self.check_function(&self.context.signature_for(method.id).skip(), &method.function);
                     }
                     self.env.set_self_type(None);
                 }
@@ -242,8 +242,7 @@ impl<'a> TypeChecker<'a> {
                 };
                 let field_types = match constructor_kind {
                     AdtKind::Enum => Some(
-                        TypeSubst::new(&generic_args)
-                            .instantiate_types(self.context.expect_variant(id).fields.iter()),
+                        self.context.expect_variant(id).field_tys(&generic_args, self.context).collect::<Vec<_>>()
                     ),
                     AdtKind::Struct => {
                         for field in fields {
@@ -366,14 +365,13 @@ impl<'a> TypeChecker<'a> {
                 );
                 match constructor_kind {
                     AdtKind::Struct => {
-                        let field_tys = self.context.structs[id]
-                            .fields
-                            .iter()
+                        let field_tys = self.context.expect_struct(id)
+                            .fields(self.context)
                             .enumerate()
                             .map(|(field_index, field)| {
                                 (
                                     field.name.index,
-                                    (FieldIndex::new(field_index), field.ty.clone()),
+                                    (FieldIndex::new(field_index),field.ty(self.context, &generic_args)),
                                 )
                             })
                             .collect::<FxHashMap<SymbolIndex, (FieldIndex, Type)>>();
@@ -498,7 +496,7 @@ impl<'a> TypeChecker<'a> {
         expected: Expectation,
     ) -> Type {
         let element_type = expected.as_type().and_then(|ty| match ty {
-            Type::Array(element_type,_) => Some(element_type.as_ref().clone()),
+            Type::Array(element_type, _) => Some(element_type.as_ref().clone()),
             _ => None,
         });
         let size = ArraySize::new(elements.len());
@@ -506,7 +504,7 @@ impl<'a> TypeChecker<'a> {
             for element in elements {
                 self.check_expr(element, Expectation::CoercesTo(element_type.clone()));
             }
-            Type::new_array(element_type,size)
+            Type::new_array(element_type, ConstantSize::Value(size))
         } else {
             let mut all_element_type = None;
             let element_types = elements
@@ -540,7 +538,7 @@ impl<'a> TypeChecker<'a> {
                         }
                     }
                 }
-                Type::new_array(element_type,size)
+                Type::new_array(element_type, ConstantSize::Value(size))
             } else {
                 self.new_error("Cannot infer type of empty array.".to_string(), span)
             }
@@ -687,8 +685,7 @@ impl<'a> TypeChecker<'a> {
                     .and_then(|(ty, (generic_args, id, kind))| match kind {
                         AdtKind::Enum => {
                             self.context.get_variant_of(id, name.index).map(|variant| {
-                                let params = TypeSubst::new(generic_args)
-                                    .instantiate_types(variant.fields.iter());
+                                let params = variant.field_tys(generic_args, self.context).collect::<Vec<_>>();
                                 self.store_generic_args(callee.id, generic_args.clone());
                                 self.store_resolution(
                                     callee.id,
@@ -793,9 +790,8 @@ impl<'a> TypeChecker<'a> {
             None => {
                 let field_ty_and_index =
                     if let &Type::Adt(ref generic_args, id, AdtKind::Struct) = &receiver_ty {
-                        self.context.structs[id]
-                            .fields
-                            .iter()
+                        self.context.expect_struct(id)
+                            .fields(self.context)
                             .enumerate()
                             .find_map(|(i, field_def)| {
                                 (field_def.name.index == name.index)
@@ -803,7 +799,7 @@ impl<'a> TypeChecker<'a> {
                             })
                             .map(|(field_def, index)| {
                                 (
-                                    TypeSubst::new(generic_args).instantiate_type(&field_def.ty),
+                                    field_def.ty(self.context, generic_args),
                                     index,
                                 )
                             })
@@ -858,7 +854,7 @@ impl<'a> TypeChecker<'a> {
         } else {
             sig.params.remove(0);
         }
-        let generic_param_len = generic_params.map_or(0, |generics| generics.param_names.len());
+        let generic_param_len = generic_params.map_or(0, |generics| generics.own_count());
         if !self.check_generic_count(generic_param_len, segment.args.len(), segment.ident.span) {
             return Type::new_error();
         }
@@ -983,14 +979,13 @@ impl<'a> TypeChecker<'a> {
         };
         match constructor_kind {
             AdtKind::Struct => {
-                let field_tys = self.context.structs[id]
-                    .fields
-                    .iter()
+                let field_tys = self.context.expect_struct(id)
+                    .fields(self.context)
                     .enumerate()
                     .map(|(field_index, field_def)| {
                         (
                             field_def.name.index,
-                            (field_def.ty.clone(), FieldIndex::new(field_index)),
+                            (field_def.ty(self.context, &generic_args), FieldIndex::new(field_index)),
                         )
                     })
                     .collect::<FxHashMap<SymbolIndex, (Type, FieldIndex)>>();
@@ -1112,7 +1107,7 @@ impl<'a> TypeChecker<'a> {
             hir::ExprKind::Index(base, index) => {
                 let base_ty = self.check_expr(base, Expectation::None);
                 self.check_expr(index, Expectation::HasType(Type::Int));
-                if let Type::Array(element_type,_) = base_ty {
+                if let Type::Array(element_type, _) = base_ty {
                     *element_type
                 } else {
                     let base_ty_string =
@@ -1196,9 +1191,8 @@ impl<'a> TypeChecker<'a> {
                 let base_ty = self.check_expr(base, Expectation::None);
                 let (field_ty, index) =
                     if let &Type::Adt(ref generic_args, id, AdtKind::Struct) = &base_ty {
-                        self.context.structs[id]
-                            .fields
-                            .iter()
+                        self.context.expect_struct(id)
+                            .fields(self.context)
                             .enumerate()
                             .find_map(|(i, field_def)| {
                                 (field_def.name.index == field.index)
@@ -1206,7 +1200,7 @@ impl<'a> TypeChecker<'a> {
                             })
                             .map(|(field_def, index)| {
                                 (
-                                    TypeSubst::new(generic_args).instantiate_type(&field_def.ty),
+                                    field_def.ty(self.context, generic_args),
                                     index,
                                 )
                             })
@@ -1332,7 +1326,7 @@ impl<'a> TypeChecker<'a> {
                             sig: _,
                             id,
                         } => (
-                            self.context.expect_generics_for(id).param_names.len(),
+                            self.context.expect_generics_for(id).own_count(),
                             receiver_generic_args,
                             Resolution::Definition(hir::DefKind::Method, id),
                         ),
@@ -1366,7 +1360,7 @@ impl<'a> TypeChecker<'a> {
                     self.check_path_segment(segment, self.context.get_generic_count(&segment.res));
                 }
                 let (generic_args, res) = match path.final_res {
-                    hir::Resolution::SelfType(id) => match &self.context.impls[id].ty {
+                    hir::Resolution::SelfType(id) => match &self.context.type_of(id).skip() {
                         &Type::Adt(ref generic_args, id, AdtKind::Struct) => (
                             generic_args.clone(),
                             Resolution::Definition(hir::DefKind::Struct, id),
@@ -1400,20 +1394,15 @@ impl<'a> TypeChecker<'a> {
         match res {
             hir::Resolution::Variable(variable) => self.variable_types.borrow()[&variable].clone(),
             hir::Resolution::Definition(hir::DefKind::Function | hir::DefKind::Method, id) => {
-                let sig = &self.context.signatures[id];
-                TypeSubst::new(&generic_args)
-                    .instantiate_signature(sig)
-                    .as_type()
+                self.context.signature_for(id).bind(&generic_args).as_type()
             }
             hir::Resolution::Definition(hir::DefKind::Variant, id) => {
                 let enum_id = self.context.expect_owner_of(id);
                 let variant = self
                     .context
-                    .get_variant(id)
-                    .expect("There should be a variant here");
+                    .expect_variant(id);
                 if as_callable {
-                    let params =
-                        TypeSubst::new(&generic_args).instantiate_types(variant.fields.iter());
+                    let params = variant.field_tys(&generic_args, self.context).collect::<Vec<_>>();
                     let return_type = Type::new_enum(generic_args, enum_id);
                     self.results.borrow_mut().signatures.insert(
                         expr_id,
@@ -1437,19 +1426,8 @@ impl<'a> TypeChecker<'a> {
                 }
             }
             hir::Resolution::Definition(hir::DefKind::Struct, id) => {
-                let struct_def = &self.context.structs[id];
+                let struct_def = self.context.expect_struct(id);
                 if as_callable {
-                    let mut all_anon_fields = true;
-                    let params = TypeSubst::new(&generic_args).instantiate_types(
-                        struct_def.fields.iter().map(|field| {
-                            all_anon_fields &= self
-                                .ident_interner
-                                .get(field.name.index)
-                                .parse::<usize>()
-                                .is_ok();
-                            &field.ty
-                        }),
-                    );
                     self.error(
                         format!(
                             "Cannot use struct '{}' as callable.",
@@ -1457,6 +1435,7 @@ impl<'a> TypeChecker<'a> {
                         ),
                         span,
                     );
+                    let params = struct_def.fields(self.context).map(|field| field.ty(self.context, &generic_args)).collect();
                     Type::new_function(params, Type::new_struct(generic_args, id))
                 } else {
                     if !struct_def.fields.is_empty() {
@@ -1474,6 +1453,9 @@ impl<'a> TypeChecker<'a> {
             hir::Resolution::Builtin(hir::BuiltinKind::Panic) => {
                 self.store_resolution(expr_id, Resolution::Builtin(hir::BuiltinKind::Panic));
                 Type::new_function(vec![Type::String], Type::Never)
+            }
+            hir::Resolution::Definition(hir::DefKind::ConstParam, id) => {
+                self.context.type_of(id).bind(generic_args)
             }
             hir::Resolution::SelfType(id) => {
                 unreachable!("Self type {:?} should already be resolved.", id)

@@ -6,8 +6,8 @@ use crate::{
     data_structures::IndexVec,
     errors::ErrorReporter,
     frontend::{
-        ast_lowering::hir::Generics,
-        parsing::ast::{self, InferPathKind, NodeId, Symbol},
+        ast_lowering::hir::{Generics, HasSelfParam},
+        parsing::ast::{self, ConstantExpr, InferPathKind, NodeId, Symbol},
         tokenizing::SourceLocation,
     },
     identifiers::BodyIndex,
@@ -136,7 +136,7 @@ impl<'a> AstLowerer<'a> {
         let generics = if let Some(ast::ParsedGenericParams(_, params)) = generics {
             let mut generics = Generics::new();
             let mut seen_names = FxHashSet::default();
-            for (ast::ParsedGenericParam(_), &(id, name)) in
+            for (ast::ParsedGenericParam(_, ty), &(id, name)) in
                 params.into_iter().zip(&self.name_info.generics[owner])
             {
                 if !seen_names.insert(name.index) {
@@ -150,7 +150,11 @@ impl<'a> AstLowerer<'a> {
                     had_error = true;
                     continue;
                 }
-                generics.params.push(hir::GenericParam(name, id));
+                generics.params.push(hir::GenericParam(
+                    name,
+                    id,
+                    ty.map(|ty| self.lower_type(&ty)).transpose()?,
+                ));
             }
             generics
         } else {
@@ -287,11 +291,36 @@ impl<'a> AstLowerer<'a> {
         }
         Ok(full_path)
     }
+    fn lower_constant_expr(&self, expr: &ConstantExpr) -> Result<hir::ConstantExpr, LoweringErr> {
+        match expr.kind {
+            ast::ConstantExprKind::Constant(constant) => self
+                .lower_path(&ast::Path {
+                    segments: vec![ast::PathSegment {
+                        name: Symbol {
+                            content: constant,
+                            location: expr.location,
+                        },
+                        generic_args: None,
+                        location: expr.location,
+                    }],
+                    location: expr.location,
+                })
+                .map(|path| hir::ConstantExpr {
+                    span: expr.location,
+                    kind: hir::ConstantExprKind::Path(path),
+                }),
+            ast::ConstantExprKind::Int(value) => Ok(hir::ConstantExpr {
+                span: expr.location,
+                kind: hir::ConstantExprKind::Int(value),
+            }),
+        }
+    }
     fn lower_type(&self, ty: &ast::Type) -> Result<hir::Type, LoweringErr> {
         let (kind, span) = match ty {
-            &ast::Type::Array(span, ref element,size) => {
+            &ast::Type::Array(span, ref element, ref constant_expr) => {
                 let element_ty = self.lower_type(element);
-                (hir::TypeKind::Array(Box::new(element_ty?),size), span)
+                let expr = self.lower_constant_expr(constant_expr);
+                (hir::TypeKind::Array(Box::new(element_ty?), expr?), span)
             }
             &ast::Type::Tuple(span, ref elements) => {
                 let element_types = elements
@@ -785,16 +814,17 @@ impl<'a> AstLowerer<'a> {
     fn lower_fields(
         &mut self,
         fields: Vec<(Symbol, ast::Type)>,
-        field_names: Vec<hir::Ident>,
+        field_names: Vec<(hir::Ident, DefId)>,
     ) -> Result<Vec<hir::FieldDef>, LoweringErr> {
         field_names
             .into_iter()
             .zip(fields)
-            .map(|(field, (_, field_ty))| {
+            .map(|((field, id), (_, field_ty))| {
                 let field_ty = self.lower_type(&field_ty);
                 field_ty.map(|field_ty| hir::FieldDef {
                     name: field,
                     ty: field_ty,
+                    id,
                 })
             })
             .collect()
@@ -832,19 +862,27 @@ impl<'a> AstLowerer<'a> {
                 let (name, ref variants) = self.name_info.enum_defs[enum_id];
                 let variants: Vec<_> = variants
                     .iter()
-                    .map(|&(variant_id, variant)| (variant_id, variant))
+                    .map(|&(variant_id, variant, ref variant_fields)| {
+                        (variant_id, variant, variant_fields)
+                    })
                     .collect();
                 let variants = variants
                     .iter()
                     .zip(enum_def.variants)
-                    .map(|(&(variant_id, variant_name), variant)| {
+                    .map(|(&(variant_id, variant_name, variant_fields), variant)| {
                         Ok(hir::VariantDef {
                             id: variant_id,
                             name: variant_name,
-                            fields: variant
-                                .fields
+                            fields: variant_fields
                                 .iter()
-                                .map(|ty| self.lower_type(ty))
+                                .copied()
+                                .zip(variant.fields.iter())
+                                .map(|(field_id, ty)| {
+                                    Ok(hir::VariantField {
+                                        id: field_id,
+                                        ty: self.lower_type(ty)?,
+                                    })
+                                })
                                 .collect::<Result<Vec<_>, _>>()?,
                         })
                     })
@@ -905,6 +943,10 @@ impl<'a> AstLowerer<'a> {
                     let mut methods = Vec::with_capacity(impl_.methods.len());
                     for mut method in impl_.methods {
                         let method = (|| {
+                            let has_self = match method.has_receiver {
+                                true => HasSelfParam::Yes,
+                                false => HasSelfParam::No,
+                            };
                             let method_id = self.expect_def_id(method.id, "Should be a method");
                             let name = self.name_info.name_map[method_id];
                             self.begin_scope(method.id);
@@ -920,12 +962,15 @@ impl<'a> AstLowerer<'a> {
                                 false,
                             );
                             self.end_scope();
-                            Ok(FunctionDef {
-                                id: method_id,
-                                generics: generics?,
-                                name,
-                                function: function?,
-                            })
+                            Ok((
+                                has_self,
+                                FunctionDef {
+                                    id: method_id,
+                                    generics: generics?,
+                                    name,
+                                    function: function?,
+                                },
+                            ))
                         })();
                         match method {
                             Ok(method) => {

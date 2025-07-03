@@ -1,8 +1,12 @@
 use crate::{
     frontend::{
-        parsing::ast::{ConstantExpr, ConstantExprKind, FunctionSig, ParsedGenericParam, ParsedMethod, ParsedParam, Symbol},
+        parsing::ast::{
+            ConstantExpr, ConstantExprKind, FunctionSig, ParsedGenericParam, ParsedMethod,
+            ParsedParam, Symbol,
+        },
         tokenizing::{
-            tokens::{Token, TokenKind}, SourceLocation
+            SourceLocation,
+            tokens::{Token, TokenKind},
         },
     },
     identifiers::SymbolInterner,
@@ -164,16 +168,15 @@ impl<'a> Parser<'a> {
             kind,
         })
     }
-    fn parse_int(&mut self) -> Result<(SourceLocation,i64),ParsingFailed>{
+    fn parse_int(&mut self) -> Result<(SourceLocation, i64), ParsingFailed> {
         let value = self.prev_token.lexeme.parse().map_err(|_| {
             self.error("Int literal is too big.");
             ParsingFailed
         })?;
-        Ok((SourceLocation::one_line(self.prev_token.line),value))
-
+        Ok((SourceLocation::one_line(self.prev_token.line), value))
     }
     fn int(&mut self) -> Result<ExprNode, ParsingFailed> {
-        let (location,value) = self.parse_int()?;
+        let (location, value) = self.parse_int()?;
         Ok(ExprNode {
             id: self.next_id(),
             location,
@@ -867,18 +870,22 @@ impl<'a> Parser<'a> {
         self.parse_precedence(Precedence::Assignment)
     }
 
-    fn parse_constant(&mut self) -> Result<ConstantExpr, ParsingFailed>{
-        Ok(if self.matches(TokenKind::Int){
-            
+    fn parse_constant(&mut self) -> Result<ConstantExpr, ParsingFailed> {
+        Ok(if self.matches(TokenKind::Int) {
             let value = self.prev_token.lexeme.parse().map_err(|_| {
                 self.error("Int literal is too big.");
                 ParsingFailed
             })?;
-            ConstantExpr{location:SourceLocation::one_line(self.prev_token.line),kind:ConstantExprKind::Int(value)}
-        }
-        else{
+            ConstantExpr {
+                location: SourceLocation::one_line(self.prev_token.line),
+                kind: ConstantExprKind::Int(value),
+            }
+        } else {
             let constant = self.parse_identifer("Expected a valid constant.");
-            ConstantExpr{location:SourceLocation::one_line(self.prev_token.line),kind:ConstantExprKind::Constant(constant.content)}
+            ConstantExpr {
+                location: SourceLocation::one_line(self.prev_token.line),
+                kind: ConstantExprKind::Constant(constant.content),
+            }
         })
     }
     fn parse_type(&mut self) -> Result<Type, ParsingFailed> {
@@ -890,11 +897,10 @@ impl<'a> Parser<'a> {
                 let start = self.prev_token.line;
                 let ty = self.parse_type()?;
                 self.expect(TokenKind::Coma, "Expected ',' after array element type");
-                self.advance();
-                let _ = self.parse_constant()?;
+                let constant = self.parse_constant()?;
                 self.expect(TokenKind::RightBracket, "Expect ']'.");
                 let end = self.prev_token.line;
-                Type::Array(SourceLocation::new(start, end), Box::new(ty),0)
+                Type::Array(SourceLocation::new(start, end), Box::new(ty), constant)
             } else if self.matches(TokenKind::LeftParen) {
                 let start = self.prev_token.line;
                 let mut elements = Vec::new();
@@ -1162,8 +1168,17 @@ impl<'a> Parser<'a> {
     }
     fn parse_generic_params(&mut self) -> Result<ParsedGenericParams, ParsingFailed> {
         fn parse_generic_param(this: &mut Parser) -> Result<ParsedGenericParam, ParsingFailed> {
-            let name = this.parse_identifer("Expect valid generic parameter name.");
-            Ok(ParsedGenericParam(name))
+            let (name, ty) = if this.matches(TokenKind::Const) {
+                let name = this.parse_identifer("Expect valid generic parameter name.");
+                this.expect(TokenKind::Colon, "Expected a ':' after const param.");
+                (name, Some(this.parse_type()?))
+            } else {
+                (
+                    this.parse_identifer("Expect valid generic parameter name."),
+                    None,
+                )
+            };
+            Ok(ParsedGenericParam(name, ty))
         }
         let id = self.next_id();
         let params = if self.check(TokenKind::RightBracket) {
@@ -1356,7 +1371,7 @@ impl<'a> Parser<'a> {
                                 types: generic_params
                                     .1
                                     .iter()
-                                    .map(|&ParsedGenericParam(name)| {
+                                    .map(|&ParsedGenericParam(name, _)| {
                                         Type::Path(Path {
                                             segments: vec![name.into()],
                                             location: name.location,

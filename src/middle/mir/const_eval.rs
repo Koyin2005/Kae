@@ -1,32 +1,37 @@
 use crate::{
-    data_structures::IntoIndex, frontend::ast_lowering::hir::{BinaryOp, UnaryOp}, identifiers::FieldIndex, middle::mir::{AggregrateConstant, Constant, ConstantNumber}
+    data_structures::IntoIndex,
+    frontend::ast_lowering::hir::{BinaryOp, UnaryOp},
+    identifiers::FieldIndex,
+    middle::mir::{AggregrateConstant, Constant, ConstantNumber, ConstantValue},
 };
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ConstEvalError {
     DivisionByZero,
     InvalidTypes,
-    IndexOutofBounds{
-        len:u64,
-        index:u64
-    }
+    IndexOutofBounds { len: u64, index: u64 },
 }
-pub fn eval_field(value: &Constant, index: FieldIndex) -> Result<Constant,ConstEvalError>{
-    let Some(AggregrateConstant::Adt(_,_,_,fields)) = value.as_aggregrate() else{
+pub fn eval_field(value: &Constant, index: FieldIndex) -> Result<Constant, ConstEvalError> {
+    let Some(AggregrateConstant::Adt(_, _, _, fields)) = value.as_aggregrate() else {
         return Err(ConstEvalError::InvalidTypes);
     };
-    fields.get(index.as_index()).ok_or_else(||{
-        ConstEvalError::InvalidTypes
-    }).cloned()
+    fields
+        .get(index.as_index())
+        .ok_or_else(|| ConstEvalError::InvalidTypes)
+        .cloned()
 }
-pub fn eval_index(value: &Constant, index: u64) -> Result<Constant,ConstEvalError>{
-    let Some(AggregrateConstant::Array(elements)) = value.as_aggregrate() else{
+pub fn eval_index(value: &Constant, index: u64) -> Result<Constant, ConstEvalError> {
+    let Some(AggregrateConstant::Array(elements)) = value.as_aggregrate() else {
         return Err(ConstEvalError::InvalidTypes);
     };
-    elements.get(index as usize).ok_or_else(||{
-        ConstEvalError::IndexOutofBounds { len: elements.len() as u64, index }
-    }).cloned()
+    elements
+        .get(index as usize)
+        .ok_or_else(|| ConstEvalError::IndexOutofBounds {
+            len: elements.len() as u64,
+            index,
+        })
+        .cloned()
 }
-pub fn eval_unary_op(op: UnaryOp, operand: Constant) -> Result<Constant, ConstEvalError> {
+pub fn eval_unary_op(op: UnaryOp, operand: Constant) -> Result<ConstantValue, ConstEvalError> {
     operand
         .as_number()
         .and_then(|number| match number {
@@ -42,7 +47,7 @@ pub fn eval_binary_op(
     op: BinaryOp,
     left: Constant,
     right: Constant,
-) -> Result<Constant, ConstEvalError> {
+) -> Result<ConstantValue, ConstEvalError> {
     match op {
         BinaryOp::Add => {
             let ConstantNumber::Int(left) = left.as_number().ok_or(ConstEvalError::InvalidTypes)?

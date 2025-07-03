@@ -19,7 +19,7 @@ use super::{
 pub struct DebugMir<'a> {
     output: String,
     symbol_interner: &'a SymbolInterner,
-    context: &'a TypeContext,
+    context: &'a TypeContext<'a>,
     indents: usize,
 }
 
@@ -68,6 +68,12 @@ impl<'a> DebugMir<'a> {
         output
     }
     fn debug_constant(&self, constant: &Constant) -> String {
+        let constant = match constant{
+            Constant::Value(constant) => constant,
+            &Constant::Param(_,id) => {
+                return self.context.format_full_path(id, self.symbol_interner);
+            }
+        };
         let value = match &constant.kind {
             ConstantKind::Bool(value) => value.to_string(),
             ConstantKind::Int(value) => value.to_string(),
@@ -130,7 +136,7 @@ impl<'a> DebugMir<'a> {
                         } else {
                             let mut is_first = true;
                             for (field_def, field) in
-                                self.context.field_defs(id).iter().zip(aggregate.fields())
+                                self.context.field_defs(id).zip(aggregate.fields())
                             {
                                 if !is_first {
                                     output.push(',');
@@ -225,7 +231,9 @@ impl<'a> DebugMir<'a> {
                             operands.index_value_iter().map(|(index, operand)| {
                                 (
                                     self.symbol_interner.get(
-                                        self.context.expect_struct(id).fields[index.as_index()]
+                                        self.context
+                                            .expect_struct(id)
+                                            .field(index, self.context)
                                             .name
                                             .index,
                                     ),
@@ -248,7 +256,7 @@ impl<'a> DebugMir<'a> {
                     }
                 }
             }
-            RValue::Array(_,elements) => {
+            RValue::Array(_, elements) => {
                 if elements.is_empty() {
                     "[]".to_string()
                 } else {

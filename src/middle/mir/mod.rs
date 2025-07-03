@@ -7,9 +7,7 @@ use crate::{
         ast_lowering::hir::{BinaryOp, BuiltinKind, DefId, UnaryOp},
         typechecking::{
             context::TypeContext,
-            types::{
-                generics::GenericArgs, subst::{Subst, TypeSubst}, Type
-            },
+            types::{Type, generics::GenericArgs},
         },
     },
     identifiers::{BodyIndex, FieldIndex, SymbolIndex, VariantIndex},
@@ -79,7 +77,7 @@ pub enum ConstantNumber {
     Float(f64),
     Int(i64),
 }
-impl From<ConstantNumber> for Constant {
+impl From<ConstantNumber> for ConstantValue {
     fn from(value: ConstantNumber) -> Self {
         match value {
             ConstantNumber::Float(value) => Self {
@@ -107,12 +105,50 @@ impl AggregrateConstant {
         }
     }
 }
+
 #[derive(Clone, Debug, PartialEq, Hash, Eq)]
-pub struct Constant {
+pub enum Constant {
+    Param(Type,DefId),
+    Value(ConstantValue)
+}
+impl From<ConstantValue> for Constant{
+    fn from(value: ConstantValue) -> Self {
+        Self::Value(value)
+    }
+}
+impl Constant{
+    pub fn int(value: i64) -> Self{
+        Self::Value(ConstantValue { ty: Type::Int, kind: ConstantKind::Int(value) })
+    }
+    pub fn as_value(&self) -> Option<&ConstantValue>{
+        match self{
+            Self::Value(value) => Some(value),
+            Self::Param(..) => None
+        }
+    }
+    pub fn zero_sized(ty: Type) -> Self {
+        ConstantValue::zero_sized(ty).into()
+    }
+    pub fn as_aggregrate(&self) -> Option<&AggregrateConstant> {
+        self.as_value()?.as_aggregrate()
+    }
+    pub fn is_float(&self) -> bool {
+        self.as_value().is_some_and(|val| val.is_float())
+    }
+    pub fn eval_to_scalar(&self) -> Option<u128> {
+        self.as_value()?.eval_to_scalar()
+    }
+    pub fn as_number(&self) -> Option<ConstantNumber> {
+        self.as_value()?.as_number()
+    }
+
+}
+#[derive(Clone, Debug, PartialEq, Hash, Eq)]
+pub struct ConstantValue {
     pub ty: Type,
     pub kind: ConstantKind,
 }
-impl Constant {
+impl ConstantValue{
     pub fn zero_sized(ty: Type) -> Self {
         Self {
             ty,
@@ -144,9 +180,9 @@ impl Constant {
         }
     }
 }
-impl From<bool> for Constant {
+impl From<bool> for ConstantValue {
     fn from(value: bool) -> Self {
-        Constant {
+        Self {
             ty: Type::Bool,
             kind: ConstantKind::Bool(value),
         }
@@ -233,8 +269,10 @@ impl Place {
                     if let Some(&&PlaceProjection::Field(field)) = projection_iter.peek() {
                         let (generic_args, id, _) =
                             ty.as_adt().expect("There should be a def id for enums");
-                        ty = TypeSubst::new(generic_args).instantiate_type(
-                            &ctxt.get_variant_by_index(id, variant_index).fields[field.as_index()],
+                        ty = ctxt.get_variant_by_index(id, variant_index).field_ty(
+                            field,
+                            generic_args,
+                            ctxt,
                         );
                         projection_iter.next();
                     }

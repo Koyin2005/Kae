@@ -1,10 +1,7 @@
 use fxhash::FxHashSet;
 
 use crate::{
-    frontend::typechecking::{
-        context::TypeContext,
-        types::subst::{Subst, TypeSubst},
-    },
+    frontend::typechecking::context::TypeContext,
     middle::mir::{Body, Operand, RValue, Stmt, Terminator, passes::MirPass},
 };
 
@@ -35,14 +32,8 @@ impl MirPass for RemoveUnreachableBranches {
                     .enumerate()
                     .filter_map(|(i, variant)| {
                         variant
-                            .fields
-                            .iter()
-                            .all(|field| {
-                                ctxt.is_type_inhabited(
-                                    &TypeSubst::new(generic_args).instantiate_type(field),
-                                )
-                            })
-                            .then_some(i as u128)
+                            .field_tys(generic_args, ctxt)
+                            .find_map(|ty| ctxt.is_type_inhabited(&ty).then_some(i as u128))
                     })
                     .collect::<FxHashSet<_>>();
                 let mut targets = targets

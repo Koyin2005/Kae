@@ -340,7 +340,7 @@ impl Map {
 struct PlaceCollector<'a> {
     map: &'a mut Map,
     body: &'a Body,
-    context: &'a TypeContext,
+    context: &'a TypeContext<'a>,
 }
 impl Visitor for PlaceCollector<'_> {
     fn visit_place(&mut self, place: &Place, _: PlaceContext, _: Location) {

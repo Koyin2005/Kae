@@ -1,7 +1,10 @@
 use crate::{
     errors::ErrorReporter, frontend::{
         ast_lowering::hir::{self, DefKind, GenericArg, Resolution},
-        typechecking::{context::{FuncSig, TypeContext}, types::ArraySize},
+        typechecking::{
+            context::{FuncSig, GenericParam, TypeContext},
+            types::{ArraySize, ConstantSize},
+        },
     }, SymbolInterner
 };
 
@@ -9,7 +12,7 @@ use super::{AdtKind, Type, format::TypeFormatter, generics::GenericArgs};
 
 pub struct TypeLower<'a> {
     interner: &'a SymbolInterner,
-    context: &'a TypeContext,
+    context: &'a TypeContext<'a>,
     self_type: Option<Type>,
     error_reporter: &'a ErrorReporter,
     ignore_methods: bool,
@@ -99,7 +102,7 @@ impl<'a> TypeLower<'a> {
                 }
                 Resolution::Primitive(_)
                 | Resolution::Variable(_)
-                | Resolution::Definition(DefKind::Param, _)
+                | Resolution::Definition(DefKind::Param|DefKind::ConstParam, _)
                 | Resolution::SelfType(_)
                 | Resolution::Builtin(_) => return None,
             })
@@ -126,15 +129,24 @@ impl<'a> TypeLower<'a> {
             hir::Resolution::Definition(hir::DefKind::Param, id) => {
                 let owner = self.context.expect_owner_of(id);
                 let generics = self.context.expect_generics_for(owner);
-                let index = self.context.expect_index_for(id);
-                let symbol = generics.param_at(index as usize).index;
-                Type::Param(index, symbol)
+                let index = generics
+                    .id_to_index(id, self.context)
+                    .expect("This should be a generic param");
+                let GenericParam { id: _, name, index,kind:_ } =
+                    generics.param_at(index as usize, self.context);
+                Type::Param(index, name.index)
+            },
+            Resolution::Definition(DefKind::AnonFunction | DefKind::Method, _) => {
+                unreachable!("These cannot be produced for a resolution before type checking")
             }
             Resolution::SelfType(_) => self
                 .self_type
                 .clone()
                 .expect("Should always have a self type whenever Self appears"),
-            _ => {
+            Resolution::Builtin(_)
+            | Resolution::Variable(_)
+            | Resolution::None
+            | Resolution::Definition(DefKind::Variant | DefKind::Function | hir::DefKind::ConstParam, _) => {
                 self.error_reporter.emit(
                     format!("Cannot use '{}' as type.", path.format(self.interner)),
                     path.span,
@@ -143,9 +155,49 @@ impl<'a> TypeLower<'a> {
             }
         }
     }
+
+    pub fn lower_const_value(&self, expr: &hir::ConstantExpr) -> ConstantSize{
+        match expr.kind{
+            hir::ConstantExprKind::Int(value) => ConstantSize::Value(ArraySize(value)),
+            hir::ConstantExprKind::Path(ref q_path) => {
+                match q_path{
+                    hir::QualifiedPath::TypeRelative(_,_) => {
+                        self.error_reporter.emit(
+                            format!("Cannot use '{}' as const.", q_path.format(self.interner)),
+                            q_path.span(),
+                        );
+                        ConstantSize::Error
+                    },
+                    hir::QualifiedPath::FullyResolved(path) => {
+                        match path.final_res {
+                            Resolution::Definition(DefKind::ConstParam,id) => {
+                                let owner = self.context.expect_owner_of(id);
+                                let generics = self.context.expect_generics_for(owner);
+                                let index = generics
+                                    .id_to_index(id, self.context)
+                                    .expect("This should be a generic param");
+                                let GenericParam { id: _, name, index,kind:_ } =
+                                    generics.param_at(index as usize, self.context);
+                                ConstantSize::Constant(index, name.index)
+                            },
+                            _ => {
+                                self.error_reporter.emit(
+                                    format!("Cannot use '{}' as const.", path.format(self.interner)),
+                                    q_path.span(),
+                                );
+                                ConstantSize::Error
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     pub fn lower_type(&self, ty: &hir::Type) -> Type {
         match &ty.kind {
-            hir::TypeKind::Array(element,size) => Type::new_array(self.lower_type(element),ArraySize::new((*size) as usize)),
+            hir::TypeKind::Array(element, size) => {
+                Type::new_array(self.lower_type(element), self.lower_const_value(size))
+            }
             hir::TypeKind::Function(params, return_type) => Type::new_function(
                 params.iter().map(|param| self.lower_type(param)).collect(),
                 return_type
@@ -211,7 +263,9 @@ impl<'a> TypeLower<'a> {
             | hir::Resolution::Variable(_)
             | hir::Resolution::None
             | hir::Resolution::SelfType(_)
-            | hir::Resolution::Definition(hir::DefKind::Param, _) => vec![],
+            | hir::Resolution::Definition(hir::DefKind::Param | hir::DefKind::ConstParam, _) => {
+                vec![]
+            }
         }
     }
 }

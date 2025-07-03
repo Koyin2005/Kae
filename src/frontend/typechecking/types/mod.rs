@@ -6,13 +6,7 @@ use indexmap::IndexMap;
 
 use crate::{
     data_structures::IntoIndex,
-    frontend::{
-        ast_lowering::hir::DefId,
-        typechecking::{
-            context::TypeContext,
-            types::subst::{Subst, TypeSubst},
-        },
-    },
+    frontend::{ast_lowering::hir::DefId, typechecking::context::TypeContext},
     identifiers::{FieldIndex, SymbolIndex},
 };
 
@@ -26,21 +20,27 @@ pub enum AdtKind {
     Struct,
     Enum,
 }
-#[derive(Clone, Copy,Debug,PartialEq,Eq,Hash,PartialOrd,Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ArraySize(u64);
-impl ArraySize{
-    pub const ZERO : Self = Self(0);
-    pub fn is_zero(self) -> bool{
+impl ArraySize {
+    pub const ZERO: Self = Self(0);
+    pub fn is_zero(self) -> bool {
         self == Self::ZERO
     }
-    pub fn new(value: usize) -> Self{
+    pub fn new(value: usize) -> Self {
         Self(value.try_into().expect("Can't convert to a usize"))
     }
-    pub fn into_size(self) -> usize{
+    pub fn into_size(self) -> usize {
         self.0.try_into().expect("Can't convert to a usize")
     }
 }
-impl From<usize> for ArraySize{
+#[derive(Clone, Copy,PartialEq, Eq,Hash,Debug)]
+pub enum ConstantSize {
+    Constant(u32,SymbolIndex),
+    Error,
+    Value(ArraySize)
+}
+impl From<usize> for ArraySize {
     fn from(value: usize) -> Self {
         ArraySize(value.try_into().expect("Can't convert usize into u64"))
     }
@@ -55,7 +55,7 @@ pub enum Type {
     Error,
     Param(u32, SymbolIndex),
     Function(Vec<Type>, Box<Type>),
-    Array(Box<Type>,ArraySize),
+    Array(Box<Type>, ConstantSize),
     Tuple(Vec<Type>),
     Adt(GenericArgs, DefId, AdtKind),
 }
@@ -119,7 +119,9 @@ impl Type {
                 }
                 Some(subst)
             }
-            (Self::Array(elements,self_size), Self::Array(other_elements,other_size)) if self_size == other_size => {
+            (Self::Array(elements, self_size), Self::Array(other_elements, other_size))
+                if self_size == other_size =>
+            {
                 elements.get_substitution(other_elements)
             }
             (ty, other_ty) => {
@@ -161,8 +163,8 @@ impl Type {
     pub fn new_tuple(elements: Vec<Self>) -> Self {
         Self::Tuple(elements)
     }
-    pub fn new_array(element: Self, size: ArraySize) -> Self {
-        Self::Array(Box::new(element),size)
+    pub fn new_array(element: Self, size: ConstantSize) -> Self {
+        Self::Array(Box::new(element), size)
     }
     pub fn new_error() -> Self {
         Type::Error
@@ -184,7 +186,7 @@ impl Type {
     }
     pub fn index_of(&self) -> Option<Type> {
         match self {
-            Self::Array(element_type,_) => Some(*element_type.clone()),
+            Self::Array(element_type, _) => Some(*element_type.clone()),
             _ => None,
         }
     }
@@ -196,10 +198,9 @@ impl Type {
     }
     pub fn field(&self, ctxt: &TypeContext, field_index: FieldIndex) -> Option<Type> {
         match self {
-            Self::Adt(args, id, AdtKind::Struct) => Some(
-                TypeSubst::new(args)
-                    .instantiate_type(&ctxt.field_defs(*id)[field_index.as_index()].ty),
-            ),
+            &Self::Adt(ref args, id, AdtKind::Struct) => {
+                Some(ctxt.field_def(id, field_index).ty(ctxt, args))
+            }
             Self::Tuple(elements) => elements.get(field_index.as_index()).cloned(),
             _ => None,
         }
@@ -226,7 +227,7 @@ impl<'a> Iterator for TypeIterator<'a> {
                     Type::Tuple(elements) => {
                         self.ty.extend(elements);
                     }
-                    Type::Array(ty,_) => {
+                    Type::Array(ty, _) => {
                         self.ty.push_back(ty);
                     }
                     _ => {}

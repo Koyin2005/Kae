@@ -4,6 +4,7 @@ pub mod frontend;
 mod identifiers;
 pub mod middle;
 pub mod thir_lowering;
+pub use errors::ErrorReporter;
 pub use identifiers::GlobalSymbols;
 pub use identifiers::SymbolInterner;
 mod errors;

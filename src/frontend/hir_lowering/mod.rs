@@ -36,10 +36,10 @@ impl<'a> BodyLower<'a> {
             },
         }
     }
-    fn lower(mut self, body: hir::Body) -> (ThirBody, ExprId) {
-        for param in body.params {
+    fn lower(mut self, body: &hir::Body) -> (ThirBody, ExprId) {
+        for param in &body.params {
             let span = param.pattern.span;
-            let pattern = self.lower_pattern(param.pattern);
+            let pattern = self.lower_pattern(&param.pattern);
             if !PatternChecker::new(self.type_context())
                 .check_exhaustive(vec![lower_to_pattern(&pattern)], &pattern.ty)
                 .missing_patterns()
@@ -54,7 +54,7 @@ impl<'a> BodyLower<'a> {
                 pattern,
             });
         }
-        let id = self.lower_expr(body.value);
+        let id = self.lower_expr(&body.value);
         (self.thir, id)
     }
     fn results(&self) -> &TypeCheckResults {
@@ -63,35 +63,35 @@ impl<'a> BodyLower<'a> {
     fn type_context(&self) -> &TypeContext {
         self.lower_context.context
     }
-    fn lower_stmts<F>(&mut self, stmts: impl Iterator<Item = hir::Stmt>) -> F
+    fn lower_stmts<'b,F>(&mut self, stmts: impl Iterator<Item = &'b hir::Stmt>) -> F
     where
         F: FromIterator<StmtId>,
     {
         stmts.filter_map(|stmt| self.lower_stmt(stmt)).collect()
     }
-    fn lower_exprs<F>(&mut self, exprs: impl Iterator<Item = hir::Expr>) -> F
+    fn lower_exprs<'b,F>(&mut self, exprs: impl Iterator<Item = &'b hir::Expr>) -> F
     where
         F: FromIterator<ExprId>,
     {
         exprs.map(|expr| self.lower_expr(expr)).collect()
     }
-    fn lower_pattern(&mut self, pattern: hir::Pattern) -> thir::Pattern {
+    fn lower_pattern(&mut self, pattern: &hir::Pattern) -> thir::Pattern {
         let ty = self.results().node_types[&pattern.id].clone();
         let kind = match pattern.kind {
-            hir::PatternKind::Binding(variable, name, sub_pattern) => thir::PatternKind::Binding(
+            hir::PatternKind::Binding(variable, name, ref sub_pattern) => thir::PatternKind::Binding(
                 name.index,
                 variable,
-                sub_pattern.map(|pattern| Box::new(self.lower_pattern(*pattern))),
+                sub_pattern.as_ref().map(|pattern| Box::new(self.lower_pattern(pattern))),
             ),
             hir::PatternKind::Wildcard => thir::PatternKind::Wildcard,
             hir::PatternKind::Literal(literal) => thir::PatternKind::Constant(literal),
-            hir::PatternKind::Tuple(patterns) => thir::PatternKind::Tuple(
+            hir::PatternKind::Tuple(ref patterns) => thir::PatternKind::Tuple(
                 patterns
-                    .into_iter()
+                    .iter()
                     .map(|pattern| self.lower_pattern(pattern))
                     .collect(),
             ),
-            hir::PatternKind::Struct(_, fields) => {
+            hir::PatternKind::Struct(_, ref fields) => {
                 let id = match self.results().resolutions[&pattern.id] {
                     hir::Resolution::Definition(hir::DefKind::Struct, id) => id,
                     res => unreachable!("Unknown resolution {:?} found for pattern", res),
@@ -104,12 +104,12 @@ impl<'a> BodyLower<'a> {
                         .into_iter()
                         .map(|field_pattern| thir::FieldPattern {
                             field: self.results().fields[&field_pattern.id],
-                            pattern: self.lower_pattern(field_pattern.pattern),
+                            pattern: self.lower_pattern(&field_pattern.pattern),
                         })
                         .collect(),
                 )
             }
-            hir::PatternKind::Variant(_, fields) => {
+            hir::PatternKind::Variant(_, ref fields) => {
                 let id = match self.results().resolutions[&pattern.id] {
                     hir::Resolution::Definition(hir::DefKind::Variant, id) => id,
                     res => unreachable!("Unknown resolution {:?} found for pattern", res),
@@ -151,15 +151,15 @@ impl<'a> BodyLower<'a> {
             kind,
         }
     }
-    fn lower_stmt(&mut self, stmt: hir::Stmt) -> Option<StmtId> {
+    fn lower_stmt(&mut self, stmt: &hir::Stmt) -> Option<StmtId> {
         Some(match stmt.kind {
-            hir::StmtKind::Expr(expr) => {
+            hir::StmtKind::Expr(ref expr) => {
                 let expr_id = self.lower_expr(expr);
                 self.thir.stmts.push(Stmt {
                     kind: StmtKind::Expr(expr_id),
                 })
             }
-            hir::StmtKind::Let(pattern, _, expr) => {
+            hir::StmtKind::Let(ref pattern, _, ref expr) => {
                 let pattern = self.lower_pattern(pattern);
                 let expr = self.lower_expr(expr);
                 if !PatternChecker::new(self.type_context())
@@ -176,7 +176,7 @@ impl<'a> BodyLower<'a> {
                     kind: StmtKind::Let(Box::new(pattern), expr),
                 })
             }
-            hir::StmtKind::Semi(expr) => {
+            hir::StmtKind::Semi(ref expr) => {
                 let expr = self.lower_expr(expr);
                 self.thir.stmts.push(Stmt {
                     kind: StmtKind::Expr(expr),
@@ -231,19 +231,25 @@ impl<'a> BodyLower<'a> {
             }
             hir::Resolution::Builtin(hir::BuiltinKind::Panic) => {
                 thir::ExprKind::Builtin(GenericArgs::new_empty(), hir::BuiltinKind::Panic)
+            },
+            hir::Resolution::Definition(hir::DefKind::ConstParam,id) => {
+                thir::ExprKind::Constant(id)
+            },
+            hir::Resolution::SelfType(_) => { unreachable!("This should have been simplified but it can't appear")},
+            hir::Resolution::None | hir::Resolution::Primitive(_) | hir::Resolution::Definition(hir::DefKind::AnonFunction | hir::DefKind::Param | hir::DefKind::Enum| hir::DefKind::Struct,_) => {
+                unreachable!("These can't be resolutions for a path expression")
             }
-            _ => unreachable!("Should all be simplified"),
         })
     }
-    fn lower_expr(&mut self, expr: hir::Expr) -> ExprId {
+    fn lower_expr(&mut self, expr: &hir::Expr) -> ExprId {
         let ty = self.results().node_types[&expr.id].clone();
-        let kind = match expr.kind {
-            hir::ExprKind::Literal(literal) => thir::ExprKind::Literal(literal),
+        let kind = match &expr.kind {
+            &hir::ExprKind::Literal(literal) => thir::ExprKind::Literal(literal),
             hir::ExprKind::Array(elements) => {
-                thir::ExprKind::Array(self.lower_exprs(elements.into_iter()))
+                thir::ExprKind::Array(self.lower_exprs(elements.iter()))
             }
             hir::ExprKind::Call(callee, args) => {
-                let callee = *callee;
+                let callee = callee.as_ref();
                 let adt_def = if let hir::ExprKind::Path(_) = callee.kind {
                     if let hir::Resolution::Definition(hir::DefKind::Variant, id) =
                         self.results().resolutions[&callee.id]
@@ -268,7 +274,7 @@ impl<'a> BodyLower<'a> {
                         generic_args,
                         variant: Some(variant_index),
                         fields: args
-                            .into_iter()
+                            .iter()
                             .enumerate()
                             .map(|(i, arg)| FieldExpr {
                                 field: FieldIndex::new(i),
@@ -284,37 +290,37 @@ impl<'a> BodyLower<'a> {
                 }
             }
             hir::ExprKind::Field(base, _) => {
-                thir::ExprKind::Field(self.lower_expr(*base), self.results().fields[&expr.id])
+                thir::ExprKind::Field(self.lower_expr(base), self.results().fields[&expr.id])
             }
             hir::ExprKind::Tuple(elements) => {
-                thir::ExprKind::Tuple(self.lower_exprs(elements.into_iter()))
+                thir::ExprKind::Tuple(self.lower_exprs(elements.iter()))
             }
-            hir::ExprKind::Binary(op, left, right) => {
-                thir::ExprKind::Binary(op, self.lower_expr(*left), self.lower_expr(*right))
+            &hir::ExprKind::Binary(op, ref left, ref right) => {
+                thir::ExprKind::Binary(op, self.lower_expr(left), self.lower_expr(right))
             }
-            hir::ExprKind::Unary(op, operand) => {
-                thir::ExprKind::Unary(op, self.lower_expr(*operand))
+            &hir::ExprKind::Unary(op, ref operand) => {
+                thir::ExprKind::Unary(op, self.lower_expr(operand))
             }
-            hir::ExprKind::Assign(left, right) => {
-                thir::ExprKind::Assign(self.lower_expr(*left), self.lower_expr(*right))
+            hir::ExprKind::Assign(left,right) => {
+                thir::ExprKind::Assign(self.lower_expr(left), self.lower_expr(right))
             }
-            hir::ExprKind::Logical(op, left, right) => {
-                thir::ExprKind::Logical(op, self.lower_expr(*left), self.lower_expr(*right))
+            &hir::ExprKind::Logical(op,ref left, ref right) => {
+                thir::ExprKind::Logical(op, self.lower_expr(left), self.lower_expr(right))
             }
             hir::ExprKind::If(condition, then_branch, else_branch) => thir::ExprKind::If(
-                self.lower_expr(*condition),
-                self.lower_expr(*then_branch),
-                else_branch.map(|else_branch| self.lower_expr(*else_branch)),
+                self.lower_expr(condition),
+                self.lower_expr(then_branch),
+                else_branch.as_ref().map(|else_branch| self.lower_expr(else_branch)),
             ),
             hir::ExprKind::Return(return_expr) => {
-                thir::ExprKind::Return(return_expr.map(|return_expr| self.lower_expr(*return_expr)))
+                thir::ExprKind::Return(return_expr.as_ref().map(|return_expr| self.lower_expr(return_expr)))
             }
             hir::ExprKind::Path(_) => self
                 .lower_expr_as_path(expr.id)
                 .unwrap_or_else(|| panic!("There should be a resolution for '{expr:?}'.")),
             hir::ExprKind::Block(stmts, result_expr) => {
                 let stmts = self.lower_stmts(stmts.into_iter());
-                let expr = result_expr.map(|result_expr| self.lower_expr(*result_expr));
+                let expr = result_expr.as_ref().map(|result_expr| self.lower_expr(result_expr));
                 thir::ExprKind::Block(self.thir.blocks.push(Block { stmts, expr }))
             }
             hir::ExprKind::Print(args) => {
@@ -322,16 +328,16 @@ impl<'a> BodyLower<'a> {
                 thir::ExprKind::Print(args)
             }
             hir::ExprKind::Index(left, right) => {
-                thir::ExprKind::Index(self.lower_expr(*left), self.lower_expr(*right))
+                thir::ExprKind::Index(self.lower_expr(left), self.lower_expr(right))
             }
             hir::ExprKind::Match(scrutinee, arms) => {
-                let scrutinee = self.lower_expr(*scrutinee);
+                let scrutinee = self.lower_expr(scrutinee);
                 let arms: Box<[thir::ArmId]> = arms
                     .into_iter()
                     .map(|arm| {
                         let arm = thir::Arm {
-                            pat: Box::new(self.lower_pattern(arm.pat)),
-                            body: self.lower_expr(arm.body),
+                            pat: Box::new(self.lower_pattern(&arm.pat)),
+                            body: self.lower_expr(&arm.body),
                         };
                         self.thir.arms.push(arm)
                     })
@@ -373,7 +379,7 @@ impl<'a> BodyLower<'a> {
             hir::ExprKind::MethodCall(receiver, method, args) => {
                 let expr_id = expr.id;
                 let (callee, args) = if let Some(kind) = self.lower_expr_as_path(expr_id) {
-                    let args = self.lower_exprs(std::iter::once(*receiver).chain(args));
+                    let args = self.lower_exprs(std::iter::once(receiver.as_ref()).chain(args));
                     (
                         self.thir.exprs.push(Expr {
                             ty: self.results().signatures[&expr.id].as_type(),
@@ -383,7 +389,7 @@ impl<'a> BodyLower<'a> {
                         args,
                     )
                 } else {
-                    let receiver = self.lower_expr(*receiver);
+                    let receiver = self.lower_expr(receiver);
                     (
                         self.thir.exprs.push(Expr {
                             ty: self.results().signatures[&expr.id].as_type(),
@@ -396,7 +402,7 @@ impl<'a> BodyLower<'a> {
                 thir::ExprKind::Call(callee, args)
             }
             hir::ExprKind::While(condition, body) => {
-                thir::ExprKind::While(self.lower_expr(*condition), self.lower_expr(*body))
+                thir::ExprKind::While(self.lower_expr(condition), self.lower_expr(body))
             }
             hir::ExprKind::StructLiteral(_, fields) => {
                 let generic_args = self.results().generic_args[&expr.id].clone();
@@ -422,7 +428,7 @@ impl<'a> BodyLower<'a> {
                             let field_index = self.results().fields[&field.id];
                             thir::FieldExpr {
                                 field: field_index,
-                                expr: self.lower_expr(field.expr),
+                                expr: self.lower_expr(&field.expr),
                             }
                         })
                         .collect(),
@@ -454,7 +460,7 @@ pub struct ThirLower<'a> {
     bodies: IndexVec<BodyIndex, (ThirBody, ExprId)>,
     error_reporter: ErrorReporter,
     interner: &'a SymbolInterner,
-    context: &'a TypeContext,
+    context: &'a TypeContext<'a>,
 }
 impl<'a> ThirLower<'a> {
     pub fn new(
@@ -472,11 +478,11 @@ impl<'a> ThirLower<'a> {
     }
     pub fn lower_bodies(
         mut self,
-        bodies: IndexVec<BodyIndex, hir::Body>,
+        bodies: &IndexVec<BodyIndex, hir::Body>,
         owners: DefIdMap<BodyIndex>,
     ) -> Result<Thir, ThirLoweringErr> {
         self.bodies = bodies
-            .into_iter()
+            .iter()
             .map(|body| BodyLower::new(&self).lower(body))
             .collect();
         if self.error_reporter.error_occurred() {

@@ -1,15 +1,11 @@
 use fxhash::FxHashSet;
 
 use crate::{
-    SymbolInterner,
-    data_structures::IntoIndex,
-    errors::ErrorReporter,
-    frontend::{
+    data_structures::IntoIndex, errors::ErrorReporter, frontend::{
         ast_lowering::hir,
         tokenizing::SourceLocation,
-        typechecking::{context::TypeContext, error::TypeError},
-    },
-    identifiers::VariantIndex,
+        typechecking::{context::{self, Node, TypeContext}, error::TypeError},
+    }, identifiers::VariantIndex, SymbolInterner
 };
 
 pub fn check_generic_count(
@@ -36,7 +32,7 @@ pub fn check_generic_count(
 ///Checks whether items are well formed
 pub struct ItemCheck<'a> {
     error_reporter: &'a ErrorReporter,
-    context: &'a TypeContext,
+    context: &'a TypeContext<'a>,
     ident_interner: &'a SymbolInterner,
 }
 
@@ -55,6 +51,13 @@ impl<'a> ItemCheck<'a> {
     fn error(&self, msg: String, span: SourceLocation) {
         self.error_reporter.emit(msg, span);
     }
+    fn check_generics(&self, generics: &hir::Generics) {
+        for param in generics.params.iter() {
+            if let Some(ty) = param.2.as_ref() {
+                self.check_type(ty);
+            }
+        }
+    }
     pub fn check_items<'b>(
         self,
         items: impl Iterator<Item = &'b hir::Item>,
@@ -68,12 +71,14 @@ impl<'a> ItemCheck<'a> {
         }
         /*Check for any overlapping implementations for certain methods */
         let mut type_methods = FxHashSet::default();
-        for &id in self.context.impl_ids.iter() {
-            let impl_ = &self.context.impls[id];
-            let impl_ty = &impl_.ty;
+        for (id,node) in self.context.nodes() {
+            let Node::Item(context::Item::Impl(impl_)) = node else {
+                continue;
+            };
+            let impl_ty = self.context.type_of(id).skip();
             for &method in impl_.methods.iter() {
                 let name = self.context.ident(method);
-                if !type_methods.insert((impl_ty, name.index)) {
+                if !type_methods.insert((impl_ty.clone(), name.index)) {
                     self.error(
                         format!("Repeated method '{}'.", self.ident_interner.get(name.index)),
                         name.span,
@@ -89,7 +94,7 @@ impl<'a> ItemCheck<'a> {
     }
     pub fn check_type(&self, ty: &hir::Type) {
         match &ty.kind {
-            hir::TypeKind::Array(array,_) => {
+            hir::TypeKind::Array(array, _) => {
                 self.check_type(array);
             }
             hir::TypeKind::Function(params, return_type) => {
@@ -141,16 +146,17 @@ impl<'a> ItemCheck<'a> {
     fn check_item(&self, item: &hir::Item) {
         match item {
             hir::Item::Struct(struct_def) => {
+                self.check_generics(&struct_def.generics);
                 let mut repeated_fields = Vec::new();
                 let mut seen_fields = FxHashSet::default();
                 let mut is_recursive = false;
-                for (i, field) in struct_def.fields.iter().enumerate() {
+                for field in struct_def.fields.iter(){
                     if !seen_fields.insert(field.name.index) {
                         repeated_fields.push(field.name);
                     }
                     self.check_type(&field.ty);
                     if self.context.is_type_recursive(
-                        &self.context.structs[struct_def.id].fields[i].ty,
+                        &self.context.type_of(field.id).skip(),
                         struct_def.id,
                     ) {
                         is_recursive = true;
@@ -173,19 +179,21 @@ impl<'a> ItemCheck<'a> {
                 }
             }
             hir::Item::Function(function) => {
+                self.check_generics(&function.generics);
                 self.check_function(&function.function);
             }
             hir::Item::Enum(enum_def) => {
+                self.check_generics(&enum_def.generics);
                 for (i, variant) in enum_def.variants.iter().enumerate() {
                     let mut is_recursive = false;
-                    for (field_def, field_ty) in variant.fields.iter().zip(
+                    for (field_def, _) in variant.fields.iter().zip(
                         self.context
                             .get_variant_by_index(enum_def.id, VariantIndex::new(i))
                             .fields
                             .iter(),
                     ) {
-                        self.check_type(field_def);
-                        if self.context.is_type_recursive(field_ty, enum_def.id) {
+                        self.check_type(&field_def.ty);
+                        if self.context.is_type_recursive(&self.context.type_of(field_def.id).skip(), enum_def.id) {
                             is_recursive = true;
                         }
                     }
@@ -203,13 +211,14 @@ impl<'a> ItemCheck<'a> {
             &hir::Item::Impl(hir::Impl {
                 id: _,
                 ref ty,
-                generics: ref _generics,
+                ref generics,
                 ref methods,
                 span: _,
             }) => {
+                self.check_generics(generics);
                 self.check_type(ty);
                 for method in methods {
-                    self.check_function(&method.function);
+                    self.check_function(&method.1.function);
                 }
             }
         }

@@ -46,12 +46,17 @@ impl Default for DefIdProvider {
 }
 pub struct FieldDef {
     pub name: Ident,
+    pub id: DefId,
+    pub ty: Type,
+}
+pub struct VariantField {
+    pub id: DefId,
     pub ty: Type,
 }
 pub struct VariantDef {
     pub id: DefId,
     pub name: Ident,
-    pub fields: Vec<Type>,
+    pub fields: Vec<VariantField>,
 }
 pub struct FunctionDef {
     pub id: DefId,
@@ -70,7 +75,9 @@ pub struct Function {
 pub struct Param {
     pub pattern: Pattern,
 }
-pub struct GenericParam(pub Ident, pub DefId);
+#[derive(Clone)]
+pub struct GenericParam(pub Ident, pub DefId, pub Option<Type>);
+#[derive(Clone)]
 pub struct Generics {
     pub params: Vec<GenericParam>,
 }
@@ -99,12 +106,17 @@ pub struct EnumDef {
     pub generics: Generics,
     pub variants: Vec<VariantDef>,
 }
+#[derive(Clone, Copy)]
+pub enum HasSelfParam {
+    Yes,
+    No,
+}
 pub struct Impl {
     pub id: DefId,
     pub ty: Type,
     pub span: SourceLocation,
     pub generics: Generics,
-    pub methods: Vec<FunctionDef>,
+    pub methods: Vec<(HasSelfParam, FunctionDef)>,
 }
 pub enum Item {
     Struct(StructDef),
@@ -304,7 +316,9 @@ impl Type {
     }
     pub fn format(&self, interner: &SymbolInterner) -> String {
         match &self.kind {
-            TypeKind::Array(ty,size) => format!("[{},{}]", ty.format(interner), size),
+            TypeKind::Array(ty, size) => {
+                format!("[{},{}]", ty.format(interner), size.format(interner))
+            }
             TypeKind::Path(path) => path.format(interner),
             TypeKind::Tuple(elements) => format!(
                 "({})",
@@ -341,9 +355,28 @@ impl Type {
         }
     }
 }
+
+#[derive(Clone, Debug)]
+pub struct ConstantExpr {
+    pub span: SourceLocation,
+    pub kind: ConstantExprKind,
+}
+impl ConstantExpr {
+    fn format(&self, interner: &SymbolInterner) -> String {
+        match self.kind {
+            ConstantExprKind::Int(value) => value.to_string(),
+            ConstantExprKind::Path(ref path) => path.format(interner),
+        }
+    }
+}
+#[derive(Clone, Debug)]
+pub enum ConstantExprKind {
+    Int(u64),
+    Path(QualifiedPath),
+}
 #[derive(Clone, Debug)]
 pub enum TypeKind {
-    Array(Box<Type>,u64),
+    Array(Box<Type>, ConstantExpr),
     Tuple(Vec<Type>),
     Function(Vec<Type>, Option<Box<Type>>),
     Path(QualifiedPath),
@@ -449,6 +482,7 @@ pub enum DefKind {
     Struct,
     Enum,
     Param,
+    ConstParam,
     Variant,
     Method,
 }
@@ -460,7 +494,7 @@ pub struct FieldExpr {
     pub span: SourceLocation,
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct DefIdMap<T>(FxHashMap<DefId, T>);
 
 impl<T> Default for DefIdMap<T> {
@@ -517,6 +551,7 @@ pub struct Body {
     pub params: Vec<Param>,
     pub value: Expr,
 }
+#[derive(Clone, Copy)]
 pub enum BodyOwner {
     Function(DefId),
     AnonFunction(DefId),

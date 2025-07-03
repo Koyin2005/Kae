@@ -1,10 +1,10 @@
-use crate::{frontend::typechecking::context::TypeContext, identifiers::SymbolInterner};
+use crate::{frontend::typechecking::{context::TypeContext, types::ConstantSize}, identifiers::SymbolInterner};
 
 use super::{Type, generics::GenericArgs};
 
 pub struct TypeFormatter<'a> {
     interner: &'a SymbolInterner,
-    context: &'a TypeContext,
+    context: &'a TypeContext<'a>,
 }
 impl<'b> TypeFormatter<'b> {
     pub fn new(interner: &'b SymbolInterner, context: &'b TypeContext) -> Self {
@@ -30,11 +30,21 @@ impl<'b> TypeFormatter<'b> {
             &Type::Param(_, symbol) => {
                 buffer.push_str(self.interner.get(symbol));
             }
-            Type::Array(element_type,size) => {
+            Type::Array(element_type, size) => {
                 buffer.push('[');
                 self.format(element_type, buffer);
                 buffer.push(',');
-                buffer.push_str(&size.into_size().to_string());
+                match size{
+                    ConstantSize::Constant(_,name) => {
+                        buffer.push_str(self.interner.get(*name));
+                    },
+                    ConstantSize::Value(value) => {
+                        buffer.push_str(&value.into_size().to_string());
+                    },
+                    ConstantSize::Error => {
+                        buffer.push('_');
+                    }
+                }
                 buffer.push(']');
             }
             Type::Function(args, return_type) => {

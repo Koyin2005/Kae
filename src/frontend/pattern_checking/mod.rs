@@ -9,7 +9,6 @@ use super::typechecking::{
     types::{
         AdtKind, Type,
         format::TypeFormatter,
-        subst::{Subst, TypeSubst},
     },
 };
 #[derive(Clone, Debug)]
@@ -92,7 +91,7 @@ impl Pattern {
                         .expect_struct(id)
                         .fields
                         .iter()
-                        .map(|field| interner.get(field.name.index));
+                        .map(|&field| interner.get(context.ident(field).index));
                     format!(
                         "{}{{{}}}",
                         TypeFormatter::new(interner, context).format_type(ty),
@@ -285,7 +284,7 @@ impl PatternMatrix {
     }
 }
 pub struct PatternChecker<'a> {
-    context: &'a TypeContext,
+    context: &'a TypeContext<'a>,
 }
 impl<'a> PatternChecker<'a> {
     pub fn new(context: &'a TypeContext) -> Self {
@@ -312,7 +311,7 @@ impl<'a> PatternChecker<'a> {
             | Type::Error
             | Type::Float
             | Type::String
-            | Type::Array(_,_)
+            | Type::Array(_, _)
             | Type::Function(_, _) => ConstructorSet::Infinite,
         }
     }
@@ -328,15 +327,12 @@ impl<'a> PatternChecker<'a> {
             (Constructor::Struct, &Type::Adt(ref args, id, AdtKind::Struct)) => self
                 .context
                 .field_defs(id)
-                .iter()
-                .map(|field_def| TypeSubst::new(args).instantiate_type(&field_def.ty))
+                .map(|field_def| field_def.ty(self.context, args))
                 .collect(),
             (Constructor::Variant(variant_index), &Type::Adt(ref args, id, AdtKind::Enum)) => self
                 .context
                 .get_variant_by_index(id, variant_index)
-                .fields
-                .iter()
-                .map(|ty| TypeSubst::new(args).instantiate_type(ty))
+                .field_tys(args, self.context)
                 .collect(),
 
             (ctor, ty) => unreachable!("Cannot find fields for {:?} {:?}", ctor, ty),

@@ -9,7 +9,7 @@ use crate::{
         typechecking::{context::TypeContext, types::Type},
     },
     identifiers::{FieldIndex, VariantIndex},
-    middle::mir::{self, BlockId, Constant, Operand, Place},
+    middle::mir::{self, BlockId, Constant, ConstantValue, Operand, Place},
     thir_lowering::BodyBuild,
 };
 
@@ -74,7 +74,7 @@ fn test_trees_from(
             };
             Some(PlaceTest {
                 place,
-                test: TestCase::Constant(Constant { ty, kind: constant }),
+                test: TestCase::Constant(ConstantValue { ty, kind: constant }.into()),
             })
         }
         thir::PatternKind::Tuple(fields) => {
@@ -146,10 +146,10 @@ impl<'a> BodyBuild<'a> {
 
         let result = match (&match_test.base_test.test, test) {
             (
-                &TestCase::Constant(mir::Constant {
+                &TestCase::Constant(mir::Constant::Value(ConstantValue{
                     ty: _,
                     kind: mir::ConstantKind::Bool(value),
-                }),
+                })),
                 Test::If,
             ) => {
                 fully_matched = true;
@@ -160,17 +160,17 @@ impl<'a> BodyBuild<'a> {
                 }
             }
             (
-                &TestCase::Constant(mir::Constant {
+                &TestCase::Constant(mir::Constant::Value(ConstantValue {
                     ty: _,
                     kind: mir::ConstantKind::Int(value),
-                }),
+                })),
                 Test::SwitchInt,
             ) => {
                 fully_matched = true;
-                Some(TestResult::Constant(Constant {
+                Some(TestResult::Constant(ConstantValue {
                     ty: Type::Int,
                     kind: mir::ConstantKind::Int(value),
-                }))
+                }.into()))
             }
             (TestCase::Constant(const_val), Test::Eq(test_val)) => {
                 if const_val == test_val {
@@ -194,14 +194,14 @@ impl<'a> BodyBuild<'a> {
     }
     fn select_test(&mut self, test_case: &TestCase) -> Test {
         match test_case {
-            TestCase::Constant(Constant {
+            TestCase::Constant(Constant::Value(ConstantValue {
                 ty: _,
                 kind: mir::ConstantKind::Bool(_),
-            }) => Test::If,
-            TestCase::Constant(Constant {
+            })) => Test::If,
+            TestCase::Constant(Constant::Value(ConstantValue {
                 ty: _,
                 kind: mir::ConstantKind::Int(_),
-            }) => Test::SwitchInt,
+            })) => Test::SwitchInt,
             TestCase::Constant(constant) => Test::Eq(constant.clone()),
             &TestCase::Variant(id, _) => Test::SwitchVariant(id),
         }
@@ -255,10 +255,10 @@ impl<'a> BodyBuild<'a> {
                 let targets = targets
                     .iter()
                     .filter_map(|(result, &target)| match result {
-                        &TestResult::Constant(Constant {
+                        &TestResult::Constant(Constant::Value(ConstantValue {
                             ty: _,
                             kind: mir::ConstantKind::Int(value),
-                        }) => Some((value, target)),
+                        })) => Some((value, target)),
                         _ => None,
                     })
                     .map(|(value, block)| {

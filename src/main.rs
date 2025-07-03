@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use pl4::{
-    GlobalSymbols, SymbolInterner,
+    ErrorReporter, GlobalSymbols, SymbolInterner,
     backend::{codegen::Codegen, compiling::compiler::Compiler, instructions::Program, vm::VM},
     frontend::{
         ast_lowering::{ast_lower::AstLowerer, hir::DefIdProvider, name_finding::NameFinder},
@@ -40,17 +40,18 @@ fn compile(source: &str) -> Option<Program> {
 
     let ast_lower = AstLowerer::new(&mut interner, names_found, name_scopes);
     let hir = ast_lower.lower(stmts).ok()?;
-    let item_collector = ItemCollector::new(&interner, &symbols, &hir.items, &hir);
-    let (context, error_reporter) = item_collector.collect();
+    let error_reporter = ErrorReporter::new(true);
+    let item_collector = ItemCollector::new(&interner, &symbols, &hir.items, &hir, &error_reporter);
+    let context = item_collector.collect();
     ItemCheck::new(&context, &interner, &error_reporter)
         .check_items(hir.items.iter())
         .ok()?;
     let type_checker = TypeChecker::new(&context, &symbols, &hir.bodies, &interner);
     let type_check_results = type_checker.check(hir.items.iter()).ok()?;
     let thir = ThirLower::new(type_check_results, &context, &interner)
-        .lower_bodies(hir.bodies, hir.owner_to_bodies)
+        .lower_bodies(&hir.bodies, hir.owner_to_bodies.clone())
         .ok()?;
-    let mut mir = MirBuild::new(thir, &context).lower(hir.body_owners);
+    let mut mir = MirBuild::new(thir, &context).lower(hir.body_owners.clone());
 
     let passes: &[&dyn MirPass] = &[
         &SimplifyCfg as &dyn MirPass,

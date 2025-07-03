@@ -1,24 +1,15 @@
 use crate::{
-    GlobalSymbols, SymbolInterner,
-    data_structures::IndexVec,
-    errors::ErrorReporter,
-    frontend::{
-        ast_lowering::hir::{self, BodyOwner, DefId, DefKind, Hir, Ident, Item},
+    data_structures::IndexVec, errors::ErrorReporter, frontend::{
+        ast_lowering::hir::{BodyOwner, DefId, DefKind, Generics, Hir, Item},
         typechecking::context::{
-            EnumDef, FieldDef, Generics, Impl, StructDef, TypeContext, VariantDef,
+            self, EnumDef, FieldDef, FunctionDef, GenericParam, GenericParamKind, Impl, Node, StructDef, TypeContext, VariantDef
         },
-    },
-    identifiers::ItemIndex,
+    }, identifiers::ItemIndex, GlobalSymbols, SymbolInterner
 };
 
-use super::{Type, lowering::TypeLower};
-
 pub struct ItemCollector<'a> {
-    context: TypeContext,
-    interner: &'a SymbolInterner,
-    symbols: &'a GlobalSymbols,
+    context: TypeContext<'a>,
     next_param_index: u32,
-    error_reporter: ErrorReporter,
     items: &'a IndexVec<ItemIndex, Item>,
     hir: &'a Hir,
 }
@@ -26,199 +17,199 @@ pub struct ItemCollector<'a> {
 impl<'a> ItemCollector<'a> {
     pub fn new(
         symbol_interner: &'a SymbolInterner,
-        symbols: &'a GlobalSymbols,
+        _symbols: &'a GlobalSymbols,
         items: &'a IndexVec<ItemIndex, Item>,
         hir: &'a Hir,
+        error_reporter: &'a ErrorReporter,
     ) -> Self {
         Self {
-            context: TypeContext::new(),
-            interner: symbol_interner,
-            symbols,
+            context: TypeContext::new(symbol_interner, error_reporter),
             next_param_index: 0,
-            error_reporter: ErrorReporter::new(true),
             items,
             hir,
         }
     }
-    fn lowerer(&self) -> TypeLower {
-        TypeLower::new(self.interner, &self.context, None, &self.error_reporter)
-    }
-    fn lowerer_with_self(&self, ty: Type) -> TypeLower {
-        TypeLower::new(self.interner, &self.context, Some(ty), &self.error_reporter)
-    }
     fn add_kind(&mut self, id: DefId, kind: DefKind) {
         self.context.kinds.insert(id, kind);
-    }
-    fn add_name(&mut self, id: DefId, name: Ident) {
-        self.context.name_map.insert(id, name);
     }
     fn add_child_for(&mut self, parent: DefId, child: DefId) {
         self.context.child_to_owner_map.insert(child, parent);
     }
-    fn collect_names_for_generics(&mut self, owner: DefId, generics: &'a hir::Generics) {
-        let parent_count = self.next_param_index;
-        let mut param_names = Vec::new();
-        for param in generics.params.iter() {
-            self.add_name(param.1, param.0);
+    fn collect_generic_params(&mut self, owner: DefId, generic_params: &'a Generics) {
+        for param in generic_params.params.iter() {
+            self.add_node(
+                param.1,
+                Node::Param(GenericParam {
+                    id: param.1,
+                    index: self.next_param_index,
+                    name: param.0,
+                    kind : param.2.as_ref().map(|ty|{
+                        GenericParamKind::Const(ty)   
+                    }).unwrap_or(GenericParamKind::Type)
+                }),
+            );
+            self.add_kind(
+                param.1,
+                if param.2.is_some() {
+                    DefKind::ConstParam
+                } else {
+                    DefKind::Param
+                },
+            );
             self.add_child_for(owner, param.1);
-            self.add_kind(param.1, DefKind::Param);
-            self.context
-                .params_to_indexes
-                .insert(param.1, self.next_param_index);
             self.next_param_index += 1;
-            param_names.push(param.0);
         }
-        self.context.generics_map.insert(
-            owner,
-            Generics {
-                owner_id: owner,
-                parent_count: parent_count as usize,
-                param_names,
-            },
-        );
     }
-    fn collect_declarations_for_item(&mut self, item: &'a Item) {
-        let old_count = self.next_param_index;
-        self.next_param_index = 0;
+    fn add_node(&mut self, id: DefId, node: Node<'a>) {
+        self.context.nodes.insert(id, node);
+    }
+    fn collect_item(&mut self, item: &'a Item) {
         match item {
             Item::Struct(struct_def) => {
-                self.add_name(struct_def.id, struct_def.name);
-                self.add_kind(struct_def.id, DefKind::Struct);
-                self.collect_names_for_generics(struct_def.id, &struct_def.generics);
-            }
-            Item::Enum(enum_def) => {
-                self.add_name(enum_def.id, enum_def.name);
-                self.add_kind(enum_def.id, DefKind::Enum);
-                self.collect_names_for_generics(enum_def.id, &enum_def.generics);
-                for variant in &enum_def.variants {
-                    self.add_name(variant.id, variant.name);
-                    self.add_kind(variant.id, DefKind::Variant);
-                    self.add_child_for(enum_def.id, variant.id);
-                }
-            }
-            Item::Function(function_def) => {
-                self.add_name(function_def.id, function_def.name);
-                self.add_kind(function_def.id, DefKind::Function);
-                self.collect_names_for_generics(function_def.id, &function_def.generics);
-            }
-            Item::Impl(impl_) => {
-                let Some(type_id) = impl_.ty.id() else {
-                    self.error_reporter.emit(
-                        format!(
-                            "Cannot make an impl for non-nominal type '{}'.",
-                            impl_.ty.format(self.interner)
-                        ),
-                        impl_.ty.span,
-                    );
-                    return;
-                };
-                self.collect_names_for_generics(impl_.id, &impl_.generics);
-                let parent_count = self.next_param_index;
-                for method in &impl_.methods {
-                    self.add_name(method.id, method.name);
-                    self.add_child_for(impl_.id, method.id);
-                    self.add_kind(method.id, DefKind::Method);
-                    self.collect_names_for_generics(method.id, &method.generics);
-                    self.context
-                        .type_ids_to_method_impls
-                        .entry(type_id)
-                        .or_default()
-                        .push(method.id);
-                    self.context.has_receiver.insert(method.id,self.hir.bodies[self.hir.owner_to_bodies[method.id]].params.first().is_some_and(|param|{
-                        matches!(param.pattern.kind,hir::PatternKind::Binding(_,name,_) if name.index == self.symbols.lower_self_symbol())
-                    }));
-                    self.next_param_index = parent_count;
-                }
-            }
-        }
-        self.next_param_index = old_count;
-    }
-    fn collect_definitions_for_items(&mut self, item: &'a Item) {
-        match item {
-            Item::Struct(struct_def) => {
-                let id = struct_def.id;
-                let struct_def = StructDef {
-                    name: struct_def.name,
-                    fields: struct_def
-                        .fields
-                        .iter()
-                        .map(|field| FieldDef {
-                            name: field.name,
-                            ty: self.lowerer().lower_type(&field.ty),
-                        })
-                        .collect(),
-                };
-                self.context.structs.insert(id, struct_def);
-            }
-            Item::Enum(enum_def) => {
-                let id = enum_def.id;
-                let enum_def = EnumDef {
-                    name: enum_def.name,
-                    variants: enum_def
-                        .variants
-                        .iter()
-                        .map(|variant| VariantDef {
-                            id: variant.id,
-                            name: variant.name,
-                            fields: variant
-                                .fields
-                                .iter()
-                                .map(|ty| self.lowerer().lower_type(ty))
-                                .collect(),
-                        })
-                        .collect(),
-                };
-                self.context.enums.insert(id, enum_def);
-            }
-            Item::Function(function_def) => {
-                let id = function_def.id;
-                let sig = self.lowerer().lower_sig(
-                    function_def.function.params.iter(),
-                    function_def.function.return_type.as_ref(),
+                let name = struct_def.name;
+                let generics = &struct_def.generics;
+                self.collect_generic_params(struct_def.id, &struct_def.generics);
+                let fields = struct_def
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        self.add_child_for(struct_def.id, field.id);
+                        self.add_node(
+                            field.id,
+                            Node::Field(FieldDef {
+                                name: field.name,
+                                id: field.id,
+                                ty: &field.ty,
+                            }),
+                        );
+                        field.id
+                    })
+                    .collect();
+                self.add_node(
+                    struct_def.id,
+                    Node::Item(context::Item::Struct(StructDef {
+                        name,
+                        generics,
+                        fields,
+                    })),
                 );
-                self.context.signatures.insert(id, sig);
+                self.add_kind(struct_def.id, DefKind::Struct);
+            }
+            Item::Enum(enum_def) => {
+                let name = enum_def.name;
+                let generics = &enum_def.generics;
+                self.collect_generic_params(enum_def.id, &enum_def.generics);
+                let variants = enum_def
+                    .variants
+                    .iter()
+                    .map(|variant_def| {
+                        self.add_child_for(enum_def.id, variant_def.id);
+                        let fields = variant_def
+                            .fields
+                            .iter()
+                            .map(|field| {
+                                self.add_child_for(variant_def.id, field.id);
+                                self.add_node(field.id, Node::VariantField(field.id, &field.ty));
+                                field.id
+                            })
+                            .collect();
+                        self.add_node(
+                            variant_def.id,
+                            Node::Variant(VariantDef {
+                                id: variant_def.id,
+                                name: variant_def.name,
+                                fields,
+                            }),
+                        );
+                        self.add_kind(variant_def.id, DefKind::Variant);
+                        variant_def.id
+                    })
+                    .collect();
+                self.add_node(
+                    enum_def.id,
+                    Node::Item(context::Item::Enum(EnumDef {
+                        name,
+                        generics,
+                        variants,
+                    })),
+                );
+                self.add_kind(enum_def.id, DefKind::Enum);
             }
             Item::Impl(impl_) => {
-                let id = impl_.id;
-                let self_ty = self.lowerer().lower_type(&impl_.ty);
-                let impl_ = Impl {
-                    span: impl_.span,
-                    methods: impl_
-                        .methods
-                        .iter()
-                        .map(|method| {
-                            let sig = self.lowerer_with_self(self_ty.clone()).lower_sig(
-                                method.function.params.iter(),
-                                method.function.return_type.as_ref(),
-                            );
-                            self.context.signatures.insert(method.id, sig);
-                            method.id
-                        })
-                        .collect(),
-                    ty: self_ty,
-                };
-                self.context.impl_ids.push(id);
-                self.context.impls.insert(id, impl_);
+                self.collect_generic_params(impl_.id, &impl_.generics);
+                let methods = impl_
+                    .methods
+                    .iter()
+                    .map(|&(has_self_param, ref method)| {
+                        let name = method.name;
+                        let generics = &method.generics;
+                        let prev_param_index = self.next_param_index;
+                        self.collect_generic_params(impl_.id, &method.generics);
+                        let params = method.function.params.iter().map(|param| param).collect();
+                        let return_ty = method.function.return_type.as_ref();
+                        self.add_child_for(impl_.id, method.id);
+                        self.add_node(
+                            method.id,
+                            Node::Method(
+                                has_self_param,
+                                FunctionDef {
+                                    name,
+                                    generics,
+                                    params,
+                                    return_ty,
+                                },
+                            ),
+                        );
+                        self.add_kind(method.id, DefKind::Method);
+                        self.next_param_index = prev_param_index;
+
+                        method.id
+                    })
+                    .collect();
+                self.add_node(
+                    impl_.id,
+                    Node::Item(context::Item::Impl(Impl {
+                        span: impl_.span,
+                        ty: &impl_.ty,
+                        generics: &impl_.generics,
+                        methods,
+                    })),
+                );
+            }
+            Item::Function(function_def) => {
+                let name = function_def.name;
+                let generics = &function_def.generics;
+                self.collect_generic_params(function_def.id, &function_def.generics);
+                let params = function_def
+                    .function
+                    .params
+                    .iter()
+                    .map(|param| param)
+                    .collect();
+                let return_ty = function_def.function.return_type.as_ref();
+                self.add_node(
+                    function_def.id,
+                    Node::Item(context::Item::Function(FunctionDef {
+                        name,
+                        generics,
+                        params,
+                        return_ty,
+                    })),
+                );
+                self.add_kind(function_def.id, DefKind::Function);
             }
         }
     }
-    pub fn collect(mut self) -> (TypeContext, ErrorReporter) {
-        /*Declare all names in items*/
+    pub fn collect(mut self) -> TypeContext<'a> {
         for item in self.items.iter() {
-            self.collect_declarations_for_item(item);
-        }
-        if self.error_reporter.error_occurred() {
-            return (self.context, self.error_reporter);
-        }
-        /*Define all items*/
-        for item in self.items.iter() {
-            self.collect_definitions_for_items(item);
+            self.collect_item(item);
+            self.next_param_index = 0;
         }
         for owner in self.hir.body_owners.iter() {
             if let BodyOwner::AnonFunction(id) = owner {
                 self.add_kind(*id, DefKind::AnonFunction);
             }
         }
-        (self.context, self.error_reporter)
+        self.context
     }
 }

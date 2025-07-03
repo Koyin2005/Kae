@@ -12,15 +12,14 @@ use crate::{
     },
     identifiers::{BodyIndex, FieldIndex, VariableIndex},
     middle::mir::{
-        self, Block, BlockId, Body, BodyKind, BodySource, Constant, ConstantNumber, Local,
-        LocalInfo, Mir, Operand, Place, PlaceProjection, RValue, Stmt, Terminator,
+        self, Block, BlockId, Body, BodyKind, BodySource, Constant, ConstantNumber, ConstantValue, Local, LocalInfo, Mir, Operand, Place, PlaceProjection, RValue, Stmt, Terminator
     },
 };
 
 mod matches;
 pub struct MirBuild<'a> {
     thir: Thir,
-    context: &'a TypeContext,
+    context: &'a TypeContext<'a>,
 }
 
 impl<'a> MirBuild<'a> {
@@ -54,7 +53,7 @@ impl<'a> MirBuild<'a> {
 }
 
 struct BodyBuild<'a> {
-    pub context: &'a TypeContext,
+    pub context: &'a TypeContext<'a>,
     pub body: &'a ThirBody,
     pub current_block: BlockId,
     pub result_body: Body,
@@ -152,10 +151,7 @@ impl<'a> BodyBuild<'a> {
     pub fn assign_unit(&mut self, place: Place) {
         self.assign_constant(
             place,
-            Constant {
-                ty: Type::new_unit(),
-                kind: mir::ConstantKind::ZeroSized,
-            },
+            Constant::zero_sized(Type::new_unit()),
         );
     }
     pub fn new_temporary_for(&mut self, expr: ExprId) -> Local {
@@ -209,10 +205,10 @@ impl<'a> BodyBuild<'a> {
                         hir::BinaryOp::GreaterEquals,
                         Box::new((
                             index_operand.clone(),
-                            Operand::Constant(Constant {
+                            Operand::Constant(ConstantValue {
                                 ty: Type::Int,
                                 kind: mir::ConstantKind::Int(0),
-                            }),
+                            }.into()),
                         )),
                     ),
                 );
@@ -243,11 +239,14 @@ impl<'a> BodyBuild<'a> {
                     hir::LiteralKind::Int(value) => mir::ConstantKind::Int(value),
                     hir::LiteralKind::String(string) => mir::ConstantKind::String(string),
                 };
-                Some(Constant {
+                Some(ConstantValue {
                     ty: self.body.exprs[expr].ty.clone(),
                     kind,
-                })
-            }
+                }.into())
+            },
+            &thir::ExprKind::Constant(id) => {
+                Some(Constant::Param(self.body.exprs[expr].ty.clone(), id))
+            },
             thir::ExprKind::Function(function) => {
                 let kind = match function.kind {
                     thir::FunctionKind::Anon => mir::FunctionKind::Anon(function.id),
@@ -255,19 +254,19 @@ impl<'a> BodyBuild<'a> {
                     thir::FunctionKind::Normal => mir::FunctionKind::Normal(function.id),
                     thir::FunctionKind::Variant => mir::FunctionKind::Variant(function.id),
                 };
-                Some(Constant {
+                Some(ConstantValue {
                     ty: self.body.exprs[expr].ty.clone(),
                     kind: mir::ConstantKind::Function(kind, function.generic_args.clone()),
-                })
+                }.into())
             }
-            thir::ExprKind::Tuple(elements) if elements.is_empty() => Some(Constant {
+            thir::ExprKind::Tuple(elements) if elements.is_empty() => Some(ConstantValue {
                 ty: self.body.exprs[expr].ty.clone(),
                 kind: mir::ConstantKind::ZeroSized,
-            }),
-            &thir::ExprKind::Builtin(ref args, kind) => Some(Constant {
+            }.into()),
+            &thir::ExprKind::Builtin(ref args, kind) => Some(ConstantValue {
                 ty: self.body.exprs[expr].ty.clone(),
                 kind: mir::ConstantKind::Function(mir::FunctionKind::Builtin(kind), args.clone()),
-            }),
+            }.into()),
             _ => None,
         }
     }
@@ -428,7 +427,7 @@ impl<'a> BodyBuild<'a> {
                 self.lower_expr(right, Some(place.clone()));
                 self.terminate(Terminator::Goto(merge_block));
                 self.current_block = const_block;
-                self.assign_constant(place, Constant::from(constant));
+                self.assign_constant(place, ConstantValue::from(constant).into());
                 self.terminate(Terminator::Goto(merge_block));
                 self.current_block = merge_block;
             }
@@ -454,7 +453,7 @@ impl<'a> BodyBuild<'a> {
                                 hir::BinaryOp::NotEquals,
                                 Box::new((
                                     right.clone(),
-                                    Operand::Constant(ConstantNumber::Int(0).into()),
+                                    Operand::Constant(ConstantValue::from(ConstantNumber::Int(0)).into()),
                                 )),
                             ),
                         );
@@ -474,6 +473,7 @@ impl<'a> BodyBuild<'a> {
             | ExprKind::Function(_)
             | ExprKind::Field(_, _)
             | ExprKind::Index(_, _)
+            | ExprKind::Constant(_)
             | ExprKind::Builtin(_, _) => {
                 let place = place_or_temporary(self, place, expr);
                 let operand = self.lower_as_operand(expr);

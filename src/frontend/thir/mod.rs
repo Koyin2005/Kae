@@ -83,6 +83,7 @@ pub enum ExprKind {
     Variable(VariableIndex),
     Function(Function),
     Builtin(GenericArgs, hir::BuiltinKind),
+    Constant(DefId),
     Print(Box<[ExprId]>),
     Index(ExprId, ExprId),
     Match(ExprId, Box<[ArmId]>),
