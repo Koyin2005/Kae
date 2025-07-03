@@ -312,7 +312,7 @@ impl<'a> PatternChecker<'a> {
             | Type::Error
             | Type::Float
             | Type::String
-            | Type::Array(_)
+            | Type::Array(_,_)
             | Type::Function(_, _) => ConstructorSet::Infinite,
         }
     }

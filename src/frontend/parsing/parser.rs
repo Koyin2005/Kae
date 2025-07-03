@@ -165,14 +165,19 @@ impl<'a> Parser<'a> {
             kind,
         })
     }
-    fn int(&mut self) -> Result<ExprNode, ParsingFailed> {
+    fn parse_int(&mut self) -> Result<(SourceLocation,i64),ParsingFailed>{
         let value = self.prev_token.lexeme.parse().map_err(|_| {
             self.error("Int literal is too big.");
             ParsingFailed
         })?;
+        Ok((SourceLocation::one_line(self.prev_token.line),value))
+
+    }
+    fn int(&mut self) -> Result<ExprNode, ParsingFailed> {
+        let (location,value) = self.parse_int()?;
         Ok(ExprNode {
             id: self.next_id(),
-            location: SourceLocation::one_line(self.prev_token.line),
+            location,
             kind: ExprNodeKind::Literal(LiteralKind::Int(value)),
         })
     }
@@ -870,9 +875,12 @@ impl<'a> Parser<'a> {
             } else if self.matches(TokenKind::LeftBracket) {
                 let start = self.prev_token.line;
                 let ty = self.parse_type()?;
+                self.expect(TokenKind::Coma, "Expected ',' after array element type");
+                self.advance();
+                let (_,size) = self.parse_int()?;
                 self.expect(TokenKind::RightBracket, "Expect ']'.");
                 let end = self.prev_token.line;
-                Type::Array(SourceLocation::new(start, end), Box::new(ty))
+                Type::Array(SourceLocation::new(start, end), Box::new(ty),size as u64)
             } else if self.matches(TokenKind::LeftParen) {
                 let start = self.prev_token.line;
                 let mut elements = Vec::new();

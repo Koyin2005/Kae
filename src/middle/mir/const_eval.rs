@@ -1,13 +1,31 @@
 use crate::{
-    frontend::ast_lowering::hir::{BinaryOp, UnaryOp},
-    middle::mir::{Constant, ConstantNumber},
+    data_structures::IntoIndex, frontend::ast_lowering::hir::{BinaryOp, UnaryOp}, identifiers::FieldIndex, middle::mir::{AggregrateConstant, Constant, ConstantNumber}
 };
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ConstEvalError {
     DivisionByZero,
     InvalidTypes,
+    IndexOutofBounds{
+        len:u64,
+        index:u64
+    }
 }
-
+pub fn eval_field(value: &Constant, index: FieldIndex) -> Result<Constant,ConstEvalError>{
+    let Some(AggregrateConstant::Adt(_,_,_,fields)) = value.as_aggregrate() else{
+        return Err(ConstEvalError::InvalidTypes);
+    };
+    fields.get(index.as_index()).ok_or_else(||{
+        ConstEvalError::InvalidTypes
+    }).cloned()
+}
+pub fn eval_index(value: &Constant, index: u64) -> Result<Constant,ConstEvalError>{
+    let Some(AggregrateConstant::Array(elements)) = value.as_aggregrate() else{
+        return Err(ConstEvalError::InvalidTypes);
+    };
+    elements.get(index as usize).ok_or_else(||{
+        ConstEvalError::IndexOutofBounds { len: elements.len() as u64, index }
+    }).cloned()
+}
 pub fn eval_unary_op(op: UnaryOp, operand: Constant) -> Result<Constant, ConstEvalError> {
     operand
         .as_number()

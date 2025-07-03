@@ -267,7 +267,7 @@ impl TypeContext {
             | Type::String => true,
             Type::Function(_, _) => true,
             Type::Never => false,
-            Type::Array(element_type) => self.is_type_inhabited(element_type),
+            Type::Array(element_type,_) => self.is_type_inhabited(element_type),
             Type::Tuple(elements) => elements
                 .iter()
                 .all(|element| self.is_type_inhabited(element)),
@@ -304,7 +304,13 @@ impl TypeContext {
             | Type::Error
             | Type::Never
             | Type::Param(_, _) => false,
-            Type::Function(_, _) | Type::Array(_) => false,
+            Type::Array(ty,size) => if size.is_zero(){
+                false
+            }
+            else{
+                self.is_type_recursive(ty, id)
+            }, 
+            Type::Function(_, _) => false,
             Type::Tuple(elements) => elements
                 .iter()
                 .any(|element| self.is_type_recursive(element, id)),

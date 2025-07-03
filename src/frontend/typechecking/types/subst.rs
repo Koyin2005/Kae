@@ -50,7 +50,7 @@ pub trait Subst: Sized {
                 self.instantiate_types(params.iter()),
                 self.instantiate_type(return_type),
             ),
-            Type::Array(element_type) => Type::new_array(self.instantiate_type(element_type)),
+            &Type::Array(ref element_type,size) => Type::new_array(self.instantiate_type(element_type),size),
             &Type::Adt(ref generic_args, id, kind) => Type::Adt(
                 GenericArgs::new(self.instantiate_types(generic_args.iter())),
                 id,

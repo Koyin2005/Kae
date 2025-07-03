@@ -4,21 +4,15 @@ use crate::{
     data_structures::IntoIndex,
     frontend::{
         ast_lowering::hir::BinaryOp,
-        typechecking::types::{AdtKind, Type},
+        typechecking::types::{AdtKind, ArraySize, Type},
     },
     identifiers::FieldIndex,
     middle::mir::{
-        self, AggregrateConstant, BlockId, Constant, ConstantKind, ConstantNumber, Location,
-        Operand, Place, PlaceProjection, RValue, Stmt, Terminator,
-        const_eval::{eval_binary_op, eval_unary_op},
-        passes::{
-            MirPass,
+        self, const_eval::{eval_binary_op, eval_field, eval_index, eval_unary_op}, passes::{
             data_flow_analysis::{
-                Analysis, CompleteSet, Map, PlaceIndex, Projection, ResultVisitor, State,
-                visit_reachable_results,
-            },
-        },
-        visitor::{MutVisitor, Visitor},
+                visit_reachable_results, Analysis, CompleteSet, Map, PlaceIndex, Projection, ResultVisitor, State
+            }, MirPass
+        }, visitor::{MutVisitor, Visitor}, AggregrateConstant, BlockId, Constant, ConstantKind, ConstantNumber, Location, Operand, Place, PlaceProjection, RValue, Stmt, Terminator
     },
 };
 
@@ -68,10 +62,73 @@ impl ConstAnalysis<'_> {
     ) -> CompleteSet<Constant> {
         match operand {
             Operand::Constant(constant) => CompleteSet::Elem(constant.clone()),
-            Operand::Load(place) => self
+            Operand::Load(place) => {
+                self
                 .map
                 .get(place)
-                .map_or(CompleteSet::Top, |place| state.get(place)),
+                .map(|place| state.get(place))
+                .or_else(||{
+                    /* This should only be reached if there's an indexing operation
+                        as you can't track those
+                     */
+                    println!("WHAT THE SIGMA!");
+                    let mut place_index = self.map.get(&place.local.into())?;
+                    let mut value = None;
+                    for &projection in place.projections.iter(){
+                        println!("{:?}",value);
+                        place_index = match projection{
+                            PlaceProjection::Field(field_index) => {
+                                if let Some(value) = value.as_mut(){
+                                    *value = eval_field(value, field_index).ok()?;
+                                    continue;
+                                }
+                                self.map.get_projection_for(place_index, Projection::Field(field_index))
+                            },
+                            PlaceProjection::Variant(_,variant_index) => {
+                                self.map.get_projection_for(place_index, Projection::Variant(variant_index))
+                            },
+                            PlaceProjection::ConstantIndex(constant_index) => {
+                                let current_value = if let Some(value) = value.clone(){
+                                    value
+                                }
+                                else{
+                                    let place_value =  state.get(place_index);
+                                    let CompleteSet::Elem(const_value) = place_value else {
+                                        return Some(place_value);
+                                    };
+                                    const_value
+                                };
+                                value = Some(eval_index(&current_value, constant_index).ok()?);
+                                continue;
+                            },
+                            PlaceProjection::Index(index_local) => {
+                                let current_value = if let Some(value) = value.clone(){
+                                    value
+                                }
+                                else{
+                                    let place_value =  state.get(place_index);
+                                    let CompleteSet::Elem(const_value) = place_value else {
+                                        return Some(place_value);
+                                    };
+                                    const_value
+                                };
+                                let place_value = state.get(self.map.get(&index_local.into())?);
+                                let CompleteSet::Elem(index_value)  = place_value else{
+                                    return Some(place_value);
+                                };
+                                let ConstantNumber::Int(index_value) = index_value.as_number()? else {
+                                    return None;
+                                };
+                                println!("RAHH !");
+                                value = Some(eval_index(&current_value, index_value as u64).ok()?);
+                                continue;
+                            }
+                        }?;
+                    }
+                    Some(CompleteSet::Elem(value?))
+                })
+                .unwrap_or(CompleteSet::Top)
+            },
         }
     }
     fn handle_rvalue(
@@ -81,7 +138,7 @@ impl ConstAnalysis<'_> {
     ) -> CompleteSet<Constant> {
         match rvalue {
             RValue::Use(operand) => self.operand_as_constant(operand, state),
-            RValue::Array(ty, elements) => {
+            RValue::Array(ty,elements) => {
                 let mut const_elements = Vec::new();
                 for element in elements {
                     let operand = self.operand_as_constant(element, state);
@@ -91,7 +148,7 @@ impl ConstAnalysis<'_> {
                     const_elements.push(element);
                 }
                 CompleteSet::Elem(Constant {
-                    ty: Type::new_array(ty.clone()),
+                    ty: Type::new_array(ty.clone(),ArraySize::new(const_elements.len())),
                     kind: ConstantKind::Aggregrate(Box::new(AggregrateConstant::Array(
                         const_elements.into_boxed_slice(),
                     ))),
@@ -286,7 +343,9 @@ impl ConstAnalysis<'_> {
             Stmt::Assign(place, rvalue) => {
                 self.handle_assign(place, rvalue, state);
             }
-            Stmt::Print(_) | Stmt::Nop => {}
+            Stmt::Print(_) | Stmt::Nop => {
+
+            }
         }
     }
     fn assign_to_place(

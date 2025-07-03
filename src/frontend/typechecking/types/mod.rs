@@ -26,6 +26,25 @@ pub enum AdtKind {
     Struct,
     Enum,
 }
+#[derive(Clone, Copy,Debug,PartialEq,Eq,Hash,PartialOrd,Ord)]
+pub struct ArraySize(u64);
+impl ArraySize{
+    pub const ZERO : Self = Self(0);
+    pub fn is_zero(self) -> bool{
+        self == Self::ZERO
+    }
+    pub fn new(value: usize) -> Self{
+        Self(value.try_into().expect("Can't convert to a usize"))
+    }
+    pub fn into_size(self) -> usize{
+        self.0.try_into().expect("Can't convert to a usize")
+    }
+}
+impl From<usize> for ArraySize{
+    fn from(value: usize) -> Self {
+        ArraySize(value.try_into().expect("Can't convert usize into u64"))
+    }
+}
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum Type {
     Int,
@@ -36,7 +55,7 @@ pub enum Type {
     Error,
     Param(u32, SymbolIndex),
     Function(Vec<Type>, Box<Type>),
-    Array(Box<Type>),
+    Array(Box<Type>,ArraySize),
     Tuple(Vec<Type>),
     Adt(GenericArgs, DefId, AdtKind),
 }
@@ -100,7 +119,7 @@ impl Type {
                 }
                 Some(subst)
             }
-            (Self::Array(elements), Self::Array(other_elements)) => {
+            (Self::Array(elements,self_size), Self::Array(other_elements,other_size)) if self_size == other_size => {
                 elements.get_substitution(other_elements)
             }
             (ty, other_ty) => {
@@ -142,8 +161,8 @@ impl Type {
     pub fn new_tuple(elements: Vec<Self>) -> Self {
         Self::Tuple(elements)
     }
-    pub fn new_array(element: Self) -> Self {
-        Self::Array(Box::new(element))
+    pub fn new_array(element: Self, size: ArraySize) -> Self {
+        Self::Array(Box::new(element),size)
     }
     pub fn new_error() -> Self {
         Type::Error
@@ -165,7 +184,7 @@ impl Type {
     }
     pub fn index_of(&self) -> Option<Type> {
         match self {
-            Self::Array(element_type) => Some(*element_type.clone()),
+            Self::Array(element_type,_) => Some(*element_type.clone()),
             _ => None,
         }
     }
@@ -207,7 +226,7 @@ impl<'a> Iterator for TypeIterator<'a> {
                     Type::Tuple(elements) => {
                         self.ty.extend(elements);
                     }
-                    Type::Array(ty) => {
+                    Type::Array(ty,_) => {
                         self.ty.push_back(ty);
                     }
                     _ => {}

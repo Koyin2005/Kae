@@ -247,7 +247,7 @@ pub struct Symbol {
 #[derive(Clone, Debug)]
 pub enum Type {
     Path(Path),
-    Array(SourceLocation, Box<Type>),
+    Array(SourceLocation, Box<Type>, u64),
     Tuple(SourceLocation, Vec<Type>),
     Fun(SourceLocation, Vec<Type>, Option<Box<Type>>),
 }

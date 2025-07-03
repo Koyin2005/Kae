@@ -289,9 +289,9 @@ impl<'a> AstLowerer<'a> {
     }
     fn lower_type(&self, ty: &ast::Type) -> Result<hir::Type, LoweringErr> {
         let (kind, span) = match ty {
-            &ast::Type::Array(span, ref element) => {
+            &ast::Type::Array(span, ref element,size) => {
                 let element_ty = self.lower_type(element);
-                (hir::TypeKind::Array(Box::new(element_ty?)), span)
+                (hir::TypeKind::Array(Box::new(element_ty?),size), span)
             }
             &ast::Type::Tuple(span, ref elements) => {
                 let element_types = elements

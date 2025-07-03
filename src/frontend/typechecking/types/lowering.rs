@@ -1,10 +1,8 @@
 use crate::{
-    SymbolInterner,
-    errors::ErrorReporter,
-    frontend::{
+    errors::ErrorReporter, frontend::{
         ast_lowering::hir::{self, DefKind, GenericArg, Resolution},
-        typechecking::context::{FuncSig, TypeContext},
-    },
+        typechecking::{context::{FuncSig, TypeContext}, types::ArraySize},
+    }, SymbolInterner
 };
 
 use super::{AdtKind, Type, format::TypeFormatter, generics::GenericArgs};
@@ -147,7 +145,7 @@ impl<'a> TypeLower<'a> {
     }
     pub fn lower_type(&self, ty: &hir::Type) -> Type {
         match &ty.kind {
-            hir::TypeKind::Array(element) => Type::new_array(self.lower_type(element)),
+            hir::TypeKind::Array(element,size) => Type::new_array(self.lower_type(element),ArraySize::new((*size) as usize)),
             hir::TypeKind::Function(params, return_type) => Type::new_function(
                 params.iter().map(|param| self.lower_type(param)).collect(),
                 return_type

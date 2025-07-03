@@ -89,7 +89,7 @@ impl<'a> ItemCheck<'a> {
     }
     pub fn check_type(&self, ty: &hir::Type) {
         match &ty.kind {
-            hir::TypeKind::Array(array) => {
+            hir::TypeKind::Array(array,_) => {
                 self.check_type(array);
             }
             hir::TypeKind::Function(params, return_type) => {

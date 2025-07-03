@@ -30,9 +30,11 @@ impl<'b> TypeFormatter<'b> {
             &Type::Param(_, symbol) => {
                 buffer.push_str(self.interner.get(symbol));
             }
-            Type::Array(element_type) => {
+            Type::Array(element_type,size) => {
                 buffer.push('[');
                 self.format(element_type, buffer);
+                buffer.push(',');
+                buffer.push_str(&size.into_size().to_string());
                 buffer.push(']');
             }
             Type::Function(args, return_type) => {

@@ -8,9 +8,7 @@ use crate::{
         typechecking::{
             context::TypeContext,
             types::{
-                Type,
-                generics::GenericArgs,
-                subst::{Subst, TypeSubst},
+                generics::GenericArgs, subst::{Subst, TypeSubst}, Type
             },
         },
     },

@@ -13,11 +13,7 @@ use crate::{
             error::TypeError,
             items::item_check::ItemCheck,
             types::{
-                AdtKind, Type,
-                format::TypeFormatter,
-                generics::GenericArgs,
-                lowering::TypeLower,
-                subst::{Subst, TypeSubst},
+                format::TypeFormatter, generics::GenericArgs, lowering::TypeLower, subst::{Subst, TypeSubst}, AdtKind, ArraySize, Type
             },
         },
     },
@@ -502,14 +498,15 @@ impl<'a> TypeChecker<'a> {
         expected: Expectation,
     ) -> Type {
         let element_type = expected.as_type().and_then(|ty| match ty {
-            Type::Array(element_type) => Some(element_type.as_ref().clone()),
+            Type::Array(element_type,_) => Some(element_type.as_ref().clone()),
             _ => None,
         });
+        let size = ArraySize::new(elements.len());
         if let Some(element_type) = element_type {
             for element in elements {
                 self.check_expr(element, Expectation::CoercesTo(element_type.clone()));
             }
-            Type::new_array(element_type)
+            Type::new_array(element_type,size)
         } else {
             let mut all_element_type = None;
             let element_types = elements
@@ -543,7 +540,7 @@ impl<'a> TypeChecker<'a> {
                         }
                     }
                 }
-                Type::new_array(element_type)
+                Type::new_array(element_type,size)
             } else {
                 self.new_error("Cannot infer type of empty array.".to_string(), span)
             }
@@ -1115,7 +1112,7 @@ impl<'a> TypeChecker<'a> {
             hir::ExprKind::Index(base, index) => {
                 let base_ty = self.check_expr(base, Expectation::None);
                 self.check_expr(index, Expectation::HasType(Type::Int));
-                if let Type::Array(element_type) = base_ty {
+                if let Type::Array(element_type,_) = base_ty {
                     *element_type
                 } else {
                     let base_ty_string =

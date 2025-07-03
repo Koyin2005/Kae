@@ -198,7 +198,7 @@ pub trait Visitor {
             RValue::Adt(_, operands) => operands
                 .iter()
                 .for_each(|operand| self.visit_operand(operand, location)),
-            RValue::Array(_, operands) | RValue::Tuple(_, operands) => operands
+            RValue::Array(_,operands) | RValue::Tuple(_, operands) => operands
                 .iter()
                 .for_each(|operand| self.visit_operand(operand, location)),
             RValue::Binary(op, operands) => {

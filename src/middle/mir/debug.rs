@@ -248,7 +248,7 @@ impl<'a> DebugMir<'a> {
                     }
                 }
             }
-            RValue::Array(_, elements) => {
+            RValue::Array(_,elements) => {
                 if elements.is_empty() {
                     "[]".to_string()
                 } else {

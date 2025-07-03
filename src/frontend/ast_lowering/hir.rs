@@ -304,7 +304,7 @@ impl Type {
     }
     pub fn format(&self, interner: &SymbolInterner) -> String {
         match &self.kind {
-            TypeKind::Array(ty) => format!("[{}]", ty.format(interner)),
+            TypeKind::Array(ty,size) => format!("[{},{}]", ty.format(interner), size),
             TypeKind::Path(path) => path.format(interner),
             TypeKind::Tuple(elements) => format!(
                 "({})",
@@ -343,7 +343,7 @@ impl Type {
 }
 #[derive(Clone, Debug)]
 pub enum TypeKind {
-    Array(Box<Type>),
+    Array(Box<Type>,u64),
     Tuple(Vec<Type>),
     Function(Vec<Type>, Option<Box<Type>>),
     Path(QualifiedPath),
