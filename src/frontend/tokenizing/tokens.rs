@@ -59,6 +59,7 @@ pub enum TokenKind {
     LowerSelf,
     UpperSelf,
     Return,
+    Const,
 
     Identifier,
     Wildcard,
