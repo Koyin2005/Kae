@@ -1,9 +1,8 @@
 use crate::{
     frontend::{
-        parsing::ast::{FunctionSig, ParsedGenericParam, ParsedMethod, ParsedParam, Symbol},
+        parsing::ast::{ConstantExpr, ConstantExprKind, FunctionSig, ParsedGenericParam, ParsedMethod, ParsedParam, Symbol},
         tokenizing::{
-            SourceLocation,
-            tokens::{Token, TokenKind},
+            tokens::{Token, TokenKind}, SourceLocation
         },
     },
     identifiers::SymbolInterner,
@@ -867,6 +866,21 @@ impl<'a> Parser<'a> {
     fn expression(&mut self) -> Result<ExprNode, ParsingFailed> {
         self.parse_precedence(Precedence::Assignment)
     }
+
+    fn parse_constant(&mut self) -> Result<ConstantExpr, ParsingFailed>{
+        Ok(if self.matches(TokenKind::Int){
+            
+            let value = self.prev_token.lexeme.parse().map_err(|_| {
+                self.error("Int literal is too big.");
+                ParsingFailed
+            })?;
+            ConstantExpr{location:SourceLocation::one_line(self.prev_token.line),kind:ConstantExprKind::Int(value)}
+        }
+        else{
+            let constant = self.parse_identifer("Expected a valid constant.");
+            ConstantExpr{location:SourceLocation::one_line(self.prev_token.line),kind:ConstantExprKind::Constant(constant.content)}
+        })
+    }
     fn parse_type(&mut self) -> Result<Type, ParsingFailed> {
         Ok(
             if self.matches(TokenKind::Identifier) || self.matches(TokenKind::UpperSelf) {
@@ -877,10 +891,10 @@ impl<'a> Parser<'a> {
                 let ty = self.parse_type()?;
                 self.expect(TokenKind::Coma, "Expected ',' after array element type");
                 self.advance();
-                let (_,size) = self.parse_int()?;
+                let _ = self.parse_constant()?;
                 self.expect(TokenKind::RightBracket, "Expect ']'.");
                 let end = self.prev_token.line;
-                Type::Array(SourceLocation::new(start, end), Box::new(ty),size as u64)
+                Type::Array(SourceLocation::new(start, end), Box::new(ty),0)
             } else if self.matches(TokenKind::LeftParen) {
                 let start = self.prev_token.line;
                 let mut elements = Vec::new();

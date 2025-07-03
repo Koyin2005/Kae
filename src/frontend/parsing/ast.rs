@@ -243,7 +243,16 @@ pub struct Symbol {
     pub content: SymbolIndex,
     pub location: SourceLocation,
 }
-
+#[derive(Clone,Debug)]
+pub struct ConstantExpr{
+    pub kind : ConstantExprKind,
+    pub location : SourceLocation
+}
+#[derive(Clone,Debug)]
+pub enum ConstantExprKind{
+    Int(u64),
+    Constant(SymbolIndex)    
+}
 #[derive(Clone, Debug)]
 pub enum Type {
     Path(Path),
